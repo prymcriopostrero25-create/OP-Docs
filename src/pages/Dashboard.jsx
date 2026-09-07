@@ -1,6 +1,6 @@
 import { canAccessPage, permissionsFor } from '../lib/permissions'
 import { DocumentContext, initialRecords } from '../lib/documentContext'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
 import CreateDocument from '../components/CreateDocument'
@@ -45,6 +45,30 @@ export default function Dashboard({ user, onLogout }) {
   }
   const [menuOpen, setMenuOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  useEffect(() => {
+    if (!menuOpen && !createOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false)
+        setCreateOpen(false)
+      }
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [menuOpen, createOpen])
+
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 851px)')
+    const closeMenu = (event) => { if (event.matches) setMenuOpen(false) }
+    desktop.addEventListener('change', closeMenu)
+    return () => desktop.removeEventListener('change', closeMenu)
+  }, [])
+
   const name = user.name || 'Administrator'
   const firstName = name.split(' ')[0]
 
@@ -59,14 +83,15 @@ export default function Dashboard({ user, onLogout }) {
           setMenuOpen(false)
         }}
         onLogout={onLogout}
-        onCreateDocument={() => setCreateOpen(true)}
+        onCreateDocument={() => { setMenuOpen(false); setCreateOpen(true) }}
+        onClose={() => setMenuOpen(false)}
         user={user}
       />
 
-      <div className="dashboard-main">
+      <div className="dashboard-main" inert={menuOpen || createOpen}>
         <Navbar isMenuOpen={menuOpen} onToggleMenu={() => setMenuOpen((isOpen) => !isOpen)} />
 
-        {active === 'Documents' ? <DocumentsPage onCreateDocument={() => setCreateOpen(true)} />
+        {active === 'Documents' ? <DocumentsPage onCreateDocument={() => { setMenuOpen(false); setCreateOpen(true) }} />
           : active === 'Archive' ? <ArchivePage />
           : active === 'Activity log' ? <ActivityLogPage />
           : active === 'User management' ? <UserManagementPage />

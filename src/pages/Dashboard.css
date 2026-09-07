@@ -83,3 +83,61 @@
   .sidebar-user{justify-content:center}
   .sidebar:hover .sidebar-user{justify-content:flex-start}
 }
+/* Responsive navigation and touch layouts. */
+.sidebar-close { display: none; }
+.dashboard-main, .dashboard-content, .settings-main, .settings-side { min-width: 0; }
+.dashboard-grid > .recent-panel:only-child { grid-column: 1 / -1; }
+
+@media (max-width: 850px) {
+  .sidebar { visibility: hidden; overscroll-behavior: contain; }
+  .sidebar-open { visibility: visible; }
+  .sidebar-close { display: grid; place-items: center; flex: 0 0 44px; align-self: flex-end; width: 44px; height: 44px; border: 0; border-radius: 8px; color: #fff; background: #ffffff14; font-size: 24px; }
+  .sidebar .brand { padding-bottom: 16px; }
+  .sidebar .new-document { flex-shrink: 0; min-height: 44px; }
+  .sidebar .main-nav button { min-height: 48px; font-size: 14px; }
+  .sidebar-user { flex-shrink: 0; }
+  .sidebar-user button { min-width: 44px; min-height: 44px; }
+  .sidebar-user strong, .sidebar-help strong { font-size: 12px; }
+  .sidebar-user small, .sidebar-help small { font-size: 11px; }
+  .table-wrap, .admin-table-wrap, .user-logs-table-wrap { max-width: 100%; overscroll-behavior-inline: contain; }
+}
+
+@media (max-width: 600px) {
+  .dashboard-content button:not(.toggle), .create-document-modal button, .admin-modal button { min-height: 44px; font-size: 12px; }
+  .dashboard-content .more, .documents-pagination button, .archive-footer button { min-width: 44px; }
+  .dashboard-content input, .dashboard-content select, .create-document-modal input, .create-document-modal select { min-height: 44px; }
+  .dashboard-content .toggle { width: 44px; height: 28px; }
+  .dashboard-content .toggle i { top: 7px; }
+  .dashboard-content .toggle.on i { left: 27px; }
+  .documents-title-row, .page-title-row, .admin-title { align-items: stretch; flex-direction: column; }
+  .documents-title-row > button, .page-title-row > button, .admin-title > button { width: 100%; }
+  .admin-title > div, .welcome-row > div, .panel-heading > div { min-width: 0; }
+  .admin-title p, .page-title-row p, .welcome-row p { line-height: 1.5; }
+  .analytics-heading { flex-wrap: wrap; }
+  .chart-legend span { white-space: normal; overflow-wrap: anywhere; }
+  .distribution-chart select { font-size: 16px !important; }
+  .document-type-pages strong { white-space: normal; font-size: 12px; }
+  .document-type-pages small, .document-summary span { font-size: 11px; }
+  .document-summary div { gap: 12px; }
+  .type-card { padding-bottom: 36px; }
+  .registry-heading, .panel-heading { flex-wrap: wrap; padding-block: 14px; }
+  .registry-heading button, .panel-heading button { display: block; }
+  .documents-pagination, .archive-footer { flex-wrap: wrap; }
+  .dashboard-content th { font-size: 11px; }
+  .dashboard-content td, .dashboard-content .doc-cell strong { font-size: 12px; }
+  .dashboard-content .doc-cell small, .dashboard-content .status { font-size: 11px; }
+  .registry-table select { min-width: 155px; border: 1px solid #ded5d4; border-radius: 7px; background: white; color: #554548; }
+  .user-logs-table { min-width: 0; white-space: normal; table-layout: fixed; }
+  .user-logs-table th:first-child, .user-logs-table td:first-child { width: 42%; }
+  .user-logs-table time { white-space: normal; }
+  .user-logs-table td { overflow-wrap: anywhere; line-height: 1.5; }
+  .create-document-modal form, .settings-fields, .form-pair { grid-template-columns: minmax(0, 1fr); }
+  .create-document-modal { max-height: 94dvh; overscroll-behavior: contain; }
+  .create-field { min-width: 0; }
+  .create-document-modal header { gap: 12px; }
+  .create-document-modal header > div { min-width: 0; }
+  .create-document-modal header > button { flex-shrink: 0; min-width: 44px; }
+  .admin-stats small, .settings-card small, .user-logs-header p { font-size: 12px; line-height: 1.5; }
+  .settings-card label, .setting-row strong { font-size: 13px; }
+  .activity-event { overflow-wrap: anywhere; }
+}

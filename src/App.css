@@ -359,3 +359,11 @@ input:focus { border-color: var(--green-500); background: #fff; box-shadow: 0 0 
 @media (max-width: 360px) {
   .wordmark-copy small, .card-topline > span:first-child, .security-strip > span:last-child { display: none; }
 }
+
+@media (max-width: 600px) {
+  .login-card .label-row a { display: inline-flex; align-items: center; min-height: 44px; }
+  .login-card .visibility-button { width: 44px; height: 44px; top: 2px; right: 2px; }
+  .card-topline { gap: 12px; flex-wrap: wrap; line-height: 1.5; }
+  .wordmark-logo { flex-shrink: 0; }
+  .portal-footer nav a { display: inline-flex; align-items: center; min-height: 44px; }
+}

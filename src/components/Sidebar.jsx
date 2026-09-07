@@ -5,12 +5,13 @@ const navItems = [
   ['User management', '♙'], ['User logs', '◷'], ['Settings', '⚙'],
 ]
 
-export default function Sidebar({ active, isOpen, onNavigate, onLogout, onCreateDocument, user }) {
+export default function Sidebar({ active, isOpen, onNavigate, onLogout, onCreateDocument, onClose, user }) {
   const name = user.name || 'User'
   const initials = name.split(' ').map((word) => word[0]).join('').slice(0, 2).toUpperCase()
 
   return (
-    <aside className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
+    <aside id="main-sidebar" className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
+      <button className="sidebar-close" onClick={onClose} aria-label="Close navigation">?</button>
       <div className="brand">
         <img src="/jhcsclogo.png" alt="JHCSC seal" />
         <div><strong>OP-DMS</strong><small>Document Management</small></div>
