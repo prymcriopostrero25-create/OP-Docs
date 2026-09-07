@@ -1,0 +1,57 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700&display=swap');
+
+:root {
+  font-family: 'DM Sans', 'Segoe UI', sans-serif;
+  color: #18201d;
+  background: #f4f6f5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --green-950: #0b2b24;
+  --green-800: #17493d;
+  --green-600: #24745e;
+  --green-100: #e4f0ec;
+  --ink: #18201d;
+  --muted: #67716d;
+  --line: #dce2df;
+  --paper: #ffffff;
+  --error: #a53b31;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+img,
+svg { max-width: 100%; }
+
+input,
+select,
+textarea,
+button { max-width: 100%; }
+
+@media (max-width: 600px) {
+  input,
+  select,
+  textarea { font-size: 16px !important; }
+
+  button,
+  a { touch-action: manipulation; }
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
