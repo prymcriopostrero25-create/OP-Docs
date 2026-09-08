@@ -1,4 +1,4 @@
-import { fetchDocuments, updateDocumentStatus, editDocument, deleteDocument } from '../lib/appsScriptApi'
+import { fetchDocuments, fetchActivityLogs, updateDocumentStatus, editDocument, deleteDocument } from '../lib/appsScriptApi'
 import LiveOverview from '../components/LiveOverview'
 import { canAccessPage, permissionsFor } from '../lib/permissions'
 import { DocumentContext } from '../lib/documentContext'
@@ -19,12 +19,13 @@ export default function Dashboard({ user, onLogout }) {
   const active = canAccessPage(user, selectedPage) ? selectedPage : 'Overview'
   const permissions = permissionsFor(user)
   const [files, setFiles] = useState([])
+  const [activityLogs, setActivityLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [drafts, setDrafts] = useState([])
   useEffect(() => {
     let active = true
-    fetchDocuments().then(value => { if (active) setFiles(value) })
+    Promise.all([fetchDocuments(), fetchActivityLogs()]).then(([documents, activities]) => { if (active) { setFiles(documents); setActivityLogs(activities) } })
       .catch(error => { if (active) setLoadError(error.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
@@ -38,6 +39,7 @@ export default function Dashboard({ user, onLogout }) {
     if (draft) { setDrafts(current => current.map(record => record.reference === reference ? { ...record, status } : record)); return }
     const record = await updateDocumentStatus(reference, status)
     setFiles(current => current.map(file => file.id === reference ? record : file))
+    setActivityLogs(current => [...current, { ...record, activity: `Status changed to ${status}`, date: new Date().toISOString() }])
   }
 
   function createDocument(form) {
@@ -62,6 +64,8 @@ export default function Dashboard({ user, onLogout }) {
     }
     await deleteDocument(reference)
     setFiles(current => current.filter(file => file.id !== reference))
+    const deleted = records.find(record => record.reference === reference)
+    setActivityLogs(current => [...current, { ...deleted, activity: 'Deleted', date: new Date().toISOString(), subject: deleted?.title }])
   }
   const [menuOpen, setMenuOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
@@ -91,7 +95,7 @@ export default function Dashboard({ user, onLogout }) {
 
 
   return (
-    <DocumentContext.Provider value={{ records, files, setFiles, loading, loadError, changeStatus, editRecord, deleteRecord, permissions }}>
+    <DocumentContext.Provider value={{ records, files, setFiles, activityLogs, loading, loadError, changeStatus, editRecord, deleteRecord, permissions }}>
     <div className="dashboard-shell">
       <Sidebar
         active={active}

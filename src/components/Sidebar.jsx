@@ -22,7 +22,7 @@ export default function Sidebar({ active, isOpen, onNavigate, onLogout, onCreate
         {navItems.map(([label, icon], index) => canAccessPage(user, label) && <div key={label}>
           {index === 4 && <p>Administration</p>}
           <button className={active === label ? 'active' : ''} onClick={() => onNavigate(label)}>
-            <i>{icon}</i><span>{label}</span>{label === 'Documents' && <b>128</b>}
+            <i>{icon}</i><span>{label}</span>{label === 'Documents'}
           </button>
         </div>)}
       </nav>

@@ -56,6 +56,7 @@ function updateDocumentStatus(request) {
     if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
     metadata.status = request.status;
     cell.setNote(JSON.stringify(metadata));
+    appendActivityEvent({ activity: 'Status changed to ' + request.status, id: rows[index][1], date: new Date().toISOString(), subject: rows[index][3], url: rows[index][4], type: documentFromRow(rows[index], JSON.stringify(metadata)).type });
     SpreadsheetApp.flush();
     return jsonResponse({ success: true, document: documentFromRow(rows[index], JSON.stringify(metadata)) });
   } finally { lock.releaseLock(); }
@@ -137,6 +138,7 @@ function mutateDocument(request) {
     if (record.deleted && request.action === 'editDocument') throw new Error('This document has been deleted.');
     if (request.action === 'deleteDocument') {
       deleteDocumentFiles(record, sheet, index + 2);
+      appendActivityEvent({ activity: 'Deleted', id: record.id, date: new Date().toISOString(), subject: record.subject, url: record.url, type: record.type });
       SpreadsheetApp.flush();
       return jsonResponse({ success: true, deletedId: request.id, storageDeleted: true });
     }
@@ -176,11 +178,12 @@ function doPost(e) {
     if (['editDocument', 'deleteDocument'].includes(request.action)) return mutateDocument(request);
     if (request.action === 'updateDocumentStatus') return updateDocumentStatus(request);
 
-    if (['uploadDocument', 'documents'].includes(request.action)) {
+    if (['uploadDocument', 'documents', 'activityLogs'].includes(request.action)) {
       if (!getDocumentSession(request.token)) {
         return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
       }
-      return request.action === 'uploadDocument' ? uploadDocument(request) : getDocuments();
+      if (request.action === 'uploadDocument') return uploadDocument(request);
+      return request.action === 'documents' ? getDocuments() : getActivityLogs();
     }
 
     if (['userLogs', 'users'].includes(request.action) && !isSuperAdminSession(request.token)) {
@@ -399,6 +402,41 @@ function mainFilesSheet() {
     throw new Error('MAIN Files must have headers ACTIVITY, ID, DATE, SUBJECT, FILE LINKS in A1:E1.');
   }
   return sheet;
+}
+
+function activityLogSheet() {
+  const spreadsheet = appSpreadsheet();
+  let sheet = spreadsheet.getSheetByName('ACTIVITY LOG');
+  if (!sheet && spreadsheet.insertSheet) {
+    sheet = spreadsheet.insertSheet('ACTIVITY LOG');
+    sheet.getRange(1, 1, 1, 6).setValues([['ACTIVITY', 'ID', 'DATE', 'SUBJECT', 'FILE LINKS', 'TYPE']]);
+  }
+  if (!sheet) return null;
+  if (!sheet || sheet.getRange(1, 1, 1, 6).getDisplayValues()[0].join('|') !== 'ACTIVITY|ID|DATE|SUBJECT|FILE LINKS|TYPE') {
+    throw new Error('ACTIVITY LOG must have headers ACTIVITY, ID, DATE, SUBJECT, FILE LINKS, TYPE in A1:F1.');
+  }
+  return sheet;
+}
+
+function appendActivityEvent(event) {
+  const sheet = activityLogSheet();
+  if (!sheet) return;
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, 6).setValues([[event.activity, event.id, event.date, event.subject, event.url, event.type || '']]);
+}
+
+function activityFromRow(row) {
+  return { activity: row[0], id: row[1], date: row[2], subject: row[3], url: row[4], type: row[5] || '' };
+}
+
+function getActivityLogs() {
+  const mainSheet = mainFilesSheet();
+  const mainRows = mainSheet.getLastRow() > 1 ? mainSheet.getRange(2, 1, mainSheet.getLastRow() - 1, 5).getDisplayValues() : [];
+  const notes = mainRows.length ? mainSheet.getRange(2, 2, mainRows.length, 1).getNotes() : [];
+  const current = mainRows.map((row, index) => documentFromRow(row, notes[index][0])).filter(record => record.id && !record.deleted);
+  let events = [];
+  const sheet = appSpreadsheet().getSheetByName('ACTIVITY LOG');
+  if (sheet && sheet.getLastRow() > 1) events = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getDisplayValues().map(activityFromRow).filter(record => record.id);
+  return jsonResponse({ success: true, activities: current.concat(events) });
 }
 
 function getDocuments() {

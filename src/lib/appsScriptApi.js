@@ -111,6 +111,10 @@ export async function fetchDocuments() {
   return files.filter(file => file.id !== '1cb7ca84-b1d8-420a-a4ce-84dc89f79281')
 }
 
+export async function fetchActivityLogs() {
+  return (await documentRequest({ action: 'activityLogs' })).activities || []
+}
+
 export async function updateDocumentStatus(id, status) {
   const record = (await documentRequest({ action: 'updateDocumentStatus', id, status })).document
   if (!record || record.id !== id || record.status !== status) {
