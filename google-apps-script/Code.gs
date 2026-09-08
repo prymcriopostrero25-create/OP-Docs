@@ -1,6 +1,108 @@
+const UPLOAD_FOLDER_ID = '1OVvmtvYjsp4WZz-RY7NkExyNIotO-Vji';
+const FILING_TYPES = ['Executive Memorandum', 'Special Order', 'Travel Order', 'Authority to Travel Abroad', 'Certificate of Travel'];
+const DOCUMENT_STATUSES = ['Draft', 'For Review', 'For Signature', 'Approved', 'Out'];
+
+function canChangeDocumentStatus(token) {
+  if (typeof token !== 'string' || !token) return false;
+  const email = CacheService.getScriptCache().get('session:' + token);
+  if (!email) return false;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CREDENTIALS');
+  if (!sheet || sheet.getLastRow() < 2) return false;
+  const account = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues()
+    .find((row) => String(row[0]).trim().toLowerCase() === email);
+  return !!account && ['admin', 'super admin'].includes(normalizeRole(account[3]));
+}
+
+function updateDocumentStatus(request) {
+  if (!canChangeDocumentStatus(request.token)) return jsonResponse({ success: false, message: 'Admin access is required to change document status.' });
+  if (!DOCUMENT_STATUSES.includes(request.status)) return jsonResponse({ success: false, message: 'Choose a valid document status.' });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = mainFilesSheet();
+    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+    const index = rows.findIndex((row) => row[1] === request.id);
+    if (index === -1) return jsonResponse({ success: false, message: 'Document was not found.' });
+    const cell = sheet.getRange(index + 2, 2);
+    if (documentFromRow(rows[index], cell.getNote()).status === 'Out') {
+      return jsonResponse({ success: false, message: 'This document is Out and locked. It can only be previewed or downloaded.' });
+    }
+    let metadata = {};
+    try { metadata = JSON.parse(cell.getNote() || '{}'); } catch (error) { /* Legacy metadata. */ }
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
+    metadata.status = request.status;
+    cell.setNote(JSON.stringify(metadata));
+    SpreadsheetApp.flush();
+    return jsonResponse({ success: true, document: documentFromRow(rows[index], JSON.stringify(metadata)) });
+  } finally { lock.releaseLock(); }
+}
+const TYPE_LOG_SHEETS = {
+  'Executive Memorandum': 'Executive Memorandum',
+  'Special Order': 'Special Order',
+  'Travel Order': 'Travel Order',
+  'Authority to Travel Abroad': 'Authority to Travel Abroad',
+  'Certificate of Travel': 'Certificate to Travel',
+};
+
+function typeLogSheet(type) {
+  const name = TYPE_LOG_SHEETS[type];
+  if (!name) throw new Error('Unsupported document type.');
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (!sheet || sheet.getRange(1, 1, 1, 4).getDisplayValues()[0].join('|') !== 'TIMESTAMP|ID|YEAR|FILE LINKS') {
+    throw new Error(name + ' must have TIMESTAMP, ID, YEAR, FILE LINKS in A1:D1.');
+  }
+  return sheet;
+}
+
+function existingTypeLogRow(sheet, id) {
+  if (sheet.getLastRow() < 2) return 0;
+  const index = sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getDisplayValues().findIndex((row) => row[0] === id);
+  return index === -1 ? 0 : index + 2;
+}
+
+function writeTypeLog(sheet, row, record) {
+  const values = [record.date, record.id, record.year, record.url].map((value, index) => {
+    const builder = SpreadsheetApp.newRichTextValue().setText(String(value));
+    if (index === 3) builder.setLinkUrl(record.url);
+    return builder.build();
+  });
+  sheet.getRange(row, 1, 1, 4).setRichTextValues([values]);
+}
+
+// Called while holding the upload lock so concurrent requests reuse folders.
+function filingSubfolder(parent, name) {
+  const matches = parent.getFoldersByName(name);
+  let found;
+  while (matches.hasNext()) {
+    const folder = matches.next();
+    if (folder.isTrashed()) continue;
+    if (found) throw new Error('Multiple folders named ' + name + '. Resolve the duplicate folders before uploading.');
+    found = folder;
+  }
+  return found || parent.createFolder(name);
+}
+
+function documentFromRow(row, note) {
+  let metadata = {};
+  try { metadata = JSON.parse(note || '{}'); } catch (error) { /* Legacy rows have no filing metadata. */ }
+  if (!metadata || typeof metadata !== 'object') metadata = {};
+  return { activity: row[0], id: row[1], date: row[2], subject: row[3], url: row[4],
+    status: DOCUMENT_STATUSES.includes(metadata.status) ? metadata.status : 'For Review',
+    type: FILING_TYPES.includes(metadata.type) ? metadata.type : '',
+    year: /^(19|20)\d{2}$/.test(String(metadata.year)) ? String(metadata.year) : '' };
+}
+
 function doPost(e) {
   try {
     const request = JSON.parse(e.postData.contents || '{}');
+    if (request.action === 'updateDocumentStatus') return updateDocumentStatus(request);
+
+    if (['uploadDocument', 'documents'].includes(request.action)) {
+      if (!getDocumentSession(request.token)) {
+        return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
+      }
+      return request.action === 'uploadDocument' ? uploadDocument(request) : getDocuments();
+    }
 
     if (['userLogs', 'users'].includes(request.action) && !isSuperAdminSession(request.token)) {
       return jsonResponse({ success: false, message: 'Super admin access is required. Sign in again if your session expired.' });
@@ -44,8 +146,8 @@ function doPost(e) {
       return jsonResponse({ success: false, message: 'No user accounts are configured.' });
     }
 
-    // CREDENTIALS columns: A blank, B EMAIL, C NAME, D PASSWORD, E ROLE.
-    const accounts = sheet.getRange(2, 2, lastRow - 1, 4).getDisplayValues();
+    // CREDENTIALS columns: A EMAIL, B NAME, C PASSWORD, D ROLE.
+    const accounts = sheet.getRange(2, 1, lastRow - 1, 4).getDisplayValues();
     const account = accounts.find((row) =>
       String(row[0]).trim().toLowerCase() === email && String(row[2]) === password
     );
@@ -109,8 +211,8 @@ function getUsers() {
     return jsonResponse({ success: true, users: [] });
   }
 
-  // CREDENTIALS columns: A blank, B EMAIL, C NAME, D PASSWORD, E ROLE.
-  const rows = sheet.getRange(2, 2, sheet.getLastRow() - 1, 4).getDisplayValues();
+  // CREDENTIALS columns: A EMAIL, B NAME, C PASSWORD, D ROLE.
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues();
   const users = rows
     .filter((row) => String(row[0]).trim() || String(row[1]).trim())
     .map((row) => ({
@@ -140,7 +242,209 @@ function isSuperAdminSession(token) {
   if (!email) return false;
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CREDENTIALS');
   if (!sheet || sheet.getLastRow() < 2) return false;
-  const account = sheet.getRange(2, 2, sheet.getLastRow() - 1, 4).getDisplayValues()
+  const account = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues()
     .find((row) => String(row[0]).trim().toLowerCase() === email);
   return !!account && normalizeRole(account[3]) === 'super admin';
+}
+
+// Run manually in the Apps Script editor under the deployment account.
+// This requests Drive authorization and checks configuration without uploading a file.
+function checkUploadSetup() {
+  const sheet = mainFilesSheet();
+  const folder = DriveApp.getFolderById(UPLOAD_FOLDER_ID);
+  if (folder.isTrashed()) throw new Error('The configured upload folder is in the trash. Update UPLOAD_FOLDER_ID.');
+  console.log('Sheet headers OK: ' + sheet.getName());
+  console.log('Drive access OK: ' + folder.getName());
+  console.log('Upload folder found. Its write access will be checked by the next upload.');
+}
+
+// Run manually as the account shown in the web app's "Execute as" setting.
+// Creates a tiny diagnostic file, then moves only that file to the trash.
+// Errors intentionally surface in the editor with Google's full explanation.
+function checkUploadWriteAccess() {
+  const folder = DriveApp.getFolderById(UPLOAD_FOLDER_ID);
+  const blob = Utilities.newBlob('OP upload write-access check', 'text/plain', 'op-upload-check-' + Utilities.getUuid() + '.txt');
+  console.log('Testing file creation in: ' + folder.getName());
+  const testFile = folder.createFile(blob);
+  console.log('File creation succeeded. Cleaning up the diagnostic file.');
+  testFile.setTrashed(true);
+  console.log('Write access confirmed and diagnostic file moved to trash.');
+}
+
+// MAIN Files: ACTIVITY, ID, DATE, SUBJECT, FILE LINKS.
+function getDocumentSession(token) {
+  if (typeof token !== 'string' || !token) return false;
+  const email = CacheService.getScriptCache().get('session:' + token);
+  if (!email) return false;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CREDENTIALS');
+  return sheet && sheet.getLastRow() > 1 && sheet.getRange(2, 1, sheet.getLastRow() - 1, 1)
+    .getDisplayValues().some((row) => String(row[0]).trim().toLowerCase() === email);
+}
+
+function mainFilesSheet() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MAIN Files');
+  if (!sheet || sheet.getRange(1, 1, 1, 5).getDisplayValues()[0].join('|') !== 'ACTIVITY|ID|DATE|SUBJECT|FILE LINKS') {
+    throw new Error('MAIN Files must have headers ACTIVITY, ID, DATE, SUBJECT, FILE LINKS in A1:E1.');
+  }
+  return sheet;
+}
+
+function getDocuments() {
+  const sheet = mainFilesSheet();
+  const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+  const notes = rows.length ? sheet.getRange(2, 2, rows.length, 1).getNotes() : [];
+  return jsonResponse({ success: true, documents: rows.map((row, index) => documentFromRow(row, notes[index][0])).filter((record) => record.id).reverse() });
+}
+
+function uploadDocument(request) {
+  const type = String(request.type || '');
+  const year = String(request.year || '');
+  if (!FILING_TYPES.includes(type) || !/^(19|20)\d{2}$/.test(year)) {
+    return jsonResponse({ success: false, message: 'Select a document type and document year (1900–2099) before uploading.' });
+  }
+  const maxBytes = 25 * 1024 * 1024;
+  const name = String(request.name || '').trim();
+  const data = request.data;
+  if (!name || name.length > 200 || !/\.pdf$/i.test(name) || typeof data !== 'string' || !data.length || data.length > Math.ceil(maxBytes / 3) * 4) {
+    return jsonResponse({ success: false, message: 'Choose a PDF file up to 25 MB with a filename under 200 characters.' });
+  }
+  let bytes;
+  try { bytes = Utilities.base64Decode(data); } catch (error) {
+    return jsonResponse({ success: false, message: 'The uploaded file could not be decoded.' });
+  }
+  if (bytes.length > maxBytes || bytes.slice(0, 5).map((byte) => String.fromCharCode(byte)).join('') !== '%PDF-') {
+    return jsonResponse({ success: false, message: 'Choose a valid PDF file up to 25 MB.' });
+  }
+  const lock = LockService.getScriptLock();
+  let locked = false;
+  let stage = 'waiting for another upload to finish';
+  let file;
+  let row;
+  let sheet;
+  let logSheet;
+  let logRow;
+  let committed = false;
+  try {
+    lock.waitLock(30000);
+    locked = true;
+    stage = 'checking MAIN Files headers';
+    sheet = mainFilesSheet();
+    stage = 'checking the ' + TYPE_LOG_SHEETS[type] + ' log headers';
+    logSheet = typeLogSheet(type);
+    // A stable request ID makes retrying a failed network response safe.
+    const id = String(request.uploadId || '');
+    stage = 'validating the upload ID';
+    if (!/^[a-zA-Z0-9-]{16,80}$/.test(id)) throw new Error('Invalid upload ID.');
+    stage = 'checking previously uploaded files';
+    if (sheet.getLastRow() > 1) {
+      const existingRows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues();
+      const existingIndex = existingRows.findIndex((item) => item[1] === id);
+      if (existingIndex !== -1) {
+        const existing = documentFromRow(existingRows[existingIndex], sheet.getRange(existingIndex + 2, 2).getNote());
+        // Repair a missing category log on retry without creating another Drive file.
+        if (existing.type && existing.year) {
+          const existingLogSheet = typeLogSheet(existing.type);
+          if (!existingTypeLogRow(existingLogSheet, existing.id)) {
+            stage = 'repairing the ' + TYPE_LOG_SHEETS[existing.type] + ' log';
+            writeTypeLog(existingLogSheet, existingLogSheet.getLastRow() + 1, existing);
+            SpreadsheetApp.flush();
+          }
+        }
+        return jsonResponse({ success: true, document: existing });
+      }
+    }
+    if (existingTypeLogRow(logSheet, id)) throw new Error('This upload ID already has a category log but no MAIN Files record. Ask the administrator to check the partial upload.');
+    stage = 'opening the Google Drive upload folder';
+    const root = DriveApp.getFolderById(UPLOAD_FOLDER_ID);
+    if (root.isTrashed()) throw new Error('The configured upload folder is in the trash.');
+    stage = 'opening or creating the ' + type + ' folder';
+    const typeFolder = filingSubfolder(root, type);
+    stage = 'opening or creating the ' + type + ' / ' + year + ' folder';
+    const folder = filingSubfolder(typeFolder, year);
+    stage = 'preparing the PDF data';
+    const blob = Utilities.newBlob(bytes, 'application/pdf', name);
+    stage = 'saving the PDF to Google Drive';
+    file = folder.createFile(blob);
+    stage = 'preparing the file link';
+    const record = { activity: 'Uploaded', id: id, date: new Date().toISOString(), subject: name, url: 'https://drive.google.com/file/d/' + file.getId() + '/view', type: type, year: year, status: 'For Review' };
+    stage = 'writing the file link to ' + TYPE_LOG_SHEETS[type];
+    logRow = logSheet.getLastRow() + 1;
+    writeTypeLog(logSheet, logRow, record);
+    row = sheet.getLastRow() + 1;
+    // Rich text keeps filenames literal, including names beginning with '='.
+    const values = [record.activity, record.id, record.date, record.subject, record.url].map((value, index) => {
+      const builder = SpreadsheetApp.newRichTextValue().setText(value);
+      if (index === 4) builder.setLinkUrl(record.url);
+      return builder.build();
+    });
+    stage = 'writing the file link to MAIN Files';
+    sheet.getRange(row, 1, 1, 5).setRichTextValues([values]);
+    // Keep the existing A:E schema. The ID cell note stores filing metadata.
+    sheet.getRange(row, 2).setNote(JSON.stringify({ type: type, year: year, status: record.status }));
+    stage = 'saving MAIN Files changes';
+    SpreadsheetApp.flush();
+    committed = true;
+    return jsonResponse({ success: true, document: record });
+  } catch (error) {
+    console.error('Document upload failed while ' + stage + ': ' + String(error && error.message || error));
+    let cleanupFailed = false;
+    if (!committed && file) {
+      try {
+        // Preserve the file if its partial sheet row cannot be removed.
+        if (row && sheet) {
+          sheet.getRange(row, 1, 1, 5).clearContent();
+          sheet.getRange(row, 2).clearNote();
+        }
+        if (logRow && logSheet) logSheet.getRange(logRow, 1, 1, 4).clearContent();
+        SpreadsheetApp.flush();
+        file.setTrashed(true);
+      } catch (cleanupError) {
+        cleanupFailed = true;
+        console.error('Upload cleanup failed: ' + String(cleanupError && cleanupError.message || cleanupError));
+      }
+    }
+    return jsonResponse({ success: false, message: 'Upload failed while ' + stage + '.' + (cleanupFailed ? ' A partial upload may remain; ask the administrator to check Drive and MAIN Files before retrying.' : '') });
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+// Run once in the editor as the owner. Targets only the six known sample PDFs.
+// The real SO No. 136-b file is deliberately absent from this list.
+function removeKnownSamples() {
+  const sampleIds = [
+    '1M1w9pJymPxM_STb3PQcuPtZxeKaSinNd',
+    '1l0U5Jybyr-MqokqxD8lv17FpbrSfYbiz',
+    '1qg96wX7fco35ZmFAfxp73OY6dPeVkGZf',
+    '1cQsqqyAU92KQI8fDiiXcH09wvAPCQrKH',
+    '1Y5ptU41sHYaRGVkK52MC6JETrOc7d8er',
+    '11BrM6GMxucG-EuhL_MFujkL9S0mMuKsJ',
+  ];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    // Resolve every file first; permission failures stop before sheet changes.
+    const files = sampleIds.map((id) => DriveApp.getFileById(id));
+    files.forEach((file) => { if (!file.isTrashed()) file.setTrashed(true); });
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const tabs = ['MAIN Files'].concat(Object.values(TYPE_LOG_SHEETS));
+    let cleared = 0;
+    tabs.forEach((name) => {
+      const sheet = spreadsheet.getSheetByName(name);
+      if (!sheet || sheet.getLastRow() < 2) return;
+      const width = name === 'MAIN Files' ? 5 : 4;
+      const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, width).getDisplayValues();
+      rows.forEach((row, index) => {
+        const match = String(row[width - 1]).match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+        if (match && sampleIds.includes(match[1])) {
+          const range = sheet.getRange(index + 2, 1, 1, width);
+          range.clearContent();
+          range.clearNote();
+          cleared++;
+        }
+      });
+    });
+    SpreadsheetApp.flush();
+    console.log('Moved known sample PDFs to trash and cleared ' + cleared + ' sample log rows. Real documents preserved.');
+  } finally { lock.releaseLock(); }
 }

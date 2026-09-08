@@ -198,3 +198,13 @@
   .settings-card label, .setting-row strong { font-size: 13px; }
   .activity-event { overflow-wrap: anywhere; }
 }
+
+.filing-form { display: grid; gap: 10px; margin-top: 20px; }
+.filing-form label { font-weight: 600; }
+.filing-form select, .filing-form input { width: 100%; padding: 10px 12px; border: 1px solid #dacbd0; border-radius: 8px; background: white; color: #24171c; font: inherit; }
+.filing-form p { margin: 4px 0; line-height: 1.5; }
+.upload-pdf-modal { max-height: 90vh; overflow-y: auto; }
+.upload-pdf-modal button:disabled { opacity: .6; cursor: wait; }
+
+.status.for-review { background: #fff0d2; color: #8c5a06; }
+.status.out { background: #e5edf9; color: #315b96; }

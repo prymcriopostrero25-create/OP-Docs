@@ -78,3 +78,43 @@ export async function fetchUsers() {
 function getSessionToken() {
   try { return JSON.parse(window.localStorage.getItem('op-dms-user'))?.token || '' } catch { return '' }
 }
+
+async function documentRequest(payload) {
+  if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
+  const response = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ ...payload, token: getSessionToken() }),
+  })
+  if (!response.ok) throw new Error(`Document request failed with status ${response.status}.`)
+  const result = await response.json()
+  if (!result.success) throw new Error(result.message || 'Unable to process the document.')
+  return result
+}
+
+export async function fetchDocuments() {
+  const files = (await documentRequest({ action: 'documents' })).documents || []
+  // Exclude the specific sample upload while its owner completes Drive cleanup.
+  return files.filter(file => file.id !== '1cb7ca84-b1d8-420a-a4ce-84dc89f79281')
+}
+
+export async function updateDocumentStatus(id, status) {
+  const record = (await documentRequest({ action: 'updateDocumentStatus', id, status })).document
+  if (!record || record.id !== id || record.status !== status) {
+    throw new Error('The server did not confirm the selected status. Deploy the latest Code.gs and refresh the document list.')
+  }
+  return record
+}
+
+export async function uploadPdf(file, uploadId, filing) {
+  if (!/\.pdf$/i.test(file.name) || !file.size || file.size > 25 * 1024 * 1024) {
+    throw new Error('Choose a PDF file up to 25 MB.')
+  }
+  const data = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result).split(',')[1])
+    reader.onerror = () => reject(new Error('Unable to read the selected file.'))
+    reader.readAsDataURL(file)
+  })
+  return (await documentRequest({ action: 'uploadDocument', name: file.name, data, uploadId, type: filing.type, year: filing.year })).document
+}
