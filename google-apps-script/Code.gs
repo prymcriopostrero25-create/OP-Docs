@@ -111,14 +111,68 @@ function documentFromRow(row, note) {
   try { metadata = JSON.parse(note || '{}'); } catch (error) { /* Legacy rows have no filing metadata. */ }
   if (!metadata || typeof metadata !== 'object') metadata = {};
   return { activity: row[0], id: row[1], date: row[2], subject: row[3], url: row[4],
+    deleted: metadata.deleted === true,
     status: DOCUMENT_STATUSES.includes(metadata.status) ? metadata.status : 'For Review',
     type: FILING_TYPES.includes(metadata.type) ? metadata.type : '',
     year: /^(19|20)\d{2}$/.test(String(metadata.year)) ? String(metadata.year) : '' };
 }
 
+function mutateDocument(request) {
+  if (!canChangeDocumentStatus(request.token)) return jsonResponse({ success: false, message: 'Admin access is required.' });
+  const subject = String(request.subject || '').trim();
+  if (request.action === 'editDocument' && (!subject || subject.length > 200)) return jsonResponse({ success: false, message: 'Enter a title up to 200 characters.' });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = mainFilesSheet();
+    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+    const index = rows.findIndex(row => row[1] === request.id);
+    if (index < 0) {
+      if (request.action === 'deleteDocument') return jsonResponse({ success: true, deletedId: request.id, storageDeleted: true });
+      throw new Error('Document was not found.');
+    }
+    const cell = sheet.getRange(index + 2, 2);
+    const record = documentFromRow(rows[index], cell.getNote());
+    if (record.status === 'Out') throw new Error('OUT documents are locked.');
+    if (record.deleted && request.action === 'editDocument') throw new Error('This document has been deleted.');
+    if (request.action === 'deleteDocument') {
+      deleteDocumentFiles(record, sheet, index + 2);
+      SpreadsheetApp.flush();
+      return jsonResponse({ success: true, deletedId: request.id, storageDeleted: true });
+    }
+    sheet.getRange(index + 2, 4).setRichTextValue(SpreadsheetApp.newRichTextValue().setText(subject).build());
+    rows[index][3] = subject;
+    SpreadsheetApp.flush();
+    return jsonResponse({ success: true, document: documentFromRow(rows[index], cell.getNote()) });
+  } finally { lock.releaseLock(); }
+}
+
+function deleteDocumentFiles(record, mainSheet, mainRow) {
+  const match = /^https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)\/(view|preview)$/.exec(record.url);
+  if (!match) throw new Error('The document has an invalid Drive link. Nothing was deleted.');
+  // Resolve all sheets and the exact file before making any changes.
+  const logs = FILING_TYPES.map(type => {
+    const sheet = typeLogSheet(type);
+    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getDisplayValues() : [];
+    return { sheet: sheet, rows: rows.map((row, index) => row[0] === record.id ? index + 2 : 0).filter(Boolean).reverse() };
+  });
+  const file = DriveApp.getFileById(match[1]);
+  if (!file.isTrashed()) file.setTrashed(true);
+  // Keep MAIN Files until all category rows are removed, so failures can be retried.
+  try {
+    logs.forEach(log => log.rows.forEach(row => log.sheet.deleteRow(row)));
+    SpreadsheetApp.flush();
+    mainSheet.deleteRow(mainRow);
+    SpreadsheetApp.flush();
+  } catch (error) {
+    throw new Error('The PDF is in Drive Trash, but sheet cleanup did not finish. Retry Delete to finish. ' + error.message);
+  }
+}
+
 function doPost(e) {
   try {
     const request = JSON.parse(e.postData.contents || '{}');
+    if (['editDocument', 'deleteDocument'].includes(request.action)) return mutateDocument(request);
     if (request.action === 'updateDocumentStatus') return updateDocumentStatus(request);
 
     if (['uploadDocument', 'documents'].includes(request.action)) {
@@ -317,7 +371,7 @@ function getDocuments() {
   const sheet = mainFilesSheet();
   const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
   const notes = rows.length ? sheet.getRange(2, 2, rows.length, 1).getNotes() : [];
-  return jsonResponse({ success: true, documents: rows.map((row, index) => documentFromRow(row, notes[index][0])).filter((record) => record.id).reverse() });
+  return jsonResponse({ success: true, documents: rows.map((row, index) => documentFromRow(row, notes[index][0])).filter((record) => record.id && !record.deleted).reverse() });
 }
 
 function uploadDocument(request) {

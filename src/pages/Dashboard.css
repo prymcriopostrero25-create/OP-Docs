@@ -226,7 +226,7 @@
 .dashboard-header .office-label strong { font-size: 14px; }
 .upload-pdf-modal header span, .pdf-dropzone span { font-size: 14px; line-height: 1.5; }
 .documents-actions { flex-wrap: wrap; }
-.uploaded-files-panel .preview-file-button { padding: 6px 0; border: 0; background: transparent; color: #7b1023; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.documents-panel .preview-file-button { padding: 6px 0; border: 0; background: transparent; color: #7b1023; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .pdf-preview-dialog { width: min(1100px, 94vw); height: 90dvh; max-height: 94dvh; padding: 0; border: 1px solid #dacbd0; border-radius: 12px; background: #fff; color: #321b20; }
 .pdf-preview-dialog[open] { display: flex; flex-direction: column; }
 .pdf-preview-dialog::backdrop { background: #21060ca8; }
@@ -234,3 +234,4 @@
 .pdf-preview-dialog h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
 .pdf-preview-dialog header button { flex-shrink: 0; min-height: 44px; padding: 8px 12px; border-radius: 7px; cursor: pointer; font-size: 14px; }
 .pdf-preview-dialog iframe { flex: 1; min-height: 0; width: 100%; border: 0; }
+.record-actions { display:flex; gap:8px; }.record-actions button { display:grid; place-items:center; width:40px; min-height:40px; padding:8px; border:1px solid #dfd5d4; border-radius:8px; background:#fff; color:#675055; cursor:pointer; }.record-actions button:hover:not(:disabled) { background:#f8e8eb; border-color:#a74a5b; }.record-actions .delete-record { color:#a53b31; }.record-actions button:disabled { opacity:.4; cursor:not-allowed; }.record-action-dialog { width:min(480px,94vw); border:1px solid #dacbd0; border-radius:12px; padding:24px; color:#321b20; }.record-action-dialog::backdrop { background:#21060ca8; }.record-action-dialog h2 { margin-top:0; font-size:20px; }.record-action-dialog p { line-height:1.6; overflow-wrap:anywhere; }.record-action-dialog label { display:grid; gap:8px; }.record-action-dialog input { width:100%; padding:12px; border:1px solid #dacbd0; border-radius:8px; }.record-action-dialog footer { display:flex; justify-content:flex-end; gap:10px; margin-top:24px; }.record-action-dialog button { min-height:44px; padding:10px 16px; border-radius:7px; cursor:pointer; }
