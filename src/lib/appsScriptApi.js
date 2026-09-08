@@ -106,6 +106,17 @@ export async function updateDocumentStatus(id, status) {
   return record
 }
 
+export async function editDocument(id, subject) {
+  const result = await documentRequest({ action: 'editDocument', id, subject })
+  if (result.document?.id !== id || result.document.subject !== subject) throw new Error('Update was not confirmed. Deploy the latest Code.gs and try again.')
+  return result.document
+}
+
+export async function deleteDocument(id) {
+  const result = await documentRequest({ action: 'deleteDocument', id })
+  if (result.deletedId !== id || result.storageDeleted !== true) throw new Error('Deletion was not confirmed. Deploy the latest Code.gs and try again.')
+}
+
 export async function uploadPdf(file, uploadId, filing) {
   if (!/\.pdf$/i.test(file.name) || !file.size || file.size > 25 * 1024 * 1024) {
     throw new Error('Choose a PDF file up to 25 MB.')

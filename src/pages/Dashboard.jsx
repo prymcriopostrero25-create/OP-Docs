@@ -1,4 +1,4 @@
-import { fetchDocuments, updateDocumentStatus } from '../lib/appsScriptApi'
+import { fetchDocuments, updateDocumentStatus, editDocument, deleteDocument } from '../lib/appsScriptApi'
 import LiveOverview from '../components/LiveOverview'
 import { canAccessPage, permissionsFor } from '../lib/permissions'
 import { DocumentContext } from '../lib/documentContext'
@@ -44,6 +44,25 @@ export default function Dashboard({ user, onLogout }) {
     setDrafts((current) => [{ ...form, type: form.type === 'Certification of Travel Abroad' ? 'Certificate of Travel' : form.type === 'Travel Authority Abroad' ? 'Authority to Travel Abroad' : form.type, status: permissions.changeStatus ? form.status : 'Draft', updated: new Date().toLocaleDateString() }, ...current])
     setActive('Documents')
   }
+  async function editRecord(reference, title) {
+    if (!permissions.changeStatus || records.find(record => record.reference === reference)?.status === 'Out') throw new Error('This document cannot be edited.')
+    if (drafts.some(record => record.reference === reference)) {
+      setDrafts(current => current.map(record => record.reference === reference ? { ...record, title } : record))
+      return
+    }
+    const updated = await editDocument(reference, title)
+    setFiles(current => current.map(file => file.id === reference ? updated : file))
+  }
+
+  async function deleteRecord(reference) {
+    if (!permissions.changeStatus || records.find(record => record.reference === reference)?.status === 'Out') throw new Error('This document cannot be deleted.')
+    if (drafts.some(record => record.reference === reference)) {
+      setDrafts(current => current.filter(record => record.reference !== reference))
+      return
+    }
+    await deleteDocument(reference)
+    setFiles(current => current.filter(file => file.id !== reference))
+  }
   const [menuOpen, setMenuOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   useEffect(() => {
@@ -72,7 +91,7 @@ export default function Dashboard({ user, onLogout }) {
 
 
   return (
-    <DocumentContext.Provider value={{ records, files, setFiles, loading, loadError, changeStatus, permissions }}>
+    <DocumentContext.Provider value={{ records, files, setFiles, loading, loadError, changeStatus, editRecord, deleteRecord, permissions }}>
     <div className="dashboard-shell">
       <Sidebar
         active={active}

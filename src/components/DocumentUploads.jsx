@@ -1,13 +1,11 @@
 import { DocumentContext } from '../lib/documentContext'
 import { useContext, useEffect, useRef, useState } from 'react'
-import { uploadPdf, updateDocumentStatus } from '../lib/appsScriptApi'
+import { uploadPdf } from '../lib/appsScriptApi'
 import { filingTypes } from '../lib/documentClassification'
 import { readPdfClassification } from '../lib/readPdfClassification'
 
 export default function DocumentUploads({ onCreateDocument }) {
-  const { permissions, files, setFiles, loading, loadError } = useContext(DocumentContext)
-  const [savingStatus, setSavingStatus] = useState(false)
-  const statusBusy = useRef(false)
+  const { setFiles, loading, loadError } = useContext(DocumentContext)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [open, setOpen] = useState(false)
@@ -21,21 +19,6 @@ export default function DocumentUploads({ onCreateDocument }) {
   const operation = useRef(false)
   const activeDialog = useRef(null)
   const opener = useRef(null)
-  const [preview, setPreview] = useState(null)
-  const previewDialog = useRef(null)
-
-  useEffect(() => {
-    if (!preview) return
-    const trigger = document.activeElement
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    previewDialog.current.showModal()
-    return () => {
-      document.body.style.overflow = previousOverflow
-      trigger?.focus()
-    }
-  }, [preview])
-
   useEffect(() => {
     if (!open) return
     const previousOverflow = document.body.style.overflow
@@ -89,27 +72,6 @@ export default function DocumentUploads({ onCreateDocument }) {
     finally { operation.current = false; setBusy('') }
   }
 
-  async function changeStatus(id, status) {
-    if (statusBusy.current || files.find(file => file.id === id)?.status === 'Out') return
-    const previous = files.find(file => file.id === id)
-    if (!previous || (previous.status || 'For Review') === status) return
-    if (status === 'Out' && !window.confirm('Mark this document Out? This permanently locks editing in the system. Preview and download will remain available.')) return
-    statusBusy.current = true
-    setSavingStatus(true)
-    setError('')
-    setSuccess('')
-    setFiles(current => current.map(file => file.id === id ? { ...file, status } : file))
-    try {
-      const record = await updateDocumentStatus(id, status)
-      setFiles(current => current.map(file => file.id === id ? record : file))
-      setSuccess(`Status saved: ${record.subject} — ${record.status}.`)
-    } catch (failure) {
-      setFiles(current => current.map(file => file.id === id ? previous : file))
-      setError(`Status was not saved. ${failure.message}`)
-    }
-    finally { statusBusy.current = false; setSavingStatus(false) }
-  }
-
   function dialogKeys(event) {
     if (event.key === 'Escape' && !operation.current) setOpen(false)
     if (event.key !== 'Tab') return
@@ -125,19 +87,7 @@ export default function DocumentUploads({ onCreateDocument }) {
       <div className="documents-actions"><button ref={opener} className="secondary-action upload-pdf-action" disabled={loading} onClick={() => setOpen(true)}>↑ Upload PDF</button><button className="primary-action" onClick={onCreateDocument}>＋ Create document</button></div>
     </div>
     {success && <p className="uploaded-file" role="status">{success}</p>}
-    {savingStatus && <p role="status">Saving status...</p>}
     {(error || loadError) && !open && <p role="alert">{error || loadError}</p>}
-    <section className="documents-panel uploaded-files-panel" aria-label="Uploaded files">
-      <div className="registry-heading"><h2>Uploaded files</h2><span>{files.length} files</span></div>
-      {loading ? <p role="status">Loading saved files...</p> : <div className="table-wrap"><table>
-        <thead><tr><th>Subject</th><th>Document type</th><th>Year</th><th>Uploaded</th><th>Status</th><th>File link</th></tr></thead>
-        <tbody>{files.map(file => <tr key={file.id}><td>{file.subject}</td><td>{file.type || 'Not classified'}</td><td>{file.year || '—'}</td><td>{file.date}</td><td>{permissions.changeStatus && file.status !== 'Out' ? <select aria-label={`Status for ${file.subject}`} value={file.status || 'For Review'} disabled={savingStatus} onChange={event => changeStatus(file.id, event.target.value)}>{['Draft', 'For Review', 'For Signature', 'Approved', 'Out'].map(status => <option key={status}>{status}</option>)}</select> : <span title={file.status === 'Out' ? 'Locked: preview and download only' : undefined}>{file.status === 'Out' ? 'OUT' : file.status || 'For Review'}</span>}</td><td>{/^https:\/\/drive\.google\.com\/file\/d\/[a-zA-Z0-9_-]+\/(view|preview)$/.test(file.url) ? <><button type="button" className="preview-file-button" onClick={() => setPreview(file)}>Preview file</button>{' ? '}<a href={`https://drive.google.com/uc?export=download&id=${file.url.split('/')[5]}`} target="_blank" rel="noopener noreferrer">Download</a></> : 'No preview link'}</td></tr>)}</tbody>
-      </table>{!files.length && <p>No uploaded files yet.</p>}</div>}
-    </section>
-    {preview && <dialog ref={previewDialog} className="pdf-preview-dialog" aria-labelledby="pdf-preview-title" onCancel={() => setPreview(null)} onClose={() => setPreview(null)}>
-      <header><h2 id="pdf-preview-title">{preview.subject}</h2><button type="button" className="secondary-action" autoFocus onClick={() => setPreview(null)}>Close preview</button></header>
-      <iframe title={`PDF preview: ${preview.subject}`} src={`https://drive.google.com/file/d/${preview.url.split('/')[5]}/preview`} />
-    </dialog>}
     {open && <div className="upload-pdf-overlay" onClick={() => { if (!operation.current) setOpen(false) }}>
       <section ref={activeDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="upload-title" className="upload-pdf-modal" onKeyDown={dialogKeys} onClick={event => event.stopPropagation()}>
         <header><div><p className="eyebrow">Document upload</p><h2 id="upload-title">Upload and file a PDF</h2><span>File documents by type and document year.</span></div><button type="button" aria-label="Close upload" disabled={!!busy} onClick={() => setOpen(false)}>×</button></header>
