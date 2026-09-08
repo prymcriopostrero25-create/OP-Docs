@@ -1,3 +1,27 @@
+const SPREADSHEET_ID = '1_XdWhaHzHqgfa_sUIzp4gTg00E7FeK3XWAh6ckTS2WM';
+function appSpreadsheet() {
+  return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
+
+// Run in the editor: checks account configuration without logging passwords.
+function checkLoginSetup() {
+  const spreadsheet = appSpreadsheet();
+  const sheet = spreadsheet.getSheetByName('CREDENTIALS');
+  if (!sheet) throw new Error('CREDENTIALS tab is missing.');
+  if (sheet.getRange(1, 1, 1, 4).getDisplayValues()[0].join('|') !== 'EMAIL|NAME|PASSWORD|ROLE') {
+    throw new Error('CREDENTIALS needs EMAIL, NAME, PASSWORD, ROLE in A1:D1.');
+  }
+  const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues() : [];
+  const matches = rows.filter(row => String(row[0]).trim().toLowerCase() === 'admin@jhcsc.edu.ph');
+  console.log('Spreadsheet: ' + spreadsheet.getName());
+  console.log('Matching admin account rows: ' + matches.length);
+  if (matches.length !== 1) throw new Error('Expected exactly one admin@jhcsc.edu.ph account row.');
+  const password = String(matches[0][2]);
+  console.log('Password configured: ' + Boolean(password));
+  console.log('Password has leading/trailing whitespace: ' + (password !== password.trim()));
+  console.log('Role: ' + normalizeRole(matches[0][3]));
+}
+
 const UPLOAD_FOLDER_ID = '1OVvmtvYjsp4WZz-RY7NkExyNIotO-Vji';
 const FILING_TYPES = ['Executive Memorandum', 'Special Order', 'Travel Order', 'Authority to Travel Abroad', 'Certificate of Travel'];
 const DOCUMENT_STATUSES = ['Draft', 'For Review', 'For Signature', 'Approved', 'Out'];
@@ -6,7 +30,7 @@ function canChangeDocumentStatus(token) {
   if (typeof token !== 'string' || !token) return false;
   const email = CacheService.getScriptCache().get('session:' + token);
   if (!email) return false;
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CREDENTIALS');
+  const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
   if (!sheet || sheet.getLastRow() < 2) return false;
   const account = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues()
     .find((row) => String(row[0]).trim().toLowerCase() === email);
@@ -47,7 +71,7 @@ const TYPE_LOG_SHEETS = {
 function typeLogSheet(type) {
   const name = TYPE_LOG_SHEETS[type];
   if (!name) throw new Error('Unsupported document type.');
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  const sheet = appSpreadsheet().getSheetByName(name);
   if (!sheet || sheet.getRange(1, 1, 1, 4).getDisplayValues()[0].join('|') !== 'TIMESTAMP|ID|YEAR|FILE LINKS') {
     throw new Error(name + ' must have TIMESTAMP, ID, YEAR, FILE LINKS in A1:D1.');
   }
@@ -134,7 +158,7 @@ function doPost(e) {
       });
     }
 
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CREDENTIALS');
+    const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
 
     if (!sheet) {
       return jsonResponse({ success: false, message: 'CREDENTIALS sheet was not found.' });
@@ -176,7 +200,7 @@ function doPost(e) {
 }
 
 function logSuccessfulLogin(userName) {
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = appSpreadsheet();
   let logsSheet = spreadsheet.getSheetByName('USER LOGS');
 
   if (!logsSheet) {
@@ -189,7 +213,7 @@ function logSuccessfulLogin(userName) {
 }
 
 function getUserLogs() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('USER LOGS');
+  const sheet = appSpreadsheet().getSheetByName('USER LOGS');
 
   if (!sheet || sheet.getLastRow() < 2) {
     return jsonResponse({ success: true, logs: [] });
@@ -205,7 +229,7 @@ function getUserLogs() {
 }
 
 function getUsers() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CREDENTIALS');
+  const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
 
   if (!sheet || sheet.getLastRow() < 2) {
     return jsonResponse({ success: true, users: [] });
@@ -240,7 +264,7 @@ function isSuperAdminSession(token) {
   if (typeof token !== 'string' || !token) return false;
   const email = CacheService.getScriptCache().get('session:' + token);
   if (!email) return false;
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CREDENTIALS');
+  const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
   if (!sheet || sheet.getLastRow() < 2) return false;
   const account = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues()
     .find((row) => String(row[0]).trim().toLowerCase() === email);
@@ -276,13 +300,13 @@ function getDocumentSession(token) {
   if (typeof token !== 'string' || !token) return false;
   const email = CacheService.getScriptCache().get('session:' + token);
   if (!email) return false;
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CREDENTIALS');
+  const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
   return sheet && sheet.getLastRow() > 1 && sheet.getRange(2, 1, sheet.getLastRow() - 1, 1)
     .getDisplayValues().some((row) => String(row[0]).trim().toLowerCase() === email);
 }
 
 function mainFilesSheet() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MAIN Files');
+  const sheet = appSpreadsheet().getSheetByName('MAIN Files');
   if (!sheet || sheet.getRange(1, 1, 1, 5).getDisplayValues()[0].join('|') !== 'ACTIVITY|ID|DATE|SUBJECT|FILE LINKS') {
     throw new Error('MAIN Files must have headers ACTIVITY, ID, DATE, SUBJECT, FILE LINKS in A1:E1.');
   }
@@ -426,7 +450,7 @@ function removeKnownSamples() {
     // Resolve every file first; permission failures stop before sheet changes.
     const files = sampleIds.map((id) => DriveApp.getFileById(id));
     files.forEach((file) => { if (!file.isTrashed()) file.setTrashed(true); });
-    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const spreadsheet = appSpreadsheet();
     const tabs = ['MAIN Files'].concat(Object.values(TYPE_LOG_SHEETS));
     let cleared = 0;
     tabs.forEach((name) => {

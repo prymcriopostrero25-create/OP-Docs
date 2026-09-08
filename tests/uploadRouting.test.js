@@ -36,7 +36,7 @@ function fixture({ failWrite = false, failCleanup = false, failLogWrite = false,
   const context = {
     console: { error() {} },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: text => ({ setMimeType: () => JSON.parse(text) }) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: name => name === 'MAIN Files' ? sheet : logs[name] }), flush() {}, newRichTextValue: () => {
+    SpreadsheetApp: { openById: () => ({ getSheetByName: name => name === 'MAIN Files' ? sheet : logs[name] }), flush() {}, newRichTextValue: () => {
       const value = {}; return { setText(text) { value.text = text; return this }, setLinkUrl(url) { value.url = url; return this }, build: () => value }
     } },
     Utilities: { base64Decode: s => Array.from(Buffer.from(s, 'base64')), newBlob: (bytes, mime, name) => ({ bytes, mime, name }) },
