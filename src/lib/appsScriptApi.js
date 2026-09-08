@@ -28,6 +28,19 @@ export async function authenticateUser(email, password) {
   return result.user
 }
 
+export async function logoutUser(token) {
+  if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
+  const response = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'logout', token }),
+    keepalive: true,
+  })
+  if (!response.ok) throw new Error('Unable to record logout.')
+  const result = await response.json()
+  if (!result.success) throw new Error(result.message || 'Unable to record logout.')
+}
+
 export async function fetchUserLogs() {
   if (!APPS_SCRIPT_URL) {
     throw new Error('The Apps Script web app URL is not configured.')

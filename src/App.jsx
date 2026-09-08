@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Login from './pages/login'
 import Dashboard from './pages/Dashboard'
+import { logoutUser } from './lib/appsScriptApi'
 
 export default function App() {
   const [user, setUser] = useState(() => {
@@ -24,9 +25,13 @@ export default function App() {
   }
 
   function handleLogout() {
+    const token = user?.token
     window.localStorage.removeItem('op-dms-user')
     window.location.hash = '/login'
     setUser(null)
+    if (token) logoutUser(token).catch(() => {
+      window.alert('You have signed out on this device, but the server could not confirm or record the logout. Please check your connection and Apps Script deployment.')
+    })
   }
 
   return user

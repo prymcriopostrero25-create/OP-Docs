@@ -172,6 +172,7 @@ function deleteDocumentFiles(record, mainSheet, mainRow) {
 function doPost(e) {
   try {
     const request = JSON.parse(e.postData.contents || '{}');
+    if (request.action === 'logout') return logoutUser(request.token);
     if (['editDocument', 'deleteDocument'].includes(request.action)) return mutateDocument(request);
     if (request.action === 'updateDocumentStatus') return updateDocumentStatus(request);
 
@@ -254,6 +255,39 @@ function doPost(e) {
 }
 
 function logSuccessfulLogin(userName) {
+  logUserEvent(userName, 'logged in');
+}
+
+function logoutUser(token) {
+  if (typeof token !== 'string' || !token) {
+    return jsonResponse({ success: false, message: 'A session token is required.' });
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const cache = CacheService.getScriptCache();
+    const email = cache.get('session:' + token);
+    // Repeated logout requests must not create duplicate entries.
+    if (!email) return jsonResponse({ success: true });
+    try {
+      const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
+      const account = sheet && sheet.getLastRow() > 1
+        ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getDisplayValues()
+          .find(row => String(row[0]).trim().toLowerCase() === email)
+        : null;
+      logUserEvent(account ? String(account[1]).trim() || email : email, 'logged out');
+    } finally {
+      cache.remove('session:' + token);
+    }
+    return jsonResponse({ success: true });
+  } catch (error) {
+    return jsonResponse({ success: false, message: 'Unable to record logout.' });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function logUserEvent(userName, action) {
   const spreadsheet = appSpreadsheet();
   let logsSheet = spreadsheet.getSheetByName('USER LOGS');
 
@@ -262,7 +296,7 @@ function logSuccessfulLogin(userName) {
     logsSheet.getRange(1, 1, 1, 2).setValues([['TIMESTAMP', 'MESSAGE']]);
   }
 
-  logsSheet.appendRow([new Date(), `${userName} logged in`]);
+  logsSheet.appendRow([new Date(), `${userName} ${action}`]);
   logsSheet.getRange(logsSheet.getLastRow(), 1).setNumberFormat('m/d/yyyy h:mma');
 }
 

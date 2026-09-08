@@ -4,6 +4,12 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 const statuses = ['All statuses', 'Draft', 'For Review', 'For Signature', 'Approved', 'Out']
 
+function UpdatedDate({ value }) {
+  const date = new Date(value)
+  if (!value || Number.isNaN(date.getTime())) return <span className="record-muted">Not available</span>
+  return <time className="record-date" dateTime={date.toISOString()} title={date.toLocaleString()}><span>{date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</span><small>{date.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</small></time>
+}
+
 function ActionIcon({ kind }) {
   return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{kind === 'edit' ? <><path d="m16 3 5 5-12 12-6 1 1-6Z" /><path d="m14 5 5 5" /></> : kind === 'preview' ? <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> : <><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></>}</svg>
 }
@@ -79,22 +85,22 @@ export default function DocumentRecordPage({ title, type }) {
   }, [query, status, type, records])
 
   return (
-    <section className="documents-panel">
+    <section className="documents-panel document-registry">
       {(error || loadError) && <p role="alert">{error || loadError}</p>}
       {loading && <p role="status">Loading documents...</p>}
       <div className="documents-toolbar">
-        <div className="document-search"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by title, reference, or owner..." aria-label={`Search ${title}`} /></div>
+        <div className="document-search"><span aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg></span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search documents..." aria-label={`Search ${title}`} /></div>
         <select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter by status">{statuses.map((option) => <option key={option}>{option}</option>)}</select>
-        <button className="filter-button">≡ Filters</button>
+        {(query || status !== 'All statuses') && <button type="button" className="filter-button" onClick={() => { setQuery(''); setStatus('All statuses') }}>Clear filters</button>}
       </div>
       <div className="registry-heading"><div><h2>{title}</h2><p>{visibleRecords.length} shown from {records.filter(record => !type || record.type === type).length} records</p></div><button>⇩ Export list</button></div>
       <div className="table-wrap registry-table"><table>
         <thead><tr><th>Document</th><th>Type</th><th>Owner</th><th>Last updated</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
           {visibleRecords.map((record) => <tr key={record.reference}>
-            <td><div className="doc-cell"><span className="file-icon">▤</span><div><strong>{record.title}</strong><small>{record.reference}</small></div></div></td>
-            <td>{record.type}</td><td>{record.owner || '?'}</td><td>{record.updated}</td>
-            <td>{permissions.changeStatus && record.status !== 'Out' ? <select aria-label={`Change status for ${record.title}`} disabled={saving} value={record.status} onChange={(event) => saveStatus(record.reference, event.target.value)}>{statuses.slice(1).map((option) => <option key={option}>{option}</option>)}</select> : <span className={`status ${record.status.toLowerCase().replaceAll(' ', '-')}`}>{record.status === 'Out' ? 'OUT' : record.status}</span>}</td>
+            <td><div className="doc-cell"><span className="file-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M14 3H5v18h14V8Z M14 3v5h5 M8 12h8 M8 16h6" /></svg></span><div><strong title={record.title}>{record.title}</strong><small title={record.reference}>Ref: {record.reference}</small></div></div></td>
+            <td><span className="record-type">{record.type}</span></td><td><span className={!record.owner || record.owner === '?' ? 'record-muted' : 'record-owner'}>{!record.owner || record.owner === '?' ? 'Unassigned' : record.owner}</span></td><td><UpdatedDate value={record.updated} /></td>
+            <td>{permissions.changeStatus && record.status !== 'Out' ? <select className={`record-status ${record.status.toLowerCase().replaceAll(' ', '-')}`} aria-label={`Change status for ${record.title}`} disabled={saving} value={record.status} onChange={(event) => saveStatus(record.reference, event.target.value)}>{statuses.slice(1).map((option) => <option key={option}>{option}</option>)}</select> : <span className={`status ${record.status.toLowerCase().replaceAll(' ', '-')}`}>{record.status === 'Out' ? 'OUT' : record.status}</span>}</td>
             <td><div className="record-actions">
               <button type="button" aria-label={`Edit ${record.title}`} title={record.status === 'Out' ? 'OUT documents are locked' : !permissions.changeStatus ? 'Admin access required' : 'Edit title'} disabled={saving || !permissions.changeStatus || record.status === 'Out'} onClick={() => openAction('edit', record)}><ActionIcon kind="edit" /></button>
               <button type="button" aria-label={`Preview ${record.title}`} title="Preview" disabled={!/^https:\/\/drive\.google\.com\/file\/d\/[a-zA-Z0-9_-]+\/(view|preview)$/.test(record.url || '')} onClick={() => setPreview(record)}><ActionIcon kind="preview" /></button>

@@ -32,13 +32,13 @@ export default function UserLogsPage() {
 
   return <main className="dashboard-content user-logs-page">
     <div className="page-title-row">
-      <div><p className="eyebrow">Security audit</p><h1>User logs</h1><p>Review successful sign-ins to the document management portal.</p></div>
+      <div><p className="eyebrow">Security audit</p><h1>User logs</h1><p>Review sign-ins and sign-outs from the document management portal.</p></div>
       <button className="secondary-action archive-export" onClick={loadLogs} disabled={status === 'loading'}>↻ Refresh logs</button>
     </div>
 
     <section className="user-logs-panel">
       <header className="user-logs-header">
-        <div><h2>Sign-in history</h2><p>Every successful login is recorded with its timestamp and message.</p></div>
+        <div><h2>Session history</h2><p>Sign-ins and sign-outs are recorded with their timestamp and message.</p></div>
         <label className="archive-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search logs..." aria-label="Search user logs" /></label>
       </header>
 
@@ -49,7 +49,7 @@ export default function UserLogsPage() {
           <thead><tr><th>Timestamp</th><th>Message</th></tr></thead>
           <tbody>{filteredLogs.map((log, index) => <tr key={`${log.timestamp}-${log.message}-${index}`}><td><time>{log.timestamp}</time></td><td><span className="log-status">✓</span>{log.message}</td></tr>)}</tbody>
         </table>
-        {!filteredLogs.length && <div className="user-logs-state">{logs.length ? 'No logs match your search.' : 'No successful logins have been recorded yet.'}</div>}
+        {!filteredLogs.length && <div className="user-logs-state">{logs.length ? 'No logs match your search.' : 'No sign-ins or sign-outs have been recorded yet.'}</div>}
       </div>}
     </section>
   </main>

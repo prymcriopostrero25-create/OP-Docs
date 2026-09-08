@@ -1,0 +1,49 @@
+.activity-log-title h1 { margin:0; color:#321b20; font:750 30px/1.25 Manrope,sans-serif; letter-spacing:-.7px; }
+.activity-log-title > p:last-child { margin:10px 0 0; color:#77696c; font-size:14px; }
+.activity-log-panel { margin-top:28px; overflow:hidden; border:1px solid #e6e0de; border-radius:14px; background:#fff; }
+.activity-log-heading { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:22px 24px; }
+.activity-log-heading h2 { display:flex; align-items:center; gap:10px; margin:0; color:#392629; font-size:16px; }
+.activity-log-heading h2 span { padding:3px 9px; border-radius:20px; color:#7b1023; background:#f8edf0; font-size:12px; }
+.activity-log-heading p { margin:7px 0 0; color:#77696c; font-size:12px; }
+.activity-log-controls { display:flex; gap:10px; align-items:center; }
+.activity-log-controls input,.activity-log-controls select { height:44px; padding:0 12px; border:1px solid #ded5d5; border-radius:8px; background:#fff; color:#554548; font:inherit; font-size:13px; }
+.activity-log-controls input { width:300px; }
+.activity-log-controls select { cursor:pointer; }
+.activity-log-page :is(input,select,button):focus-visible { outline:2px solid #9b2940; outline-offset:3px; }
+.activity-log-table-wrap { overflow-x:auto; }
+.activity-log-page .activity-log-table { width:100%; table-layout:fixed; border-collapse:collapse; }
+.activity-log-page .activity-log-table th { padding:13px 24px; border-block:1px solid #eee8e6; background:#faf8f7; color:#77696c; text-align:left; font-size:11px; font-weight:700; letter-spacing:.7px; text-transform:uppercase; }
+.activity-log-table th:first-child { width:62%; }
+.activity-log-table th:nth-child(2) { width:16%; }
+.activity-log-page .activity-log-table td { height:auto; padding:20px 24px; border-bottom:1px solid #f0eae8; font-size:14px; vertical-align:middle; }
+.activity-log-table tbody tr:last-child td { border-bottom:0; }
+.activity-log-table tbody tr:hover { background:#fdfafb; }
+.activity-log-document { display:flex; align-items:center; gap:14px; min-width:0; }
+.activity-log-document > div { min-width:0; }
+.activity-log-document strong { display:block; color:#392c2f; font-weight:600; line-height:1.6; overflow-wrap:anywhere; }
+.activity-log-icon { display:grid; place-items:center; flex:0 0 40px; height:44px; border:1px solid #eedee2; border-radius:9px; background:#fcf5f6; color:#8b2439; }
+.activity-log-icon svg { width:22px; height:22px; }
+.activity-log-document small,.activity-log-table time small { display:block; margin-top:4px; color:#77696c; font-size:12px; }
+.activity-log-badge { display:inline-block; padding:5px 10px; border:1px solid #d9e9df; border-radius:20px; color:#316448; background:#eff7f1; font-size:12px; font-weight:600; }
+.activity-log-table time strong { color:#554548; font-size:13px; font-weight:500; }
+.activity-log-footer { padding:16px 24px; border-top:1px solid #eee8e6; color:#77696c; font-size:12px; }
+.activity-log-state { padding:48px 24px; text-align:center; color:#77696c; font-size:14px; }
+.activity-log-state strong { color:#392629; font-size:16px; }
+.activity-log-state p { margin:9px 0 0; }
+.activity-log-state button { margin-top:18px; padding:10px 16px; border:1px solid #ded5d5; border-radius:8px; background:#fff; color:#7b1023; cursor:pointer; }
+.activity-log-error { margin:0; padding:16px 24px; background:#fff0f0; color:#9a2438; font-size:14px; }
+@media(max-width:1000px) {
+.activity-log-heading { align-items:stretch; flex-direction:column; }
+.activity-log-controls input { flex:1; width:auto; min-width:0; }
+.activity-log-table th:first-child { width:54%; }
+.activity-log-table th:nth-child(2) { width:20%; }
+}
+@media(max-width:600px) {
+.activity-log-heading { padding:18px 16px; }
+.activity-log-controls { flex-wrap:wrap; }
+.activity-log-controls input { flex-basis:100%; }
+.activity-log-controls select { width:100%; }
+.activity-log-page .activity-log-table { min-width:640px; }
+.activity-log-page .activity-log-table :is(th,td) { padding:16px; }
+.activity-log-footer { padding:16px; }
+}
