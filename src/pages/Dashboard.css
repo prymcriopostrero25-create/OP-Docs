@@ -235,3 +235,61 @@
 .pdf-preview-dialog header button { flex-shrink: 0; min-height: 44px; padding: 8px 12px; border-radius: 7px; cursor: pointer; font-size: 14px; }
 .pdf-preview-dialog iframe { flex: 1; min-height: 0; width: 100%; border: 0; }
 .record-actions { display:flex; gap:8px; }.record-actions button { display:grid; place-items:center; width:40px; min-height:40px; padding:8px; border:1px solid #dfd5d4; border-radius:8px; background:#fff; color:#675055; cursor:pointer; }.record-actions button:hover:not(:disabled) { background:#f8e8eb; border-color:#a74a5b; }.record-actions .delete-record { color:#a53b31; }.record-actions button:disabled { opacity:.4; cursor:not-allowed; }.record-action-dialog { width:min(480px,94vw); border:1px solid #dacbd0; border-radius:12px; padding:24px; color:#321b20; }.record-action-dialog::backdrop { background:#21060ca8; }.record-action-dialog h2 { margin-top:0; font-size:20px; }.record-action-dialog p { line-height:1.6; overflow-wrap:anywhere; }.record-action-dialog label { display:grid; gap:8px; }.record-action-dialog input { width:100%; padding:12px; border:1px solid #dacbd0; border-radius:8px; }.record-action-dialog footer { display:flex; justify-content:flex-end; gap:10px; margin-top:24px; }.record-action-dialog button { min-height:44px; padding:10px 16px; border-radius:7px; cursor:pointer; }
+
+/* Document upload dialog */
+.upload-pdf-modal { width:min(680px,100%); max-height:90dvh; display:flex; flex-direction:column; overflow:hidden; border-radius:18px; box-shadow:0 24px 90px #21060c40; }
+.upload-pdf-modal .upload-heading { flex-shrink:0; align-items:flex-start; gap:20px; padding:26px 28px 22px; }
+.upload-pdf-modal .upload-heading .eyebrow { font-size:10px!important; letter-spacing:1.8px; }
+.upload-pdf-modal .upload-heading h2 { font-size:24px; letter-spacing:-.6px; line-height:1.3; }
+.upload-pdf-modal .upload-heading > div > span { color:#827579; font-size:14px; line-height:1.5; }
+.upload-pdf-modal .upload-heading button { flex-shrink:0; width:36px; height:36px; }
+.upload-pdf-modal .upload-heading button span { margin:0; color:#675055; font-size:24px; line-height:1; }
+.upload-body { overflow-y:auto; min-height:0; padding:24px 28px; scrollbar-width:thin; scrollbar-color:#d8c9cc transparent; }
+.upload-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.upload-section-heading h3 { display:flex; align-items:center; gap:10px; margin:0; font-size:14px; font-weight:700; }
+.upload-section-heading h3 > span { color:#9a737d; font-size:11px; font-variant-numeric:tabular-nums; }
+.upload-section-heading > small { font-size:12px; color:#827579; }
+.upload-pdf-modal .pdf-dropzone { margin:0; padding:26px 20px; gap:14px; border:1.5px dashed #d7bbc1; background:#fdfafb; border-radius:12px; }
+.upload-file-icon { width:54px; height:60px; display:grid; place-items:center; border:1px solid #edd8de; border-radius:12px; background:#f7e9ed; color:#8e233c; }
+.upload-file-copy { min-width:0; display:grid; gap:6px; }
+.upload-file-copy strong { overflow-wrap:anywhere; line-height:1.5; }
+.upload-pdf-modal .pdf-dropzone .upload-file-copy span { font-size:12px; color:#827579; }
+.upload-pdf-modal .pdf-dropzone button { margin:0; font-size:13px; min-height:38px; }
+.upload-pdf-modal .pdf-dropzone.has-file { display:grid; grid-template-columns:54px minmax(0,1fr) auto; align-items:center; text-align:left; padding:18px; border-style:solid; justify-items:stretch; }
+.upload-pdf-modal .pdf-dropzone.is-dragging { background:#f5e4e9; border-color:#7b1023; }
+.upload-details-heading { margin-top:26px; }
+.upload-review-badge { padding:5px 9px; border-radius:20px; color:#8c651e; background:#fff3d9; font-size:11px; font-weight:600; }
+.upload-pdf-modal .filing-form { margin:0; gap:18px; }
+.upload-pdf-modal .upload-detection-note { margin:0; padding:12px 14px; border-left:3px solid #d1a2ad; border-radius:0 7px 7px 0; background:#f8f5f5; color:#78666b; font-size:12px; line-height:1.6; }
+.upload-fields { display:grid; grid-template-columns:minmax(0,1fr) 140px; gap:16px; }
+.upload-fields label { display:grid; gap:8px; min-width:0; font-size:13px; color:#554147; }
+.upload-pdf-modal .upload-fields input,.upload-pdf-modal .upload-fields select { min-height:46px; font-size:14px; font-weight:400; }
+.upload-pdf-modal :is(input,select,button):focus-visible { outline:3px solid #c78c9b; outline-offset:3px; }
+.upload-destination { padding:14px 16px; border:1px solid #e9e1e3; border-radius:9px; background:#fcfbfa; }
+.upload-destination small { color:#8e7b80; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px; }
+.upload-pdf-modal .upload-destination p { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 0; color:#76626a; font-size:12px; overflow-wrap:anywhere; }
+.upload-destination strong { color:#653645; font-weight:600; }
+.upload-details-empty { padding:24px 18px; border:1px solid #eee7e9; border-radius:10px; background:#fcfbfa; color:#8d7d81; font-size:13px; line-height:1.6; text-align:center; }
+.upload-footer { display:flex; flex-shrink:0; align-items:center; justify-content:space-between; gap:16px; padding:18px 28px; border-top:1px solid #eae2e4; background:#fcfafb; }
+.upload-footer > p { max-width:170px; margin:0; color:#8b7a7f; font-size:12px; line-height:1.5; }
+.upload-footer > div { display:flex; gap:10px; }
+.upload-footer button { min-height:44px; padding:10px 16px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; }
+.upload-pdf-modal .upload-notice { display:flex; align-items:center; gap:10px; margin:14px 0 0; padding:12px 14px; border-radius:8px; background:#f4f0f7; color:#695173; font-size:13px; line-height:1.5; }
+.upload-pdf-modal .upload-error { color:#a13a32; background:#fff0ed; }
+.upload-spinner { flex:0 0 16px; height:16px; border:2px solid #d6c8dc; border-top-color:#7b1023; border-radius:50%; animation:upload-spin 1s linear infinite; }
+@keyframes upload-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .upload-spinner { animation:none; } }
+@media(max-width:540px) {
+  .upload-pdf-overlay { padding:12px; }
+  .upload-pdf-modal { max-height:94dvh; border-radius:14px; }
+  .upload-pdf-modal .upload-heading { padding:20px; }
+  .upload-pdf-modal .upload-heading h2 { font-size:21px; }
+  .upload-body { padding:20px; }
+  .upload-pdf-modal .pdf-dropzone.has-file { grid-template-columns:44px minmax(0,1fr); gap:12px; }
+  .pdf-dropzone.has-file .upload-file-icon { width:44px; height:50px; }
+  .pdf-dropzone.has-file button { grid-column:2; justify-self:start; }
+  .upload-fields { grid-template-columns:1fr; }
+  .upload-footer { padding:16px 20px; flex-direction:column; align-items:stretch; gap:10px; }
+  .upload-footer > p { max-width:none; }
+  .upload-footer > div { justify-content:flex-end; }
+}
