@@ -21,6 +21,20 @@ export default function DocumentUploads({ onCreateDocument }) {
   const operation = useRef(false)
   const activeDialog = useRef(null)
   const opener = useRef(null)
+  const [preview, setPreview] = useState(null)
+  const previewDialog = useRef(null)
+
+  useEffect(() => {
+    if (!preview) return
+    const trigger = document.activeElement
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    previewDialog.current.showModal()
+    return () => {
+      document.body.style.overflow = previousOverflow
+      trigger?.focus()
+    }
+  }, [preview])
 
   useEffect(() => {
     if (!open) return
@@ -113,13 +127,17 @@ export default function DocumentUploads({ onCreateDocument }) {
     {success && <p className="uploaded-file" role="status">{success}</p>}
     {savingStatus && <p role="status">Saving status...</p>}
     {(error || loadError) && !open && <p role="alert">{error || loadError}</p>}
-    <section className="documents-panel" aria-label="Uploaded files">
+    <section className="documents-panel uploaded-files-panel" aria-label="Uploaded files">
       <div className="registry-heading"><h2>Uploaded files</h2><span>{files.length} files</span></div>
       {loading ? <p role="status">Loading saved files...</p> : <div className="table-wrap"><table>
         <thead><tr><th>Subject</th><th>Document type</th><th>Year</th><th>Uploaded</th><th>Status</th><th>File link</th></tr></thead>
-        <tbody>{files.map(file => <tr key={file.id}><td>{file.subject}</td><td>{file.type || 'Not classified'}</td><td>{file.year || '—'}</td><td>{file.date}</td><td>{permissions.changeStatus && file.status !== 'Out' ? <select aria-label={`Status for ${file.subject}`} value={file.status || 'For Review'} disabled={savingStatus} onChange={event => changeStatus(file.id, event.target.value)}>{['Draft', 'For Review', 'For Signature', 'Approved', 'Out'].map(status => <option key={status}>{status}</option>)}</select> : <span title={file.status === 'Out' ? 'Locked: preview and download only' : undefined}>{file.status === 'Out' ? 'OUT' : file.status || 'For Review'}</span>}</td><td>{/^https:\/\/drive\.google\.com\/file\/d\/[a-zA-Z0-9_-]+\/(view|preview)$/.test(file.url) ? <><a href={file.url} target="_blank" rel="noopener noreferrer">Preview file</a>{' ? '}<a href={`https://drive.google.com/uc?export=download&id=${file.url.split('/')[5]}`} target="_blank" rel="noopener noreferrer">Download</a></> : 'No preview link'}</td></tr>)}</tbody>
+        <tbody>{files.map(file => <tr key={file.id}><td>{file.subject}</td><td>{file.type || 'Not classified'}</td><td>{file.year || '—'}</td><td>{file.date}</td><td>{permissions.changeStatus && file.status !== 'Out' ? <select aria-label={`Status for ${file.subject}`} value={file.status || 'For Review'} disabled={savingStatus} onChange={event => changeStatus(file.id, event.target.value)}>{['Draft', 'For Review', 'For Signature', 'Approved', 'Out'].map(status => <option key={status}>{status}</option>)}</select> : <span title={file.status === 'Out' ? 'Locked: preview and download only' : undefined}>{file.status === 'Out' ? 'OUT' : file.status || 'For Review'}</span>}</td><td>{/^https:\/\/drive\.google\.com\/file\/d\/[a-zA-Z0-9_-]+\/(view|preview)$/.test(file.url) ? <><button type="button" className="preview-file-button" onClick={() => setPreview(file)}>Preview file</button>{' ? '}<a href={`https://drive.google.com/uc?export=download&id=${file.url.split('/')[5]}`} target="_blank" rel="noopener noreferrer">Download</a></> : 'No preview link'}</td></tr>)}</tbody>
       </table>{!files.length && <p>No uploaded files yet.</p>}</div>}
     </section>
+    {preview && <dialog ref={previewDialog} className="pdf-preview-dialog" aria-labelledby="pdf-preview-title" onCancel={() => setPreview(null)} onClose={() => setPreview(null)}>
+      <header><h2 id="pdf-preview-title">{preview.subject}</h2><button type="button" className="secondary-action" autoFocus onClick={() => setPreview(null)}>Close preview</button></header>
+      <iframe title={`PDF preview: ${preview.subject}`} src={`https://drive.google.com/file/d/${preview.url.split('/')[5]}/preview`} />
+    </dialog>}
     {open && <div className="upload-pdf-overlay" onClick={() => { if (!operation.current) setOpen(false) }}>
       <section ref={activeDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="upload-title" className="upload-pdf-modal" onKeyDown={dialogKeys} onClick={event => event.stopPropagation()}>
         <header><div><p className="eyebrow">Document upload</p><h2 id="upload-title">Upload and file a PDF</h2><span>File documents by type and document year.</span></div><button type="button" aria-label="Close upload" disabled={!!busy} onClick={() => setOpen(false)}>×</button></header>

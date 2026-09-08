@@ -208,3 +208,29 @@
 
 .status.for-review { background: #fff0d2; color: #8c5a06; }
 .status.out { background: #e5edf9; color: #315b96; }
+
+/* Keep document uploads readable at desktop and mobile widths. */
+.uploaded-files-panel th { height: 44px; font-size: 12px; color: #756568; }
+.uploaded-files-panel td { padding-block: 16px; font-size: 14px; line-height: 1.5; }
+.uploaded-files-panel td:first-child { min-width: 240px; max-width: 420px; white-space: normal; overflow-wrap: anywhere; }
+.uploaded-files-panel td select { min-height: 40px; padding: 8px; font: inherit; }
+.uploaded-files-panel td a { display: inline-block; padding-block: 6px; color: #7b1023; text-underline-offset: 3px; }
+.documents-page .uploaded-files-panel .registry-heading h2 { font-size: 18px; }
+.uploaded-files-panel .registry-heading > span { font-size: 14px; }
+.documents-page .documents-actions button { min-height: 44px; padding: 10px 16px; border-radius: 7px; font-size: 14px; font-weight: 600; }
+.documents-page .documents-title-row > div > p:not(.eyebrow),
+.documents-page .uploaded-file { font-size: 14px; line-height: 1.5; }
+.documents-page .documents-title-row .eyebrow { font-size: 12px !important; }
+.dashboard-header .search input { width: 100%; font-size: 14px; }
+.dashboard-header .office-label small { font-size: 11px; }
+.dashboard-header .office-label strong { font-size: 14px; }
+.upload-pdf-modal header span, .pdf-dropzone span { font-size: 14px; line-height: 1.5; }
+.documents-actions { flex-wrap: wrap; }
+.uploaded-files-panel .preview-file-button { padding: 6px 0; border: 0; background: transparent; color: #7b1023; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.pdf-preview-dialog { width: min(1100px, 94vw); height: 90dvh; max-height: 94dvh; padding: 0; border: 1px solid #dacbd0; border-radius: 12px; background: #fff; color: #321b20; }
+.pdf-preview-dialog[open] { display: flex; flex-direction: column; }
+.pdf-preview-dialog::backdrop { background: #21060ca8; }
+.pdf-preview-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; }
+.pdf-preview-dialog h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.pdf-preview-dialog header button { flex-shrink: 0; min-height: 44px; padding: 8px 12px; border-radius: 7px; cursor: pointer; font-size: 14px; }
+.pdf-preview-dialog iframe { flex: 1; min-height: 0; width: 100%; border: 0; }

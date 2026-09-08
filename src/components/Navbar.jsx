@@ -2,7 +2,7 @@ export default function Navbar({ isMenuOpen, onToggleMenu }) {
   return (
     <header className="dashboard-header">
       <button className="mobile-menu" onClick={onToggleMenu} aria-controls="main-sidebar" aria-expanded={isMenuOpen} aria-label="Toggle menu">☰</button>
-      <div className="search"><span>⌕</span><input aria-label="Search" placeholder="Search documents, reference numbers..." /><kbd>⌘ K</kbd></div>
+      <div className="search"><span>⌕</span><input aria-label="Search" placeholder="Search documents, reference numbers..." /></div>
       <div className="header-actions">
         <button className="notification" aria-label="Notifications">♢<i /></button>
         <div className="header-divider" />
