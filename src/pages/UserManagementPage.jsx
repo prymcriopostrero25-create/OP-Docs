@@ -43,7 +43,7 @@ export default function UserManagementPage() {
     setShowForm(false)
   }
 
-  return <main className="dashboard-content admin-page">
+  return <main className="dashboard-content admin-page user-management-page">
     <div className="admin-title"><div><p className="eyebrow">Administration</p><h1>User Management</h1><p>View the accounts configured in the CREDENTIALS sheet.</p></div><button className="secondary-action" onClick={loadUsers} disabled={status === 'loading'}>↻ Refresh users</button></div>
     <section className="admin-stats">
       <article><span>Total users</span><strong>{users.length}</strong><small>Loaded from CREDENTIALS</small></article>

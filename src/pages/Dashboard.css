@@ -84,6 +84,62 @@
   .sidebar-user{justify-content:center}
   .sidebar:hover .sidebar-user{justify-content:flex-start}
 }
+
+/* Keep Activity Log typography consistent with the enlarged Overview content. */
+.activity-log-page .page-title-row h1 { font-size:27px; }
+.activity-log-page .page-title-row p:not(.eyebrow),
+.activity-log-page .archive-export,
+.activity-log-page .activity-overview small,
+.activity-log-page .activity-overview span,
+.activity-log-page .activity-log-header p,
+.activity-log-page .archive-search input,
+.activity-log-page .archive-tools select,
+.activity-log-page .day-label span,
+.activity-log-page .activity-event time,
+.activity-log-page .activity-event > div p,
+.activity-log-page .activity-event > div small,
+.activity-log-page .activity-event > button,
+.activity-log-page .activity-empty,
+.activity-log-page .load-more { font-size:12px; }
+.activity-log-page .activity-overview strong { font-size:24px; }
+.activity-log-page .activity-log-header h2 { font-size:14px; }
+
+/* Keep User Logs typography consistent with the enlarged Overview content. */
+.user-logs-page .page-title-row h1 { font-size:27px; }
+.user-logs-page .page-title-row p:not(.eyebrow),
+.user-logs-page .archive-export,
+.user-logs-page .user-logs-header p,
+.user-logs-page .archive-search input,
+.user-logs-page .user-logs-table th,
+.user-logs-page .user-logs-table td,
+.user-logs-page .user-logs-state,
+.user-logs-page .user-logs-error button { font-size:12px; }
+.user-logs-page .user-logs-header h2 { font-size:14px; }
+.user-logs-page .log-status { font-size:12px; }
+
+/* Keep Documents typography consistent with the enlarged Overview content. */
+.documents-page .documents-title-row p:not(.eyebrow),
+.documents-page .uploaded-file,
+.documents-page .document-summary span,
+.documents-page .document-search input,
+.documents-page .documents-toolbar select,
+.documents-page .filter-button,
+.documents-page .registry-heading p,
+.documents-page .documents-pagination,
+.documents-page .document-type-pages small { font-size:12px; }
+.documents-page .documents-title-row h1 { font-size:27px; }
+.documents-page .document-summary strong { font-size:24px; }
+.documents-page .registry-heading h2 { font-size:14px; }
+.documents-page .registry-heading button { font-size:12px; }
+.documents-page .document-type-pages strong { font-size:14px; }
+.documents-page .document-type-pages button > span { font-size:9px; }
+.documents-page .registry-table th { font-size:11px; }
+.documents-page .registry-table td,
+.documents-page .registry-table .doc-cell strong { font-size:12px; }
+.documents-page .registry-table .doc-cell small,
+.documents-page .registry-table .status { font-size:11px; }
+.documents-page .registry-table select { font-size:12px; }
+.documents-page .documents-pagination button { font-size:12px; }
 /* Responsive navigation and touch layouts. */
 .sidebar-close { display: none; }
 .dashboard-main, .dashboard-content, .settings-main, .settings-side { min-width: 0; }
