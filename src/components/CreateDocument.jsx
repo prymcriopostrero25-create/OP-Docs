@@ -2,7 +2,7 @@
 
 const types = ['Executive Memorandum', 'Special Order', 'Travel Order', 'Authority to Travel Abroad', 'Certificate of Travel']
 const sheetNames = { 'Executive Memorandum': 'EX_Memo', 'Travel Order': 'Trav_Ord', 'Special Order': 'Spe_Ord', 'Authority to Travel Abroad': 'Auth_Travel', 'Certificate of Travel': 'Cert_Travel' }
-const emptyForm = () => ({ templateVersion: 2, type: types[0], reference: '', recipientLabel: 'For', recipientPosition: '', institution: '', thru: '', subject: '', date: '', body: '', status: 'Draft', additionalInstitution: '', place: '', inclusiveDate: '', transportation: '', purpose: '', remarks: '', signatory: 'EDGARDO H. ROSALES, JD, Ed.D.', signatoryPosition: 'SUC President II', requestId: crypto.randomUUID() })
+const emptyForm = () => ({ templateVersion: 2, type: types[0], reference: '', recipientLabel: 'For', recipientName: '', recipientPosition: '', institution: '', thru: '', subject: '', date: '', body: '', status: 'Draft', additionalInstitution: '', place: '', inclusiveDate: '', transportation: '', purpose: '', remarks: '', signatory: 'EDGARDO H. ROSALES, JD, Ed.D.', signatoryPosition: 'SUC President II', requestId: crypto.randomUUID() })
 
 export default function CreateDocument({ isOpen, onClose, onCreate, canChangeStatus = false }) {
   const [form, setForm] = useState(emptyForm)
@@ -15,7 +15,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(form.type)
   const travel = form.type === 'Travel Order'
   const fields = simple ? [['body', 'Body']] : [
-    ['reference', 'Reference number'], ['recipientLabel', 'Recipient label'], ['recipientPosition', 'Position'], ['institution', 'Name of institution'],
+    ['reference', 'Reference number'], ['recipientLabel', 'Recipient label'], ...(memo ? [['recipientName', 'Name of recipient']] : []), ['recipientPosition', memo ? 'Position / office' : 'Position'], ['institution', memo ? 'Name of institution or office' : 'Name of institution'],
     ...(travel ? [['place', 'Place'], ['inclusiveDate', 'Inclusive date'], ['transportation', 'Transportation'], ['purpose', 'Purpose'], ['remarks', 'Remarks']]
       : [['thru', 'Thru (Optional)'], ['subject', 'Subject'], ['date', 'Date'], ['body', 'Body'], ['additionalInstitution', 'Additional name of institution (Optional)']]),
   ]

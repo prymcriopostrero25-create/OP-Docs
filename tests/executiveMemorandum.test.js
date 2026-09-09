@@ -142,10 +142,10 @@ test('renderer emits A4 minimalist header, aligned FOR section and unchanged par
   assert.ok(paragraphs.some(p => p.text === 'For guidance and compliance.' && !p.bold))
 })
 
-test('EX_Memo matches the PDF columns and links its internal ID to the saved file', () => {
+test('EX_Memo matches its live-sheet columns and links its internal ID to the saved file', () => {
   const f = fixture()
   assert.equal(f.ctx.createExecutiveMemorandum(sample).success, true)
-  assert.deepEqual(f.shortRows.EX_Memo[1], ['EM-2026-203', 'Executive Memorandum No. 203, s. 2026', 'For', '', '', '', sample.subject.toUpperCase(), 'September 9, 2026', sample.body, 'Draft', ''])
+  assert.deepEqual(f.shortRows.EX_Memo[1], ['EM-2026-203', 'Executive Memorandum No. 203, s. 2026', 'For', '', '', '', '', sample.subject.toUpperCase(), 'September 9, 2026', sample.body, 'Draft', ''])
   assert.equal(f.shortLink, 'https://drive.google.com/file/d/actual-google-doc-id/view')
   assert.deepEqual(f.destinations, ['OP Systems/Executive Memorandum/2026'])
 })
@@ -167,16 +167,16 @@ test('all other creation types persist to their matching tab and type/year Drive
   }
 })
 
-test('createdDocumentSheet tolerates header case and spacing variants from the workbook template contract', () => {
+test('createdDocumentSheet accepts the live EX_Memo header row', () => {
   const f = fixture()
-  f.shortRows.EX_Memo[0] = ['id', 'reference number', 'recipient label (to or for)', 'position', 'name of institution', 'thru (optional)', 'subject', 'date', 'body', 'status', 'additional name of institution (optional)']
+  f.shortRows.EX_Memo[0] = ['id', 'reference number', 'recipient label', 'name of the recipient', 'position/office', 'name of the institution or office', 'thru', 'subject', 'date', 'body', 'status', 'additional name of office']
   assert.equal(f.ctx.createdDocumentSheet('Executive Memorandum').getLastRow(), 1)
 })
 
-test('createdDocumentSheet tolerates workbook wording and punctuation variants in the EX_Memo header row', () => {
+test('createdDocumentSheet rejects an obsolete EX_Memo column layout', () => {
   const f = fixture()
   f.shortRows.EX_Memo[0] = ['ID', 'REFERENCE NO.', 'RECIPIENT LABEL (TO OR FOR)', 'POSITION', 'NAME OF INSTITUTION', 'THRU (OPTIONAL)', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF INSTITUTION OPTIONAL']
-  assert.equal(f.ctx.createdDocumentSheet('Executive Memorandum').getLastRow(), 1)
+  assert.throws(() => f.ctx.createdDocumentSheet('Executive Memorandum'), /Check the EX_Memo sheet headers/)
 })
 
 test('incompatible short-tab headers stop creation without overwriting the sheet', () => {
@@ -187,7 +187,7 @@ test('incompatible short-tab headers stop creation without overwriting the sheet
   assert.equal(f.shortRows.EX_Memo[0][0], 'CUSTOM HEADER')
 })
 
-const templateSample = { ...sample, templateVersion: 2, type: 'Executive Memorandum', reference: '203', recipientLabel: 'To', recipientPosition: 'Director', institution: 'JHCSC', thru: 'Vice President', additionalInstitution: 'Main Campus' }
+const templateSample = { ...sample, templateVersion: 2, type: 'Executive Memorandum', reference: '203', recipientLabel: 'To', recipientName: 'Dr. Ana Santos', recipientPosition: 'Director', institution: 'JHCSC', thru: 'Vice President', additionalInstitution: 'Main Campus' }
 
 test('PDF memo and special-order schemas log each field in the specified column', () => {
   for (const [type, tab] of [['Executive Memorandum', 'EX_Memo'], ['Special Order', 'Spe_Ord']]) {
@@ -195,8 +195,10 @@ test('PDF memo and special-order schemas log each field in the specified column'
     const request = { ...templateSample, type }
     const result = f.ctx.createDocument(request)
     assert.equal(result.success, true)
-    assert.equal(f.shortRows[tab][0].length, 11)
-    assert.deepEqual(f.shortRows[tab][1].slice(2), ['To', 'Director', 'JHCSC', 'Vice President', type === 'Executive Memorandum' ? sample.subject.toUpperCase() : sample.subject, 'September 9, 2026', sample.body, 'Draft', 'Main Campus'])
+    assert.equal(f.shortRows[tab][0].length, type === 'Executive Memorandum' ? 12 : 11)
+    assert.deepEqual(f.shortRows[tab][1].slice(2), type === 'Executive Memorandum'
+      ? ['To', 'Dr. Ana Santos', 'Director', 'JHCSC', 'Vice President', sample.subject.toUpperCase(), 'September 9, 2026', sample.body, 'Draft', 'Main Campus']
+      : ['To', 'Director', 'JHCSC', 'Vice President', sample.subject, 'September 9, 2026', sample.body, 'Draft', 'Main Campus'])
     assert.equal(f.rendered.recipientPosition, 'Director')
     assert.equal(f.rendered.thru, 'Vice President')
     assert.equal(f.rendered.additionalInstitution, 'Main Campus')
@@ -237,8 +239,8 @@ test('status synchronization changes only STATUS in the matching PDF-template ro
   f.ctx.createDocument(templateSample)
   const before = f.shortRows.EX_Memo[1].slice()
   f.ctx.syncCreatedDocumentStatus('Executive Memorandum', 'EM-2026-203', 'Approved')
-  assert.equal(f.shortRows.EX_Memo[1][9], 'Approved')
-  assert.deepEqual(f.shortRows.EX_Memo[1].filter((_, i) => i !== 9), before.filter((_, i) => i !== 9))
+  assert.equal(f.shortRows.EX_Memo[1][10], 'Approved')
+  assert.deepEqual(f.shortRows.EX_Memo[1].filter((_, i) => i !== 10), before.filter((_, i) => i !== 10))
 })
 
 test('failed allocation recovers the reservation on retry, including a reopened form', () => {
@@ -304,7 +306,7 @@ test('running createdDocumentSheet from the editor routes to setup without accep
 
 test('live EX_Memo headers are accepted so createDocument can save without header errors', () => {
   const f = fixture()
-  f.shortRows.EX_Memo[0] = ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION/OFFICE OF THE RECIPIENT', 'NAME OF THE INSTITUTION', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE']
+  f.shortRows.EX_Memo[0] = ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF THE INSTITUTION OR OFFICE', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE']
   assert.ok(f.ctx.createdDocumentSheet('Executive Memorandum'))
 })
 

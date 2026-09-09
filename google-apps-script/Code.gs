@@ -30,7 +30,7 @@ const CREATED_DOCUMENT_SHEETS = {
   'Authority to Travel Abroad': 'Auth_Travel', 'Certificate of Travel': 'Cert_Travel',
 };
 const CREATED_DOCUMENT_HEADERS = {
-  EX_Memo: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION/OFFICE OF THE RECIPIENT', 'NAME OF THE INSTITUTION', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE'],
+  EX_Memo: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF THE INSTITUTION OR OFFICE', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE'],
   Spe_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION/OFFICE OF THE RECIPIENT', 'NAME OF THE INSTITUTION', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE'],
   Trav_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION', 'NAME OF INSTITUTION', 'PLACE', 'INCLUSIVE DATE', 'TRANSPORTATION', 'PURPOSE', 'REMARKS'],
   Auth_Travel: ['ID', 'DATE (date created)', 'BODY'],
@@ -82,6 +82,8 @@ function logCreatedDocument(sheet, record, data, internalId) {
   const values = simple ? [internalId, record.date, data.body || data.content]
     : record.type === 'Travel Order'
       ? [internalId, record.id, label, data.recipientPosition, data.institution, data.place || data.destination, data.inclusiveDate || data.travelDates, data.transportation, data.purpose, data.remarks]
+      : record.type === 'Executive Memorandum'
+        ? [internalId, record.id, label, data.recipientName, data.recipientPosition, data.institution, data.thru, record.subject, record.date, data.body || data.content, record.status, data.additionalInstitution]
       : [internalId, record.id, label, data.recipientPosition, data.institution, data.thru, record.subject, record.date, data.body || data.content, record.status, data.additionalInstitution];
   // Keep the file URL on the ID, preserving the PDF's exact column count.
   sheet.getRange(row, 1).setNote(JSON.stringify({ createdDocumentId: internalId, reference: record.id, url: record.url }));
@@ -99,7 +101,7 @@ function syncCreatedDocumentStatus(type, internalId, status) {
   if (count < 1) return;
   const rows = sheet.getRange(2, 1, count, 1).getDisplayValues();
   const index = rows.findIndex(row => row[0] === internalId);
-  if (index >= 0) sheet.getRange(index + 2, 10).setValue(status);
+  if (index >= 0) sheet.getRange(index + 2, type === 'Executive Memorandum' ? 11 : 10).setValue(status);
 }
 
 function canChangeDocumentStatus(token) {
@@ -747,7 +749,7 @@ function renderExecutiveMemorandum(doc, data, logo) {
   });
   body.appendParagraph(data.number ? 'Executive Memorandum Order No. ' + data.number : data.reference).setSpacingBefore(12).setSpacingAfter(2).editAsText().setBold(true);
   body.appendParagraph('Series of ' + data.year).setSpacingAfter(18).editAsText().setBold(false);
-  const recipient = [data.recipient, data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
+  const recipient = [data.recipientName || data.recipient, data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
   const details = [[(data.recipientLabel || 'For').toUpperCase(), ':', recipient]];
   if (data.thru) details.push(['THRU', ':', data.thru]);
   const subjectRow = details.length;
@@ -794,7 +796,7 @@ function renderCreatedDocument(doc, data, type) {
   body.appendParagraph(type).editAsText().setBold(true);
   if (data.reference) body.appendParagraph(data.reference).editAsText().setBold(false);
   if (data.subject !== type) body.appendParagraph(data.subject).setSpacingAfter(12).editAsText().setBold(true);
-  const addressee = [data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
+  const addressee = [data.recipientName || data.recipient, data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
   const fields = [['DATE', executiveMemoDate(data.date)], [(data.recipientLabel || 'To').toUpperCase(), addressee], ['THRU', data.thru], ['PLACE', data.place || data.destination], ['INCLUSIVE DATE', data.inclusiveDate || data.travelDates], ['TRANSPORTATION', data.transportation], ['PURPOSE', data.purpose], ['REMARKS', data.remarks]];
   fields.filter(([, value]) => value).forEach(([label, value]) => body.appendParagraph(label + ': ' + value).editAsText().setBold(false));
   body.appendParagraph('').setSpacingAfter(6);
@@ -809,7 +811,9 @@ function validateTemplateDocument(request, type) {
   const data = {};
   const fields = simple ? ['body'] : travel
     ? ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'place', 'inclusiveDate', 'transportation', 'purpose', 'remarks']
-    : ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution'];
+    : type === 'Executive Memorandum'
+      ? ['reference', 'recipientLabel', 'recipientName', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution']
+      : ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution'];
   const optional = ['thru', 'additionalInstitution'];
   fields.forEach(key => {
     data[key] = String(request[key] || '').trim();
