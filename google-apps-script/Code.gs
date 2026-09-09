@@ -31,7 +31,7 @@ const CREATED_DOCUMENT_SHEETS = {
 };
 const CREATED_DOCUMENT_HEADERS = {
   EX_Memo: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF THE INSTITUTION OR OFFICE', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE'],
-  Spe_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION/OFFICE OF THE RECIPIENT', 'NAME OF THE INSTITUTION', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE'],
+  Spe_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF INSTITUTION/OFFICE', 'THRU (Optional)', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF INSTITUTION (OPTIONAL)'],
   Trav_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION', 'NAME OF INSTITUTION', 'PLACE', 'INCLUSIVE DATE', 'TRANSPORTATION', 'PURPOSE', 'REMARKS'],
   Auth_Travel: ['ID', 'DATE (date created)', 'BODY'],
   Cert_Travel: ['ID', 'DATE (date created)', 'BODY'],
@@ -84,6 +84,8 @@ function logCreatedDocument(sheet, record, data, internalId) {
       ? [internalId, record.id, label, data.recipientPosition, data.institution, data.place || data.destination, data.inclusiveDate || data.travelDates, data.transportation, data.purpose, data.remarks]
       : record.type === 'Executive Memorandum'
         ? [internalId, record.id, label, data.recipientName, data.recipientPosition, data.institution, data.thru, record.subject, record.date, data.body || data.content, record.status, data.additionalInstitution]
+      : record.type === 'Special Order'
+        ? [internalId, record.id, label, data.recipientName || data.recipient, data.recipientPosition, data.institution, data.thru, record.subject, record.date, data.body || data.content, record.status, data.additionalInstitution]
       : [internalId, record.id, label, data.recipientPosition, data.institution, data.thru, record.subject, record.date, data.body || data.content, record.status, data.additionalInstitution];
   // Keep the file URL on the ID, preserving the PDF's exact column count.
   sheet.getRange(row, 1).setNote(JSON.stringify({ createdDocumentId: internalId, reference: record.id, url: record.url }));
@@ -101,7 +103,7 @@ function syncCreatedDocumentStatus(type, internalId, status) {
   if (count < 1) return;
   const rows = sheet.getRange(2, 1, count, 1).getDisplayValues();
   const index = rows.findIndex(row => row[0] === internalId);
-  if (index >= 0) sheet.getRange(index + 2, type === 'Executive Memorandum' ? 11 : 10).setValue(status);
+  if (index >= 0) sheet.getRange(index + 2, ['Executive Memorandum', 'Special Order'].includes(type) ? 11 : 10).setValue(status);
 }
 
 function canChangeDocumentStatus(token) {
@@ -811,7 +813,7 @@ function validateTemplateDocument(request, type) {
   const data = {};
   const fields = simple ? ['body'] : travel
     ? ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'place', 'inclusiveDate', 'transportation', 'purpose', 'remarks']
-    : type === 'Executive Memorandum'
+    : ['Executive Memorandum', 'Special Order'].includes(type)
       ? ['reference', 'recipientLabel', 'recipientName', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution']
       : ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution'];
   const optional = ['thru', 'additionalInstitution'];

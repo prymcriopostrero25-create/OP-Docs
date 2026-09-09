@@ -12,16 +12,22 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
   const [created, setCreated] = useState(null)
   if (!isOpen) return null
   const memo = form.type === 'Executive Memorandum'
+  const specialOrder = form.type === 'Special Order'
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(form.type)
   const travel = form.type === 'Travel Order'
   const fields = simple ? [['body', 'Body']] : [
-    ['reference', 'Reference number'], ['recipientLabel', 'Recipient label'], ...(memo ? [['recipientName', 'Name of recipient']] : []), ['recipientPosition', memo ? 'Position / office' : 'Position'], ['institution', memo ? 'Name of institution or office' : 'Name of institution'],
+    ['reference', 'Reference number'], ['recipientLabel', 'Recipient label'], ...((memo || specialOrder) ? [['recipientName', 'Name of recipient']] : []), ['recipientPosition', (memo || specialOrder) ? 'Position / office' : 'Position'], ['institution', memo ? 'Name of institution or office' : specialOrder ? 'Name of institution / office' : 'Name of institution'],
     ...(travel ? [['place', 'Place'], ['inclusiveDate', 'Inclusive date'], ['transportation', 'Transportation'], ['purpose', 'Purpose'], ['remarks', 'Remarks']]
       : [['thru', 'Thru (Optional)'], ['subject', 'Subject'], ['date', 'Date'], ['body', 'Body'], ['additionalInstitution', 'Additional name of institution (Optional)']]),
   ]
 
   function updateField(event) {
     const { name, value } = event.target
+    if (name === 'type') {
+      setForm({ ...emptyForm(), type: value })
+      setErrors({})
+      return
+    }
     setForm(current => ({ ...current, [name]: value }))
     setErrors(current => ({ ...current, [name]: '' }))
   }

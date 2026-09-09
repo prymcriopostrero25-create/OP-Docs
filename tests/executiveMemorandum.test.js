@@ -159,7 +159,7 @@ test('all other creation types persist to their matching tab and type/year Drive
     assert.equal(f.rows[0][1], request.reference)
     assert.equal(f.shortRows[tab].length, 2)
     if (tab === 'Trav_Ord') assert.deepEqual(f.shortRows.Trav_Ord[1].slice(1), [request.reference, 'To', '', '', request.destination, request.travelDates, request.transportation, request.purpose, request.remarks])
-    else if (tab === 'Spe_Ord') assert.equal(f.shortRows[tab][1][6], request.title)
+    else if (tab === 'Spe_Ord') assert.equal(f.shortRows[tab][1][7], request.title)
     else assert.deepEqual(f.shortRows[tab][1].slice(1), ['September 9, 2026', request.content])
     assert.equal(f.ctx.createDocument(request).success, true)
     assert.equal(f.allocations, 1)
@@ -195,10 +195,10 @@ test('PDF memo and special-order schemas log each field in the specified column'
     const request = { ...templateSample, type }
     const result = f.ctx.createDocument(request)
     assert.equal(result.success, true)
-    assert.equal(f.shortRows[tab][0].length, type === 'Executive Memorandum' ? 12 : 11)
-    assert.deepEqual(f.shortRows[tab][1].slice(2), type === 'Executive Memorandum'
-      ? ['To', 'Dr. Ana Santos', 'Director', 'JHCSC', 'Vice President', sample.subject.toUpperCase(), 'September 9, 2026', sample.body, 'Draft', 'Main Campus']
-      : ['To', 'Director', 'JHCSC', 'Vice President', sample.subject, 'September 9, 2026', sample.body, 'Draft', 'Main Campus'])
+    assert.equal(f.shortRows[tab][0].length, ['Executive Memorandum', 'Special Order'].includes(type) ? 12 : 11)
+    assert.deepEqual(f.shortRows[tab][1].slice(2), ['Executive Memorandum', 'Special Order'].includes(type)
+      ? ['To', 'Dr. Ana Santos', 'Director', 'JHCSC', 'Vice President', type === 'Executive Memorandum' ? sample.subject.toUpperCase() : sample.subject, 'September 9, 2026', sample.body, 'Draft', 'Main Campus']
+      : [])
     assert.equal(f.rendered.recipientPosition, 'Director')
     assert.equal(f.rendered.thru, 'Vice President')
     assert.equal(f.rendered.additionalInstitution, 'Main Campus')
@@ -308,6 +308,12 @@ test('live EX_Memo headers are accepted so createDocument can save without heade
   const f = fixture()
   f.shortRows.EX_Memo[0] = ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF THE INSTITUTION OR OFFICE', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE']
   assert.ok(f.ctx.createdDocumentSheet('Executive Memorandum'))
+})
+
+test('live Spe_Ord headers are accepted so Special Order can save without header errors', () => {
+  const f = fixture()
+  f.shortRows.Spe_Ord[0] = ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF INSTITUTION/OFFICE', 'THRU (Optional)', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF INSTITUTION (OPTIONAL)']
+  assert.ok(f.ctx.createdDocumentSheet('Special Order'))
 })
 
 test('reopened form resumes a failed render with its existing file', () => {
