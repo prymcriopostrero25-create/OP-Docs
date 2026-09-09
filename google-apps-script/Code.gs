@@ -453,6 +453,24 @@ function checkUploadWriteAccess() {
   console.log('Write access confirmed and diagnostic file moved to trash.');
 }
 
+// Run manually in the Apps Script editor when you need the consent popup
+// for the Drive and Google Docs scopes used by this project.
+function requestAuthorizationPopup() {
+  const spreadsheet = appSpreadsheet();
+  const folder = DriveApp.getFolderById(UPLOAD_FOLDER_ID);
+  const tempDocumentName = 'OP Authorization Check ' + Utilities.getUuid();
+  console.log('Spreadsheet access OK: ' + spreadsheet.getName());
+  console.log('Drive folder access OK: ' + folder.getName());
+  const tempDoc = DocumentApp.create(tempDocumentName);
+  console.log('Temporary Google Doc created: ' + tempDocumentName);
+  tempDoc.saveAndClose();
+  const tempFile = DriveApp.getFileById(tempDoc.getId());
+  if (tempFile && !tempFile.isTrashed()) {
+    tempFile.setTrashed(true);
+  }
+  console.log('Temporary Google Doc moved to trash. Authorization request completed.');
+}
+
 // MAIN Files: ACTIVITY, ID, DATE, SUBJECT, FILE LINKS.
 function getDocumentSession(token) {
   if (typeof token !== 'string' || !token) return false;
