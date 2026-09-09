@@ -290,6 +290,12 @@ test('running createdDocumentSheet from the editor routes to setup without accep
   assert.ok(f.ctx.createdDocumentSheet('Executive Memorandum'))
 })
 
+test('live EX_Memo headers are accepted so createDocument can save without header errors', () => {
+  const f = fixture()
+  f.shortRows.EX_Memo[0] = ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION/OFFICE OF THE RECIPIENT', 'NAME OF THE INSTITUTION', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE']
+  assert.ok(f.ctx.createdDocumentSheet('Executive Memorandum'))
+})
+
 test('reopened form resumes a failed render with its existing file', () => {
   const f = fixture()
   f.failRender = true
