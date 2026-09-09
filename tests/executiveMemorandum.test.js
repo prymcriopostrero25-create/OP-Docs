@@ -167,6 +167,18 @@ test('all other creation types persist to their matching tab and type/year Drive
   }
 })
 
+test('createdDocumentSheet tolerates header case and spacing variants from the workbook template contract', () => {
+  const f = fixture()
+  f.shortRows.EX_Memo[0] = ['id', 'reference number', 'recipient label (to or for)', 'position', 'name of institution', 'thru (optional)', 'subject', 'date', 'body', 'status', 'additional name of institution (optional)']
+  assert.equal(f.ctx.createdDocumentSheet('Executive Memorandum').getLastRow(), 1)
+})
+
+test('createdDocumentSheet tolerates workbook wording and punctuation variants in the EX_Memo header row', () => {
+  const f = fixture()
+  f.shortRows.EX_Memo[0] = ['ID', 'REFERENCE NO.', 'RECIPIENT LABEL (TO OR FOR)', 'POSITION', 'NAME OF INSTITUTION', 'THRU (OPTIONAL)', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF INSTITUTION OPTIONAL']
+  assert.equal(f.ctx.createdDocumentSheet('Executive Memorandum').getLastRow(), 1)
+})
+
 test('incompatible short-tab headers stop creation without overwriting the sheet', () => {
   const f = fixture()
   f.shortRows.EX_Memo[0] = ['CUSTOM HEADER']
