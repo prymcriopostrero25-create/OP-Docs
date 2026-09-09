@@ -25,6 +25,66 @@ function checkLoginSetup() {
 const UPLOAD_FOLDER_ID = '1OVvmtvYjsp4WZz-RY7NkExyNIotO-Vji';
 const FILING_TYPES = ['Executive Memorandum', 'Special Order', 'Travel Order', 'Authority to Travel Abroad', 'Certificate of Travel'];
 const DOCUMENT_STATUSES = ['Draft', 'For Review', 'For Signature', 'Approved', 'Out'];
+const CREATED_DOCUMENT_SHEETS = {
+  'Executive Memorandum': 'EX_Memo', 'Travel Order': 'Trav_Ord', 'Special Order': 'Spe_Ord',
+  'Authority to Travel Abroad': 'Auth_Travel', 'Certificate of Travel': 'Cert_Travel',
+};
+const CREATED_DOCUMENT_HEADERS = {
+  EX_Memo: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION', 'NAME OF INSTITUTION', 'THRU (Optional)', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF INSTITUTION (OPTIONAL)'],
+  Spe_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION', 'NAME OF INSTITUTION', 'THRU (Optional)', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF INSTITUTION (OPTIONAL)'],
+  Trav_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION', 'NAME OF INSTITUTION', 'PLACE', 'INCLUSIVE DATE', 'TRANSPORTATION', 'PURPOSE', 'REMARKS'],
+  Auth_Travel: ['ID', 'DATE (date created)', 'BODY'],
+  Cert_Travel: ['ID', 'DATE (date created)', 'BODY'],
+};
+
+function createdDocumentSheet(type) {
+  // The editor's Run button supplies no arguments. Treat that as a setup check.
+  if (arguments.length === 0) return checkCreateDocumentSetup();
+  const name = CREATED_DOCUMENT_SHEETS[type];
+  if (!name) throw new Error('Unsupported document type.');
+  const sheet = appSpreadsheet().getSheetByName(name);
+  if (!sheet) throw new Error('The ' + name + ' sheet is missing.');
+  const headers = CREATED_DOCUMENT_HEADERS[name];
+  if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  const actual = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0].map(value => String(value).trim().replace(/\s+/g, ' '));
+  if (actual.join('|') !== headers.join('|')) throw new Error('Check the ' + name + ' sheet headers.');
+  return sheet;
+}
+
+function logCreatedDocument(sheet, record, data, internalId) {
+  const count = sheet.getLastRow() - 1;
+  const rows = count > 0 ? sheet.getRange(2, 1, count, 1).getDisplayValues() : [];
+  const notes = count > 0 ? sheet.getRange(2, 1, count, 1).getNotes() : [];
+  const existing = rows.findIndex((row, index) => {
+    let note = {};
+    try { note = JSON.parse(notes[index][0] || '{}') || {}; } catch (error) { /* Legacy rows. */ }
+    return row[0] === internalId || note.createdDocumentId === internalId;
+  });
+  const row = existing >= 0 ? existing + 2 : sheet.getLastRow() + 1;
+  const label = data.recipientLabel || (data.to ? 'To' : 'For');
+  const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(record.type);
+  const values = simple ? [internalId, record.date, data.body || data.content]
+    : record.type === 'Travel Order'
+      ? [internalId, record.id, label, data.recipientPosition, data.institution, data.place || data.destination, data.inclusiveDate || data.travelDates, data.transportation, data.purpose, data.remarks]
+      : [internalId, record.id, label, data.recipientPosition, data.institution, data.thru, record.subject, record.date, data.body || data.content, record.status, data.additionalInstitution];
+  // Keep the file URL on the ID, preserving the PDF's exact column count.
+  sheet.getRange(row, 1).setNote(JSON.stringify({ createdDocumentId: internalId, reference: record.id, url: record.url }));
+  sheet.getRange(row, 1, 1, values.length).setRichTextValues([values.map((value, index) => {
+    const builder = SpreadsheetApp.newRichTextValue().setText(String(value || ''));
+    if (index === 0) builder.setLinkUrl(record.url);
+    return builder.build();
+  })]);
+}
+
+function syncCreatedDocumentStatus(type, internalId, status) {
+  if (!internalId || !['Executive Memorandum', 'Special Order'].includes(type)) return;
+  const sheet = createdDocumentSheet(type);
+  const count = sheet.getLastRow() - 1;
+  if (count < 1) return;
+  const rows = sheet.getRange(2, 1, count, 1).getDisplayValues();
+  const index = rows.findIndex(row => row[0] === internalId);
+  if (index >= 0) sheet.getRange(index + 2, 10).setValue(status);
+}
 
 function canChangeDocumentStatus(token) {
   if (typeof token !== 'string' || !token) return false;
@@ -55,6 +115,7 @@ function updateDocumentStatus(request) {
     try { metadata = JSON.parse(cell.getNote() || '{}'); } catch (error) { /* Legacy metadata. */ }
     if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
     metadata.status = request.status;
+    syncCreatedDocumentStatus(metadata.type, metadata.createdDocumentId, request.status);
     cell.setNote(JSON.stringify(metadata));
     appendActivityEvent({ activity: 'Status changed to ' + request.status, id: rows[index][1], date: new Date().toISOString(), subject: rows[index][3], url: rows[index][4], type: documentFromRow(rows[index], JSON.stringify(metadata)).type });
     SpreadsheetApp.flush();
@@ -174,6 +235,11 @@ function deleteDocumentFiles(record, mainSheet, mainRow) {
 function doPost(e) {
   try {
     const request = JSON.parse(e.postData.contents || '{}');
+    if (request.action === 'createExecutiveMemorandum') return createExecutiveMemorandum(request);
+    if (request.action === 'createDocument') return createDocument(request);
+    if (request.action === 'activityLogs' && !isSuperAdminSession(request.token)) {
+      return jsonResponse({ success: false, message: 'Super admin access is required.' });
+    }
     if (request.action === 'logout') return logoutUser(request.token);
     if (['editDocument', 'deleteDocument'].includes(request.action)) return mutateDocument(request);
     if (request.action === 'updateDocumentStatus') return updateDocumentStatus(request);
@@ -300,7 +366,7 @@ function logUserEvent(userName, action) {
   }
 
   logsSheet.appendRow([new Date(), `${userName} ${action}`]);
-  logsSheet.getRange(logsSheet.getLastRow(), 1).setNumberFormat('m/d/yyyy h:mma');
+  logsSheet.getRange(logsSheet.getLastRow(), 1).setNumberFormat('m/d/yyyy h:mm AM/PM');
 }
 
 function getUserLogs() {
@@ -310,6 +376,7 @@ function getUserLogs() {
     return jsonResponse({ success: true, logs: [] });
   }
 
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).setNumberFormat('m/d/yyyy h:mm AM/PM');
   const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getDisplayValues();
   const logs = rows.reverse().map((row) => ({
     timestamp: String(row[0]).trim(),
@@ -597,4 +664,291 @@ function removeKnownSamples() {
     SpreadsheetApp.flush();
     console.log('Moved known sample PDFs to trash and cleared ' + cleared + ' sample log rows. Real documents preserved.');
   } finally { lock.releaseLock(); }
+}
+
+function validateExecutiveMemorandum(request) {
+  const data = {};
+  const labels = { number: 'document number', year: 'series', recipient: 'FOR recipient', subject: 'subject', date: 'date', body: 'body', signatory: 'signatory', position: 'position' };
+  Object.keys(labels).forEach(key => {
+    data[key] = String(request[key] || '').trim();
+    if (!data[key]) throw new Error('Please enter the ' + labels[key] + '.');
+  });
+  if (!/^\d{1,6}$/.test(data.number) || Number(data.number) < 1) throw new Error('Enter a document number from 1 to 999999.');
+  data.number = String(Number(data.number)).padStart(3, '0');
+  if (!/^(19|20)\d{2}$/.test(data.year)) throw new Error('Enter a series from 1900 to 2099.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date) || isNaN(Date.parse(data.date)) || new Date(data.date).toISOString().slice(0, 10) !== data.date) throw new Error('Choose a valid memorandum date.');
+  data.cc = String(request.cc || '').trim();
+  Object.keys(data).forEach(key => { if (data[key].length > (key === 'body' ? 50000 : 2000)) throw new Error('The ' + (labels[key] || key) + ' is too long.'); });
+  data.subject = data.subject.toUpperCase();
+  return data;
+}
+
+function executiveMemoDate(value) {
+  const parts = value.split('-').map(Number);
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  return months[parts[1] - 1] + ' ' + parts[2] + ', ' + parts[0];
+}
+
+function renderExecutiveMemorandum(doc, data, logo) {
+  const body = doc.getBody();
+  body.clear();
+  body.setPageWidth(595.28).setPageHeight(841.89).setMarginTop(54).setMarginBottom(54).setMarginLeft(64.8).setMarginRight(64.8);
+  body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 11 });
+  const header = doc.getHeader() || doc.addHeader();
+  header.clear();
+  const image = header.appendParagraph('').setAlignment(DocumentApp.HorizontalAlignment.CENTER).appendInlineImage(logo);
+  image.setHeight(Math.round(55 * image.getHeight() / image.getWidth())).setWidth(55);
+  ['J.H. CERILLES STATE COLLEGE', 'Mati, San Miguel, Zamboanga del Sur', 'main@jhcsc.edu.ph | +63 915 2484 538', 'OFFICE OF THE PRESIDENT'].forEach((text, index) => {
+    const p = header.appendParagraph(text).setAlignment(DocumentApp.HorizontalAlignment.CENTER).setSpacingAfter(index === 3 ? 12 : 2);
+    p.editAsText().setFontFamily('Arial').setFontSize(index === 0 ? 12 : 10).setBold(index === 0 || index === 3);
+  });
+  body.appendParagraph(data.number ? 'Executive Memorandum Order No. ' + data.number : data.reference).setSpacingBefore(12).setSpacingAfter(2).editAsText().setBold(true);
+  body.appendParagraph('Series of ' + data.year).setSpacingAfter(18).editAsText().setBold(false);
+  const recipient = [data.recipient, data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
+  const details = [[(data.recipientLabel || 'For').toUpperCase(), ':', recipient]];
+  if (data.thru) details.push(['THRU', ':', data.thru]);
+  const subjectRow = details.length;
+  details.push(['SUBJECT', ':', data.subject], ['DATE', ':', executiveMemoDate(data.date).toUpperCase()]);
+  const info = body.appendTable(details);
+  info.setBorderWidth(0).setColumnWidth(0, 64).setColumnWidth(1, 12).setColumnWidth(2, 377.68);
+  for (let row = 0; row < details.length; row++) {
+    for (let col = 0; col < 3; col++) info.getCell(row, col).setPaddingTop(4).setPaddingBottom(7);
+    info.getCell(row, 0).editAsText().setBold(true);
+  }
+  info.getCell(subjectRow, 2).editAsText().setBold(true);
+  body.appendParagraph('').setSpacingAfter(6);
+  data.body.split(/\r?\n/).forEach(line => body.appendParagraph(line).setLineSpacing(1.15).setSpacingAfter(6).editAsText().setBold(false));
+  body.appendParagraph(data.signatory).setSpacingBefore(36).setSpacingAfter(0).editAsText().setBold(true);
+  body.appendParagraph(data.position).setSpacingAfter(12).editAsText().setBold(false);
+  if (data.cc) body.appendParagraph('cc:\n' + data.cc).editAsText().setFontSize(10).setBold(false);
+  doc.saveAndClose();
+}
+
+function createExecutiveMemorandum(request) {
+  return createDocument({ ...request, type: 'Executive Memorandum' });
+}
+
+function validateCreatedDocument(request, type) {
+  const data = {};
+  const required = ['title', 'reference', 'year', 'date', 'content'];
+  if (type === 'Travel Order') required.push('to');
+  ['title', 'reference', 'year', 'date', 'content', 'owner', 'to', 'recipient', 'destination', 'travelDates', 'transportation', 'purpose', 'remarks'].forEach(key => {
+    data[key] = String(request[key] || '').trim();
+    if (required.includes(key) && !data[key]) throw new Error('Please enter the ' + key + '.');
+    if (data[key].length > (key === 'content' ? 50000 : 2000)) throw new Error('The ' + key + ' is too long.');
+  });
+  if (!/^(19|20)\d{2}$/.test(data.year)) throw new Error('Enter a year from 1900 to 2099.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date) || isNaN(Date.parse(data.date)) || new Date(data.date).toISOString().slice(0, 10) !== data.date) throw new Error('Choose a valid document date.');
+  data.subject = data.title;
+  return data;
+}
+
+function renderCreatedDocument(doc, data, type) {
+  const body = doc.getBody();
+  body.clear();
+  body.setPageWidth(595.28).setPageHeight(841.89).setMarginTop(54).setMarginBottom(54).setMarginLeft(64.8).setMarginRight(64.8);
+  body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 11 });
+  body.appendParagraph(type).editAsText().setBold(true);
+  if (data.reference) body.appendParagraph(data.reference).editAsText().setBold(false);
+  if (data.subject !== type) body.appendParagraph(data.subject).setSpacingAfter(12).editAsText().setBold(true);
+  const addressee = [data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
+  const fields = [['DATE', executiveMemoDate(data.date)], [(data.recipientLabel || 'To').toUpperCase(), addressee], ['THRU', data.thru], ['PLACE', data.place || data.destination], ['INCLUSIVE DATE', data.inclusiveDate || data.travelDates], ['TRANSPORTATION', data.transportation], ['PURPOSE', data.purpose], ['REMARKS', data.remarks]];
+  fields.filter(([, value]) => value).forEach(([label, value]) => body.appendParagraph(label + ': ' + value).editAsText().setBold(false));
+  body.appendParagraph('').setSpacingAfter(6);
+  (data.body || data.content || '').split(/\r?\n/).forEach(line => body.appendParagraph(line).setSpacingAfter(6).editAsText().setBold(false));
+  doc.saveAndClose();
+}
+
+// Field definitions from SHEET NAME FORMAT(TEMPLATE).pdf. POSITION is the recipient's position.
+function validateTemplateDocument(request, type) {
+  const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(type);
+  const travel = type === 'Travel Order';
+  const data = {};
+  const fields = simple ? ['body'] : travel
+    ? ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'place', 'inclusiveDate', 'transportation', 'purpose', 'remarks']
+    : ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution'];
+  const optional = ['thru', 'additionalInstitution'];
+  fields.forEach(key => {
+    data[key] = String(request[key] || '').trim();
+    if (!optional.includes(key) && !data[key]) throw new Error('Please enter ' + key.replace(/([A-Z])/g, ' $1').toLowerCase() + '.');
+    if (data[key].length > (key === 'body' ? 50000 : 2000)) throw new Error('The ' + key + ' is too long.');
+  });
+  if (!simple && !['To', 'For'].includes(data.recipientLabel)) throw new Error('Choose To or For as the recipient label.');
+  if (!simple && !travel) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date) || isNaN(Date.parse(data.date)) || new Date(data.date).toISOString().slice(0, 10) !== data.date) throw new Error('Choose a valid document date.');
+    data.year = data.date.slice(0, 4);
+    if (!/^(19|20)\d{2}$/.test(data.year)) throw new Error('Choose a date from 1900 to 2099.');
+  }
+  data.subject = data.subject || type;
+  if (type === 'Executive Memorandum') {
+    data.subject = data.subject.toUpperCase();
+    const match = /^(?:Executive Memorandum(?: Order)? No\.\s*)?(\d{1,6})(?:,?\s*s\.\s*(\d{4}))?$/i.exec(data.reference);
+    if (match) {
+      if (Number(match[1]) < 1) throw new Error('Enter a positive memorandum number.');
+      data.number = String(Number(match[1])).padStart(3, '0');
+      if (match[2]) {
+        if (!/^(19|20)\d{2}$/.test(match[2])) throw new Error('Enter a series from 1900 to 2099.');
+        data.year = match[2];
+      }
+    }
+    data.signatory = String(request.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.').trim();
+    data.position = String(request.signatoryPosition || 'SUC President II').trim();
+  }
+  return data;
+}
+
+function createDocument(request) {
+  if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
+  const type = request.type;
+  if (!FILING_TYPES.includes(type)) return jsonResponse({ success: false, message: 'Choose a valid document type.' });
+  const memo = type === 'Executive Memorandum';
+  const template = request.templateVersion === 2;
+  const automaticDate = template && ['Authority to Travel Abroad', 'Certificate of Travel', 'Travel Order'].includes(type);
+  const simple = template && ['Authority to Travel Abroad', 'Certificate of Travel'].includes(type);
+  let data;
+  try { data = template ? validateTemplateDocument(request, type) : memo ? validateExecutiveMemorandum(request) : validateCreatedDocument(request, type); } catch (error) { return jsonResponse({ success: false, message: error.message }); }
+  if (!/^[a-zA-Z0-9-]{16,80}$/.test(String(request.requestId || ''))) return jsonResponse({ success: false, message: 'Invalid creation request. Reopen the form.' });
+  const id = memo && data.number ? 'Executive Memorandum No. ' + data.number + ', s. ' + data.year : simple ? CREATED_DOCUMENT_SHEETS[type] + '-' + request.requestId : data.reference;
+  // Keep reservation prefixes stable across spreadsheet-tab renames.
+  const prefixes = { 'Special Order': 'SO', 'Travel Order': 'TO', 'Authority to Travel Abroad': 'ATA', 'Certificate of Travel': 'CTA', 'Executive Memorandum': 'EM' };
+  const key = memo && data.number ? 'EM-' + data.year + '-' + data.number : prefixes[type] + '-' + (data.year || 'AUTO') + '-' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, id.toUpperCase()));
+  const lock = LockService.getScriptLock();
+  let locked = false;
+  let state;
+  let stage = 'prepare';
+  try {
+    lock.waitLock(30000);
+    locked = true;
+    const sheet = mainFilesSheet();
+    const logSheet = typeLogSheet(type);
+    const creationSheet = createdDocumentSheet(type);
+    const properties = PropertiesService.getScriptProperties();
+    state = JSON.parse(properties.getProperty(key) || 'null');
+    const fingerprint = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(data)));
+    const owner = CacheService.getScriptCache().get('session:' + request.token);
+    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+    const index = rows.findIndex(row => {
+      const match = /^Executive Memorandum(?: Order)? No\.\s*0*(\d+),?\s*s\.\s*(\d{4})$/i.exec(row[1]);
+      return String(row[1]).toUpperCase() === id.toUpperCase() || row[1] === key || (memo && match && Number(match[1]) === Number(data.number) && match[2] === data.year);
+    });
+    const creationRows = creationSheet.getLastRow() > 1
+      ? creationSheet.getRange(2, 1, creationSheet.getLastRow() - 1, 1).getDisplayValues() : [];
+    const hasLogEvidence = existingTypeLogRow(logSheet, id);
+    const hasCreationEvidence = creationRows.some(row => row[0] === key);
+    const hasMainRowEvidence = index >= 0;
+    const hasRecoveryEvidence = Boolean(state && (state.fileId || state.allocationName));
+    // An orphaned property record with no related MAIN Files row, type log row, or
+    // created-document short log evidence is stale. Remove it so a new request can
+    // reserve the same document number instead of being blocked as a duplicate.
+    if (state && !hasMainRowEvidence && !hasLogEvidence && !hasCreationEvidence && !hasRecoveryEvidence) {
+      properties.deleteProperty(key);
+      state = null;
+    }
+    // A Drive file or reservation alone is not a completed creation. Legacy attempts
+    // have no completion flag, so verify all three registry entries as well.
+    const completed = state && (state.completed === true || (hasMainRowEvidence &&
+      hasLogEvidence && hasCreationEvidence));
+    const recoverReservation = state && !completed && state.owner === owner;
+    if ((state || index >= 0) && (!state || (state.requestId !== request.requestId && !recoverReservation) || state.owner !== owner)) return jsonResponse({ success: false, message: id + ' already exists.' });
+    if (state && state.fingerprint !== fingerprint) {
+      // Allow corrections to an unpublished failed attempt when its allocation can
+      // still be identified. Never rewrite a completed or partly logged document.
+      if (recoverReservation && index < 0 && (state.fileId || state.allocationName)) {
+        state.fingerprint = fingerprint;
+        state.rendered = false;
+      } else return jsonResponse({ success: false, message: 'This number belongs to an unfinished attempt with different fields. Restore the original fields to resume it safely.' });
+    }
+    if (recoverReservation) state.requestId = request.requestId;
+    const saveState = () => properties.setProperty(key, JSON.stringify(state));
+    if (!state) {
+      state = { requestId: request.requestId, owner: owner, fingerprint: fingerprint, status: canChangeDocumentStatus(request.token) && DOCUMENT_STATUSES.includes(request.status) ? request.status : 'Draft' };
+      if (automaticDate) state.createdDate = Utilities.formatDate(new Date(), appSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+      saveState();
+    }
+    // Persist resumed request ownership and any corrected draft before rendering.
+    saveState();
+    const name = (id + ' - ' + data.subject.slice(0, 90)).replace(/[<>:"/\\|?*\x00-\x1f]/g, '-');
+    if (!state.fileId) {
+      stage = 'allocate';
+      // Legacy attempts used the final name; new attempts use a request-specific name.
+      // Search before allocation so a lost response does not produce a second file.
+      const matches = DriveApp.getFilesByName(state.allocationName || name);
+      let candidate;
+      while (matches.hasNext()) {
+        const match = matches.next();
+        if (match.isTrashed()) continue;
+        if (candidate || match.getMimeType() !== 'application/vnd.google-apps.document') {
+          return jsonResponse({ success: false, message: 'Multiple or incompatible files match this interrupted creation. No new file was created. Ask the administrator to check the matching Drive files.' });
+        }
+        candidate = match;
+      }
+      if (candidate) {
+        const pending = DocumentApp.openById(candidate.getId());
+        if (pending.getBody().getText().trim()) {
+          return jsonResponse({ success: false, message: 'A matching document already contains content. No new file was created or overwritten. Ask the administrator to reconcile its registry entry.' });
+        }
+        state.fileId = candidate.getId();
+        saveState();
+        pending.saveAndClose();
+      } else {
+        state.allocationName = '[OP pending ' + state.requestId + '] ' + name;
+        saveState();
+        const doc = DocumentApp.create(state.allocationName);
+        state.fileId = doc.getId();
+        saveState();
+        doc.saveAndClose();
+      }
+    }
+    if (automaticDate) { data.date = state.createdDate; data.year = state.createdDate.slice(0, 4); }
+    const file = DriveApp.getFileById(state.fileId);
+    if (file.isTrashed()) throw new Error('File unavailable');
+    if (state.allocationName) file.setName(name);
+    if (!state.rendered) {
+      stage = 'generate';
+      if (memo) {
+        if (typeof request.logo !== 'string' || request.logo.length > 1500000) throw new Error('Logo unavailable');
+        const logo = Utilities.newBlob(Utilities.base64Decode(request.logo), 'image/png', 'jhcsclogo.png');
+        renderExecutiveMemorandum(DocumentApp.openById(state.fileId), data, logo);
+      } else renderCreatedDocument(DocumentApp.openById(state.fileId), data, type);
+      const root = DriveApp.getFolderById(UPLOAD_FOLDER_ID);
+      if (root.isTrashed()) throw new Error('The destination folder is in the trash.');
+      const folder = filingSubfolder(filingSubfolder(root, type), data.year);
+      file.moveTo(folder);
+      state.rendered = true;
+      saveState();
+    }
+    stage = 'registry';
+    const record = { activity: type.toUpperCase(), id: id, date: executiveMemoDate(data.date), subject: data.subject, url: 'https://drive.google.com/file/d/' + state.fileId + '/view', type: type, year: data.year, status: state.status };
+    const row = index >= 0 ? index + 2 : sheet.getLastRow() + 1;
+    if (index < 0) {
+      const values = [record.activity, id, record.date, record.subject, record.url].map((value, i) => {
+        const builder = SpreadsheetApp.newRichTextValue().setText(value);
+        if (i === 4) builder.setLinkUrl(value);
+        return builder.build();
+      });
+      sheet.getRange(row, 1, 1, 5).setRichTextValues([values]);
+    }
+    const cell = sheet.getRange(row, 2);
+    let metadata = {};
+    try { metadata = JSON.parse(cell.getNote() || '{}') || {}; } catch (error) { /* Repair a partial registry write. */ }
+    cell.setNote(JSON.stringify({ ...metadata, type: record.type, year: record.year, status: metadata.status || record.status, createdDocumentId: key }));
+    if (!existingTypeLogRow(logSheet, id)) writeTypeLog(logSheet, logSheet.getLastRow() + 1, { ...record, date: new Date().toISOString() });
+    logCreatedDocument(creationSheet, { ...record, status: metadata.status || record.status }, data, key);
+    SpreadsheetApp.flush();
+    state.completed = true;
+    saveState();
+    return jsonResponse({ success: true, document: documentFromRow([record.activity, id, record.date, record.subject, record.url], cell.getNote()) });
+  } catch (error) {
+    console.error('Document creation failed during ' + stage + ': ' + String(error && error.message || error));
+    if (stage === 'allocate') return jsonResponse({ success: false, message: 'Google Docs creation could not finish. The deployment owner should run checkCreateDocumentSetup in Apps Script and authorize access, then update the web app deployment. Retry the same fields afterward; the reserved number can be recovered automatically.' });
+    return jsonResponse({ success: false, message: stage === 'registry' ? 'Document was created, but MAIN Files or the ' + CREATED_DOCUMENT_SHEETS[type] + ' / category log could not be updated. Retry with the same fields to finish logging without creating another document.' : 'Unable to create ' + type + '. Please retry with the same fields. If this persists, ask the administrator to check document access and sheet configuration.' });
+  } finally { if (locked) lock.releaseLock(); }
+}
+
+// Run as the deployment owner to request the document service's required scopes.
+function checkCreateDocumentSetup() {
+  checkUploadSetup();
+  Object.keys(CREATED_DOCUMENT_SHEETS).forEach(type => createdDocumentSheet(type));
+  DocumentApp.getActiveDocument();
+  console.log('Creation configuration checked. Update the web app deployment after authorizing access.');
 }

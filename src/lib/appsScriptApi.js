@@ -1,11 +1,14 @@
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL
+const REQUEST_URL = import.meta.env.DEV ? '/apps-script' : APPS_SCRIPT_URL
+
+const requestTarget = () => import.meta.env.DEV ? '/apps-script' : APPS_SCRIPT_URL
 
 export async function authenticateUser(email, password) {
   if (!APPS_SCRIPT_URL) {
     throw new Error('The Apps Script web app URL is not configured.')
   }
 
-  const response = await fetch(APPS_SCRIPT_URL, {
+  const response = await fetch(REQUEST_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
@@ -30,7 +33,7 @@ export async function authenticateUser(email, password) {
 
 export async function logoutUser(token) {
   if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
-  const response = await fetch(APPS_SCRIPT_URL, {
+  const response = await fetch(REQUEST_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: 'logout', token }),
@@ -46,7 +49,7 @@ export async function fetchUserLogs() {
     throw new Error('The Apps Script web app URL is not configured.')
   }
 
-  const response = await fetch(APPS_SCRIPT_URL, {
+  const response = await fetch(REQUEST_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: 'userLogs', token: getSessionToken() }),
@@ -70,7 +73,7 @@ export async function fetchUsers() {
     throw new Error('The Apps Script web app URL is not configured.')
   }
 
-  const response = await fetch(APPS_SCRIPT_URL, {
+  const response = await fetch(REQUEST_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: 'users', token: getSessionToken() }),
@@ -94,7 +97,7 @@ function getSessionToken() {
 
 async function documentRequest(payload) {
   if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
-  const response = await fetch(APPS_SCRIPT_URL, {
+  const response = await fetch(REQUEST_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ ...payload, token: getSessionToken() }),
@@ -109,6 +112,18 @@ export async function fetchDocuments() {
   const files = (await documentRequest({ action: 'documents' })).documents || []
   // Exclude the specific sample upload while its owner completes Drive cleanup.
   return files.filter(file => file.id !== '1cb7ca84-b1d8-420a-a4ce-84dc89f79281')
+}
+
+export async function createExecutiveMemorandum(form) {
+  const result = await documentRequest({ ...form, action: 'createExecutiveMemorandum' })
+  if (!result.document?.url || !result.document?.id) throw new Error('Document creation was not confirmed. Please retry.')
+  return result.document
+}
+
+export async function createDocument(form) {
+  const result = await documentRequest({ ...form, action: 'createDocument' })
+  if (!result.document?.url || !result.document?.id) throw new Error('Document creation was not confirmed. Please retry.')
+  return result.document
 }
 
 export async function fetchActivityLogs() {

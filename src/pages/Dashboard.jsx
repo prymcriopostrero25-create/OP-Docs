@@ -1,4 +1,4 @@
-import { fetchDocuments, fetchActivityLogs, updateDocumentStatus, editDocument, deleteDocument } from '../lib/appsScriptApi'
+import { fetchDocuments, fetchActivityLogs, updateDocumentStatus, editDocument, deleteDocument, createDocument as saveCreatedDocument } from '../lib/appsScriptApi'
 import LiveOverview from '../components/LiveOverview'
 import { canAccessPage, permissionsFor } from '../lib/permissions'
 import { DocumentContext } from '../lib/documentContext'
@@ -25,11 +25,11 @@ export default function Dashboard({ user, onLogout }) {
   const [drafts, setDrafts] = useState([])
   useEffect(() => {
     let active = true
-    Promise.all([fetchDocuments(), fetchActivityLogs()]).then(([documents, activities]) => { if (active) { setFiles(documents); setActivityLogs(activities) } })
+    Promise.all([fetchDocuments(), permissions.fullAccess ? fetchActivityLogs() : Promise.resolve([])]).then(([documents, activities]) => { if (active) { setFiles(documents); setActivityLogs(activities) } })
       .catch(error => { if (active) setLoadError(error.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [])
+  }, [permissions.fullAccess])
   const records = [...drafts, ...files.map(file => ({ ...file, title: file.subject, reference: file.id, owner: '', updated: file.date, status: file.status || 'For Review' }))]
 
   async function changeStatus(reference, status) {
@@ -42,9 +42,12 @@ export default function Dashboard({ user, onLogout }) {
     setActivityLogs(current => [...current, { ...record, activity: `Status changed to ${status}`, date: new Date().toISOString() }])
   }
 
-  function createDocument(form) {
-    setDrafts((current) => [{ ...form, type: form.type === 'Certification of Travel Abroad' ? 'Certificate of Travel' : form.type === 'Travel Authority Abroad' ? 'Authority to Travel Abroad' : form.type, status: permissions.changeStatus ? form.status : 'Draft', updated: new Date().toLocaleDateString() }, ...current])
+  async function createDocument(form) {
+    const type = form.type === 'Certification of Travel Abroad' ? 'Certificate of Travel' : form.type === 'Travel Authority Abroad' ? 'Authority to Travel Abroad' : form.type
+    const record = await saveCreatedDocument({ ...form, type })
+    setFiles(current => [record, ...current.filter(file => file.id !== record.id)])
     setActive('Documents')
+    return record
   }
   async function editRecord(reference, title) {
     if (!permissions.changeStatus || records.find(record => record.reference === reference)?.status === 'Out') throw new Error('This document cannot be edited.')

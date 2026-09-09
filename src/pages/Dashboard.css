@@ -346,3 +346,7 @@
   .document-registry .record-actions button { width:40px; min-height:44px; }
   .document-registry th:last-child { width:155px; }
 }
+
+.create-field-error{display:block;margin-top:6px;color:#a31a32;font-size:12px}
+.create-result{padding:26px;font-size:14px}
+.create-document-modal button:disabled{opacity:.6;cursor:wait}
