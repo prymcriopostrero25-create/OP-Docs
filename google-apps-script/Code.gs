@@ -37,6 +37,21 @@ const CREATED_DOCUMENT_HEADERS = {
   Cert_Travel: ['ID', 'DATE (date created)', 'BODY'],
 };
 
+function normalizeHeader(text) {
+  return String(text || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\bNO\./g, 'NUMBER')
+    .replace(/\bNO\b/g, 'NUMBER')
+    .replace(/\bREFERENCE NO\b/g, 'REFERENCE NUMBER')
+    .replace(/\bFILE LINKS\b/g, 'FILE LINKS')
+    .replace(/\bFILE LINK\b/g, 'FILE LINKS')
+    .replace(/[()]/g, ' ')
+    .replace(/[^A-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function createdDocumentSheet(type) {
   // The editor's Run button supplies no arguments. Treat that as a setup check.
   if (arguments.length === 0) return checkCreateDocumentSetup();
@@ -46,8 +61,9 @@ function createdDocumentSheet(type) {
   if (!sheet) throw new Error('The ' + name + ' sheet is missing.');
   const headers = CREATED_DOCUMENT_HEADERS[name];
   if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  const actual = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0].map(value => String(value).trim().replace(/\s+/g, ' '));
-  if (actual.join('|') !== headers.join('|')) throw new Error('Check the ' + name + ' sheet headers.');
+  const actual = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0].map(normalizeHeader);
+  const expected = headers.map(normalizeHeader);
+  if (actual.join('|') !== expected.join('|')) throw new Error('Check the ' + name + ' sheet headers.');
   return sheet;
 }
 
@@ -134,7 +150,9 @@ function typeLogSheet(type) {
   const name = TYPE_LOG_SHEETS[type];
   if (!name) throw new Error('Unsupported document type.');
   const sheet = appSpreadsheet().getSheetByName(name);
-  if (!sheet || sheet.getRange(1, 1, 1, 4).getDisplayValues()[0].join('|') !== 'TIMESTAMP|ID|YEAR|FILE LINKS') {
+  const expected = ['TIMESTAMP', 'ID', 'YEAR', 'FILE LINKS'];
+  const actual = sheet && sheet.getRange(1, 1, 1, 4).getDisplayValues()[0].map(normalizeHeader);
+  if (!sheet || actual.join('|') !== expected.map(normalizeHeader).join('|')) {
     throw new Error(name + ' must have TIMESTAMP, ID, YEAR, FILE LINKS in A1:D1.');
   }
   return sheet;
@@ -483,7 +501,9 @@ function getDocumentSession(token) {
 
 function mainFilesSheet() {
   const sheet = appSpreadsheet().getSheetByName('MAIN Files');
-  if (!sheet || sheet.getRange(1, 1, 1, 5).getDisplayValues()[0].join('|') !== 'ACTIVITY|ID|DATE|SUBJECT|FILE LINKS') {
+  const expected = ['ACTIVITY', 'ID', 'DATE', 'SUBJECT', 'FILE LINKS'];
+  const actual = sheet && sheet.getRange(1, 1, 1, 5).getDisplayValues()[0].map(normalizeHeader);
+  if (!sheet || actual.join('|') !== expected.map(normalizeHeader).join('|')) {
     throw new Error('MAIN Files must have headers ACTIVITY, ID, DATE, SUBJECT, FILE LINKS in A1:E1.');
   }
   return sheet;
@@ -497,7 +517,12 @@ function activityLogSheet() {
     sheet.getRange(1, 1, 1, 6).setValues([['ACTIVITY', 'ID', 'DATE', 'SUBJECT', 'FILE LINKS', 'TYPE']]);
   }
   if (!sheet) return null;
-  if (!sheet || sheet.getRange(1, 1, 1, 6).getDisplayValues()[0].join('|') !== 'ACTIVITY|ID|DATE|SUBJECT|FILE LINKS|TYPE') {
+  const expected = ['ACTIVITY', 'ID', 'DATE', 'SUBJECT', 'FILE LINKS', 'TYPE'];
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 6).setValues([expected]);
+  }
+  const actual = sheet.getRange(1, 1, 1, 6).getDisplayValues()[0].map(normalizeHeader);
+  if (actual.join('|') !== expected.map(normalizeHeader).join('|')) {
     throw new Error('ACTIVITY LOG must have headers ACTIVITY, ID, DATE, SUBJECT, FILE LINKS, TYPE in A1:F1.');
   }
   return sheet;
