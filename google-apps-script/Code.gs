@@ -790,7 +790,28 @@ function validateCreatedDocument(request, type) {
   return data;
 }
 
+function renderSpecialOrder(doc, data, type) {
+  const body = doc.getBody();
+  body.clear();
+  body.setPageWidth(595.28).setPageHeight(841.89).setMarginTop(54).setMarginBottom(54).setMarginLeft(64.8).setMarginRight(64.8);
+  body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 11 });
+
+  body.appendParagraph('SPECIAL ORDER').setSpacingBefore(12).setSpacingAfter(4).editAsText().setBold(true);
+  if (data.reference) body.appendParagraph(data.reference).setSpacingAfter(2).editAsText().setBold(false);
+  if (data.subject && data.subject !== type) body.appendParagraph(data.subject).setSpacingAfter(12).editAsText().setBold(true);
+
+  const addressee = [data.recipientName || data.recipient, data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
+  const fields = [['DATE', executiveMemoDate(data.date)], [(data.recipientLabel || 'To').toUpperCase(), addressee], ['THRU', data.thru], ['PLACE', data.place || data.destination], ['INCLUSIVE DATE', data.inclusiveDate || data.travelDates], ['TRANSPORTATION', data.transportation], ['PURPOSE', data.purpose], ['REMARKS', data.remarks]];
+  fields.filter(([, value]) => value).forEach(([label, value]) => body.appendParagraph(label + ': ' + value).setSpacingAfter(6).editAsText().setBold(false));
+
+  body.appendParagraph('').setSpacingAfter(6);
+  (data.body || data.content || '').split(/\r?\n/).forEach(line => body.appendParagraph(line).setSpacingAfter(6).editAsText().setBold(false));
+
+  doc.saveAndClose();
+}
+
 function renderCreatedDocument(doc, data, type) {
+  if (type === 'Special Order') return renderSpecialOrder(doc, data, type);
   const body = doc.getBody();
   body.clear();
   body.setPageWidth(595.28).setPageHeight(841.89).setMarginTop(54).setMarginBottom(54).setMarginLeft(64.8).setMarginRight(64.8);
