@@ -21,7 +21,7 @@ export default function ActivityLogPage() {
     <section className="activity-log-panel" aria-labelledby="history-title" aria-busy={loading}>
       <div className="activity-log-heading">
         <div><h2 id="history-title">Activity history <span>{activityLogs.length}</span></h2><p>All times in Philippine time (UTC+8)</p></div>
-        <div className="activity-log-controls"><input type="search" aria-label="Search activity" placeholder="Search documents or activity..." value={query} onChange={event => setQuery(event.target.value)} /><select aria-label="Sort activity" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></div>
+        <div className="activity-log-controls"><input name="activitySearch" type="search" aria-label="Search activity" placeholder="Search documents or activity..." value={query} onChange={event => setQuery(event.target.value)} /><select name="activitySort" aria-label="Sort activity" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></div>
       </div>
       {loadError && <p className="activity-log-error" role="alert">{loadError}</p>}
       {loading ? <p className="activity-log-state" role="status">Loading activity...</p> : <>

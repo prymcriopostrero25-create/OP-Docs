@@ -36,7 +36,7 @@ function fixture() {
     Utilities: { DigestAlgorithm: { SHA_256: 'sha256' }, computeDigest: (_, value) => createHash('sha256').update(value).digest(), base64Encode: value => Buffer.from(value).toString('base64'), base64EncodeWebSafe: value => Buffer.from(value).toString('base64url'), formatDate: () => '2026-09-09', base64Decode: value => value, newBlob: value => value },
     SpreadsheetApp: { openById: () => ({ getSheetByName: name => shortSheets[name], getSpreadsheetTimeZone: () => 'Asia/Shanghai' }), flush() {}, newRichTextValue: () => { const result = {}; return { setText(value) { result.text = value; return this }, setLinkUrl(url) { result.url = url; return this }, build: () => result } } },
     DocumentApp: { create() { f.allocations++; return doc }, openById: () => doc },
-    DriveApp: { getFilesByName: () => ({ hasNext: () => false }), getFileById: () => ({ isTrashed: () => false, setName() {}, moveTo(folder) { destinations.push(folder.path) } }), getFolderById: id => { assert.equal(id, '1OVvmtvYjsp4WZz-RY7NkExyNIotO-Vji'); return { path: 'OP Systems', isTrashed: () => false } } },
+    DriveApp: { getFilesByName: () => ({ hasNext: () => false }), getFileById: () => ({ isTrashed: () => false, makeCopy() { f.allocations++; return doc }, setName() {}, moveTo(folder) { destinations.push(folder.path) } }), getFolderById: id => { assert.equal(id, '1OVvmtvYjsp4WZz-RY7NkExyNIotO-Vji'); return { path: 'OP Systems', isTrashed: () => false } } },
   }
   vm.createContext(ctx)
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), ctx)
@@ -120,26 +120,49 @@ test('USER status is forced to Draft; ADMIN can choose status; activity logs rem
   assert.equal(g.ctx.doPost({ postData: { contents: JSON.stringify({ action: 'activityLogs', token: 'session' }) } }).success, false)
 })
 
-test('renderer emits A4 minimalist header, aligned FOR section and unchanged paragraphs', () => {
-  const f = fixture(), paragraphs = [], headings = [], sizes = {}
-  function paragraph(text) {
-    const p = { text, setAlignment() { return this }, setSpacingAfter() { return this }, setSpacingBefore() { return this }, setLineSpacing() { return this }, setKeepWithNext() { return this }, editAsText() { return this }, setFontFamily() { return this }, setFontSize() { return this }, setBold(value) { this.bold = value; return this }, appendInlineImage() { return { getWidth: () => 100, getHeight: () => 100, setHeight() { return this }, setWidth() { return this } } } }
-    return p
+test('memorandum uses the uniform template, preserves body text and optional fields', () => {
+  const f = fixture(), inserted = [], cells = new Map(), removedRows = []
+  function paragraph(value = '') {
+    return { value, style: { font: 'Arial' }, asParagraph() { return this }, getParent() { return this },
+      editAsText() { return this }, getAttributes() { return this.style }, setAttributes(style) { this.style = style; return this },
+      setText(value) { this.value = value; return this }, setLineSpacing() { return this }, setSpacingBefore() { return this },
+      setSpacingAfter() { return this }, setIndentFirstLine(v) { this.indent = v; return this }, setFontFamily() { return this },
+      setFontSize(v) { this.size = v; return this }, setForegroundColor() { return this }, setBold(v) { this.bold = v; return this },
+    }
   }
-  const body = { clear() {}, setPageWidth(v) { sizes.width = v; return this }, setPageHeight(v) { sizes.height = v; return this }, setMarginTop() { return this }, setMarginBottom() { return this }, setMarginLeft() { return this }, setMarginRight() { return this }, setAttributes() {}, appendParagraph(text) { const p = paragraph(text); paragraphs.push(p); return p }, appendTable(values) { sizes.info = values; const cell = { setPaddingTop() { return this }, setPaddingBottom() { return this }, editAsText: () => paragraph('') }; return { setBorderWidth() { return this }, setColumnWidth() { return this }, getCell: () => cell } } }
-  const header = { clear() {}, appendParagraph(text) { headings.push(text); return paragraph(text) } }
-  f.ctx.DocumentApp.Attribute = { FONT_FAMILY: 'font', FONT_SIZE: 'size' }
-  f.ctx.DocumentApp.HorizontalAlignment = { CENTER: 'center' }
-  f.render({ getBody: () => body, getHeader: () => header, saveAndClose() {} }, f.ctx.validateExecutiveMemorandum(sample), 'logo')
-  assert.equal(sizes.width, 595.28)
-  assert.equal(sizes.height, 841.89)
-  assert.equal(sizes.info[0][0], 'FOR')
-  assert.equal(sizes.info[2][2], 'SEPTEMBER 9, 2026')
-  assert.ok(headings.includes('OFFICE OF THE PRESIDENT'))
-  assert.ok(paragraphs.some(p => p.text === 'Executive Memorandum Order No. 203'))
-  assert.equal(paragraphs.find(p => p.text === sample.signatory).bold, true)
-  assert.equal(paragraphs.find(p => p.text === sample.position).bold, false)
-  assert.ok(paragraphs.some(p => p.text === 'For guidance and compliance.' && !p.bold))
+  const marker = paragraph('[MEMORANDUM BODY]'), cc = paragraph('cc: [CONCERNED OFFICE/S]')
+  const tables = [0, 1, 2].map(t => ({ getCell(r, c) { return { getChild(p) { const key = [t,r,c,p].join(':'); if (!cells.has(key)) cells.set(key, paragraph()); return cells.get(key) } } }, removeRow(r) { removedRows.push([t,r]) } }))
+  const source = { getTables: () => tables, getText: () => '[MEMORANDUM BODY]', getAttributes: () => ({ PAGE_WIDTH: 612, PAGE_HEIGHT: 792 }) }
+  const body = { getTables: () => tables, setAttributes(v) { this.style = v },
+    findText(pattern) { return { getElement: () => pattern.startsWith('cc:') ? cc : marker } }, getChildIndex: () => 5,
+    insertParagraph(i, text) { const p = paragraph(text); inserted.push(p); return p }, removeChild(p) { assert.equal(p, marker) },
+  }
+  const copied = []
+  f.ctx.copyTravelTemplateSection = (from, to) => copied.push([from,to])
+  f.ctx.DocumentApp.openById = () => ({ getBody: () => source, getHeader: () => 'header', getFooter: () => 'footer' })
+  let saved = false
+  const doc = { getId: () => 'output', getBody: () => body, getHeader: () => 'outputHeader', getFooter: () => 'outputFooter', saveAndClose() { saved = true } }
+  f.render(doc, { ...f.ctx.validateExecutiveMemorandum(sample), thru: 'Office Director', cc: 'Records Office' })
+  const cell = (t,r,c,p=0) => cells.get([t,r,c,p].join(':')).value
+  assert.equal(cell(0,0,0), 'EXECUTIVE MEMORANDUM ORDER NO. 203')
+  assert.equal(cell(0,0,1), 'Series of 2026')
+  assert.equal(cell(1,0,0), 'FOR:')
+  assert.equal(cell(1,0,1), sample.recipient)
+  assert.equal(cell(1,1,1), 'Office Director')
+  assert.equal(cell(1,2,1), sample.subject.toUpperCase())
+  assert.equal(cell(1,3,1), 'SEPTEMBER 9, 2026')
+  assert.equal(cell(2,0,1), sample.signatory)
+  assert.equal(cell(2,0,1,1), sample.position)
+  assert.deepEqual(inserted.map(p => p.value), sample.body.split('\n'))
+  assert.equal(inserted[0].indent, 21.6)
+  assert.equal(cc.value, 'cc: Records Office')
+  assert.equal(copied.length, 3)
+  assert.equal(body.style.PAGE_WIDTH, 612)
+  assert.equal(body.style.PAGE_HEIGHT, 792)
+  assert.equal(saved, true)
+  f.render(doc, f.ctx.validateExecutiveMemorandum(sample))
+  assert.deepEqual(removedRows, [[1,1]])
+  assert.equal(cc.value, '')
 })
 
 test('EX_Memo matches its live-sheet columns and links its internal ID to the saved file', () => {
@@ -232,6 +255,42 @@ test('travel-order PDF fields require no subject/date/body and log nine columns'
   assert.equal(f.ctx.createdDocumentSheet('Travel Order').getLastRow(), 2)
 })
 
+test('Travel Order recovers a copied template after file-ID persistence fails', () => {
+  const f = fixture()
+  const request = { token: sample.token, requestId: sample.requestId, templateVersion: 2, type: 'Travel Order', reference: '143', recipientLabel: 'To', recipientName: 'Jane', recipientPosition: 'Instructor', place: 'CHED', inclusiveDate: 'September 12, 2026', transportation: 'Bus', purpose: 'Training', remarks: 'Official time', signatory: 'Custom Signatory', signatoryPosition: 'Acting President' }
+  let copiedName, failed = false
+  f.ctx.DriveApp.getFileById = () => ({ isTrashed: () => false, setName() {}, moveTo() {}, makeCopy(name) { copiedName = name; f.allocations++; return { getId: () => 'copied-template' } } })
+  f.ctx.DriveApp.getFilesByName = name => {
+    let found = Boolean(copiedName && name === copiedName)
+    return { hasNext: () => found, next() { found = false; return { getId: () => 'copied-template', isTrashed: () => false, getMimeType: () => 'application/vnd.google-apps.document' } } }
+  }
+  f.ctx.DocumentApp.openById = () => ({ getBody: () => ({ getText: () => 'TRAVEL ORDER NO. 001 [Name/s of Traveler/s]' }), saveAndClose() {} })
+  f.ctx.PropertiesService.getScriptProperties = () => ({
+    getProperty: key => f.properties[key],
+    setProperty(key, value) {
+      if (JSON.parse(value).fileId && !failed) { failed = true; throw Error('Lost persistence') }
+      f.properties[key] = value
+    },
+  })
+  assert.equal(f.ctx.createDocument(request).success, false)
+  assert.equal(f.rows.length, 0)
+  assert.equal(f.ctx.createDocument(request).success, true)
+  assert.equal(f.allocations, 1)
+  assert.equal(f.rendered.signatory, request.signatory)
+  assert.equal(f.rendered.position, request.signatoryPosition)
+  assert.equal(f.rows.length, 1)
+})
+
+test('unavailable Travel Order master reports access failure before registry writes', () => {
+  const f = fixture()
+  f.ctx.DriveApp.getFileById = () => { throw Error('Access denied') }
+  const result = f.ctx.createDocument({ token: sample.token, requestId: sample.requestId, templateVersion: 2, type: 'Travel Order', reference: '143', recipientLabel: 'To', recipientName: 'Jane', recipientPosition: 'Instructor', place: 'CHED', inclusiveDate: 'September 12, 2026', transportation: 'Bus', purpose: 'Training', remarks: 'Official time' })
+  assert.equal(result.success, false)
+  assert.match(result.message, /Unable to copy the Travel Order template/)
+  assert.equal(f.rows.length, 0)
+  assert.equal(f.allocations, 0)
+})
+
 test('template validation allows optional fields and rejects unsupported recipient labels', () => {
   const f = fixture()
   assert.equal(f.ctx.createDocument({ ...templateSample, recipientLabel: 'CC' }).success, false)
@@ -250,12 +309,12 @@ test('status synchronization changes only STATUS in the matching PDF-template ro
 
 test('failed allocation recovers the reservation on retry, including a reopened form', () => {
   const f = fixture()
-  const create = f.ctx.DocumentApp.create
+  const create = f.ctx.DriveApp.getFileById
   f.ctx.console = { error() {} }
-  f.ctx.DocumentApp.create = () => { throw Error('Authorization required') }
+  f.ctx.DriveApp.getFileById = () => { throw Error('Authorization required') }
   assert.match(f.ctx.createExecutiveMemorandum(sample).message, /checkCreateDocumentSetup/)
   assert.equal(f.rows.length, 0)
-  f.ctx.DocumentApp.create = create
+  f.ctx.DriveApp.getFileById = create
   assert.equal(f.ctx.createExecutiveMemorandum({ ...sample, requestId: 'reopened-form-request-203' }).success, true)
   assert.equal(f.allocations, 1)
 })
@@ -287,7 +346,7 @@ test('lost file-ID persistence recovers a blank pending file instead of allocati
 test('recovery never overwrites a matching document with existing content', () => {
   const f = fixture()
   f.ctx.console = { error() {} }
-  f.ctx.DocumentApp.create = () => { throw Error('Denied') }
+  f.ctx.DriveApp.getFileById = () => { throw Error('Denied') }
   f.ctx.createExecutiveMemorandum(sample)
   let available = true
   f.ctx.DriveApp.getFilesByName = () => ({ hasNext: () => available, next: () => { available = false; return { isTrashed: () => false, getMimeType: () => 'application/vnd.google-apps.document', getId: () => 'existing' } } })
@@ -355,57 +414,90 @@ test('unpublished failed file accepts corrected fields but completed documents s
 })
 
 
-test('order templates render Letter letterhead, populated fields, and travel details', () => {
-  for (const type of ['Travel Order', 'Special Order']) {
-    const f = fixture()
-    const text = [], tables = [], dimensions = []
-    let saved = false
-    function paragraph(value = '') {
-      text.push(value)
-      let p
-      p = new Proxy({}, { get: (_, name) => {
-        if (name === 'editAsText' && !value) return () => { throw new Error('Cannot format an empty text element') }
-        if (name === 'setText') return value => { text.push(value); return null }
-        if (name === 'appendInlineImage') return () => p
-        return () => p
-      } })
-      return p
-    }
-    function section() {
-      let part
-      part = new Proxy({}, { get: (_, name) => {
-        if (name === 'appendParagraph') return paragraph
-        if (name === 'setPageWidth' || name === 'setPageHeight') return value => { dimensions.push(value); return part }
-        if (name === 'appendTable') return rows => {
-          tables.push(rows)
-          const cells = rows.map(row => row.map(value => {
-            const p = paragraph(value)
-            let cell
-            cell = new Proxy({}, { get: (_, method) => method === 'getChild' ? () => p : method === 'appendParagraph' ? paragraph : () => cell })
-            return cell
-          }))
-          let t
-          t = new Proxy({}, { get: (_, method) => method === 'getCell' ? (i, j) => cells[i][j] : () => t })
-          return t
-        }
-        return () => part
-      } })
-      return part
-    }
-    f.ctx.DocumentApp.Attribute = { FONT_FAMILY: 'font', FONT_SIZE: 'size', FOREGROUND_COLOR: 'color' }
-    const doc = { getBody: section, getHeader: section, getFooter: section, saveAndClose() { saved = true } }
-    const data = { reference: '001', year: '2026', date: '2026-09-10', recipientName: 'Jane Doe', recipientLabel: 'For', subject: 'Training', body: 'User-supplied order text.', place: 'Pagadian', inclusiveDate: 'September 10?11', transportation: 'College vehicle', purpose: 'Training', remarks: 'Official time' }
-    f.ctx.renderOrderTemplate(doc, data, type, 'logo')
-    assert.deepEqual(dimensions, [612, 792])
-    assert.ok(text.includes('J.H. CERILLES STATE COLLEGE'))
-    assert.ok(tables.some(rows => rows.some(row => row[1] === 'Jane Doe')))
-    assert.ok(text.some(value => value.includes('EDGARDO H. ROSALES')))
-    if (type === 'Travel Order') assert.ok(tables.some(rows => rows.some(row => row[0] === 'DESTINATION' && row[1] === 'Pagadian')))
-    else assert.ok(text.includes(data.body))
-    assert.ok(saved)
-  }
+test('Travel Order fills the supplied native template and restores it on retry', () => {
+  const f = fixture()
+  const paragraph = (value, style = { font: 'Arial', size: 10, color: '#202523' }) => ({
+    value, style, getType: () => 'PARAGRAPH', asParagraph() { return this },
+    copy() { return paragraph(this.value, { ...this.style }) },
+    editAsText() { return {
+      getAttributes: () => ({ ...this.style }),
+      setText: value => { this.value = value; this.style = {} },
+      setAttributes: style => { this.style = style },
+    } },
+  })
+  const table = rows => ({
+    rows, getType: () => 'TABLE', asTable() { return this },
+    copy() { return table(this.rows.map(row => row.map(cell => cell.map(p => p.copy())))) },
+    getCell(row, col) { return { getChild: index => this.rows[row][col][index] } },
+  })
+  const section = children => ({
+    children, getNumChildren() { return this.children.length }, getChild(i) { return this.children[i] },
+    getTables() { return this.children.filter(c => c.getType() === 'TABLE') },
+    getText() { return this.getTables().flatMap(t => t.rows.flat(2).map(p => p.value)).join('\n') },
+    getAttributes: () => ({ PAGE_WIDTH: 612, PAGE_HEIGHT: 792, MARGIN_LEFT: 51.85 }),
+    setAttributes(attributes) { this.attributes = attributes },
+    clear() { this.children = [paragraph('')] },
+    insertParagraph(i, child) { this.children.splice(i, 0, child) },
+    insertTable(i, child) { this.children.splice(i, 0, child) },
+    removeChild(child) { this.children.splice(this.children.indexOf(child), 1) },
+  })
+  const cell = (...values) => values.map(v => paragraph(v))
+  const body = section([
+    paragraph(''),
+    table([[cell('TRAVEL ORDER NO. 001'), cell('Series of 2026')]]),
+    table(['TO:', 'POSITION/OFFICE:', 'DESTINATION:', 'INCLUSIVE DATES:', 'MODE OF TRANSPORTATION:', 'PURPOSE:', 'REMARKS:'].map((label, index) => [cell(label), cell(index === 0 ? '[NAME/S OF TRAVELER/S]' : '[placeholder]')])),
+    paragraph('The above-named personnel is/are hereby authorized to travel on official time, subject to existing government accounting, auditing, and travel regulations.'),
+    paragraph('It is understood that the traveler/s shall submit the required travel report and supporting documents upon completion of the travel.'),
+    paragraph('For information and compliance.'),
+    table([[cell(''), cell('EDGARDO H. ROSALES, JD, Ed.D.', 'SUC President II')]]),
+    paragraph(''),
+  ])
+  const header = section([paragraph('Logo and college letterhead')])
+  const footer = section([paragraph('Office of the President | Page {PAGE} of {NUMPAGES}')])
+  f.ctx.DocumentApp.ElementType = { PARAGRAPH: 'PARAGRAPH', TABLE: 'TABLE', LIST_ITEM: 'LIST_ITEM' }
+  f.ctx.DocumentApp.openById = () => ({ getBody: () => body, getHeader: () => header, getFooter: () => footer })
+  const output = section([]), outputHeader = section([]), outputFooter = section([])
+  let saved = 0
+  const doc = { getId: () => 'output', getBody: () => output, getHeader: () => outputHeader, getFooter: () => outputFooter, saveAndClose() { saved++ } }
+  const data = { reference: '143', year: '2026', date: '2026-09-10', recipientName: 'Jane Doe', recipientPosition: 'Instructor', recipientLabel: 'For', place: 'CHED', inclusiveDate: 'September 12, 2026 to September 18, 2026', transportation: 'Plane, bus, van, and taxi.', purpose: 'Training\n\n[Name/s of Traveler/s] $1', remarks: 'Official time', signatory: 'Custom Signatory', position: 'Acting President' }
+  f.ctx.renderOrderTemplate(doc, data)
+  const textAt = (t, r, c, p = 0) => output.getTables()[t].rows[r][c][p].value
+  assert.equal(textAt(0, 0, 0), 'TRAVEL ORDER NO. 143')
+  assert.equal(textAt(1, 0, 0), 'FOR:')
+  assert.equal(textAt(1, 0, 1), 'Jane Doe')
+  assert.equal(textAt(1, 1, 1), 'Instructor')
+  assert.equal(textAt(1, 2, 1), 'CHED')
+  assert.equal(textAt(0, 0, 1), 'Series of 2026')
+  assert.equal(textAt(1, 3, 1), data.inclusiveDate)
+  assert.equal(textAt(1, 4, 1), data.transportation)
+  assert.equal(textAt(1, 6, 1), data.remarks)
+  assert.equal(textAt(1, 5, 1), data.purpose)
+  assert.equal(textAt(2, 0, 1, 0), 'Custom Signatory')
+  assert.equal(textAt(2, 0, 1, 1), 'Acting President')
+  assert.equal(outputHeader.children[0].value, header.children[0].value)
+  assert.equal(outputFooter.children[0].value, footer.children[0].value)
+  assert.deepEqual(output.attributes, body.getAttributes())
+  assert.deepEqual(output.getTables()[1].rows[5][1][0].style, body.getTables()[1].rows[5][1][0].style)
+  f.ctx.renderOrderTemplate(doc, { ...data, reference: '2', purpose: 'Corrected' })
+  assert.equal(textAt(0, 0, 0), 'TRAVEL ORDER NO. 002')
+  assert.equal(textAt(1, 5, 1), 'Corrected')
+  assert.equal(output.children.length, body.children.length)
+  assert.equal(saved, 2)
+  assert.equal(body.getTables()[1].rows[0][1][0].value, '[NAME/S OF TRAVELER/S]')
+  assert.throws(() => f.ctx.renderOrderTemplate({ getId: () => '1MyxhPT3pS4XL66VyJyUBPbFaIblELfVMFHNv4hXY6qU' }, data), /master/)
 })
 
+test('creation reports which sheet needs configuration before allocating a file', () => {
+  for (const [helper, tab] of [['mainFilesSheet', 'MAIN Files'], ['typeLogSheet', 'Executive Memorandum'], ['createdDocumentSheet', 'EX_Memo']]) {
+    const f = fixture()
+    f.ctx[helper] = () => { throw new Error('Configuration failure') }
+    const result = f.ctx.createExecutiveMemorandum(sample)
+    assert.equal(result.success, false)
+    assert.ok(result.message.includes(tab))
+    assert.match(result.message, /first-row headers/)
+    assert.equal(f.allocations, 0)
+  }
+})
 
 test('Travel Order display IDs combine padded number and creation date', () => {
   const f = fixture()

@@ -51,7 +51,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
     setError('')
     try {
       let logo
-      if (memo || specialOrder || travel) {
+      if (specialOrder) {
         const response = await fetch(memo ? '/jhcsclogo.png' : '/order-template-logo.png')
         if (!response.ok) throw new Error('Unable to load the college logo. Please try again.')
         const blob = await response.blob()
@@ -92,7 +92,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
       <header><div><p>Document registry</p><h2 id="create-document-title">Create new document</h2><span>Create and save an official document.</span></div><button type="button" onClick={close} disabled={busy} aria-label="Close">×</button></header>
       {created ? <div className="create-result" role="status"><p>Document Created Successfully</p><a href={created.url} target="_blank" rel="noreferrer">Open {created.type}</a><p>Saved to Google Drive, MAIN Files, and {sheetNames[created.type]}.</p><button type="button" onClick={close}>Done</button></div> : <form onSubmit={handleSubmit} noValidate>
         <div className="create-field full"><label htmlFor="document-type">Document type</label><select id="document-type" name="type" value={form.type} onChange={updateField} disabled={busy}>{types.map(type => <option key={type}>{type}</option>)}</select></div>
-        <div className="create-field full"><label>ID</label><span>Assigned automatically when saved.</span>{simple && <p>Date created is recorded automatically.</p>}</div>
+        <div className="create-field full"><span className="create-field-caption">ID</span><span>Assigned automatically when saved.</span>{simple && <p>Date created is recorded automatically.</p>}</div>
         {fields.map(([name, label]) => field(name, label))}
         {!simple && !travel && <div className="create-field"><label htmlFor="document-status">Status</label><select id="document-status" name="status" value={canChangeStatus ? form.status : 'Draft'} onChange={updateField} disabled={busy || !canChangeStatus}>{['Draft', 'For Review', 'For Signature', 'Approved', 'Out'].map(status => <option key={status}>{status}</option>)}</select></div>}
         {(memo || specialOrder || travel) && <details className="create-field full"><summary>Signatory</summary>{field('signatory', 'Signatory name')}{field('signatoryPosition', 'Signatory position')}</details>}

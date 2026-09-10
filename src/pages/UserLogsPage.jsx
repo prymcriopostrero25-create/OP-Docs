@@ -39,7 +39,7 @@ export default function UserLogsPage() {
     <section className="user-logs-panel">
       <header className="user-logs-header">
         <div><h2>Session history</h2><p>Sign-ins and sign-outs are recorded with their timestamp and message.</p></div>
-        <label className="archive-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search logs..." aria-label="Search user logs" /></label>
+        <label className="archive-search"><span>⌕</span><input name="userLogSearch" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search logs..." aria-label="Search user logs" /></label>
       </header>
 
       {status === 'loading' && <div className="user-logs-state">Loading user logs...</div>}

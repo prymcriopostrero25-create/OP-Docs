@@ -96,7 +96,7 @@ export default function DocumentUploads({ onCreateDocument }) {
         </header>
         <div className="upload-body">
           <div className="upload-section-heading"><h3><span>01</span> Document file</h3><small>PDF · Up to 25 MB</small></div>
-          <input ref={input} type="file" hidden accept="application/pdf,.pdf" onChange={event => { void chooseFile(event.target.files?.[0]); event.target.value = '' }} />
+          <input name="documentFile" ref={input} type="file" hidden accept="application/pdf,.pdf" onChange={event => { void chooseFile(event.target.files?.[0]); event.target.value = '' }} />
           <div className={`pdf-dropzone${selection ? ' has-file' : ''}${dragging ? ' is-dragging' : ''}`} onDragOver={event => { event.preventDefault(); if (!operation.current) setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); void chooseFile(event.dataTransfer.files?.[0]) }}>
             <div className="upload-file-icon" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6M8 13h8M8 17h5" /></svg></div>
             <div className="upload-file-copy"><strong>{selection?.file.name || 'Drag and drop your PDF here'}</strong><span>{selection ? `${(selection.file.size / (1024 * 1024)).toFixed(2)} MB · PDF document` : 'Or browse your computer to select a file'}</span></div>
