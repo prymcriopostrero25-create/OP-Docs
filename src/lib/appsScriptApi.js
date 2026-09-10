@@ -1,6 +1,4 @@
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL
-const REQUEST_URL = import.meta.env.DEV ? '/apps-script' : APPS_SCRIPT_URL
-
 const requestTarget = () => import.meta.env.DEV ? '/apps-script' : APPS_SCRIPT_URL
 
 export async function authenticateUser(email, password) {
@@ -8,7 +6,7 @@ export async function authenticateUser(email, password) {
     throw new Error('The Apps Script web app URL is not configured.')
   }
 
-  const response = await fetch(REQUEST_URL, {
+  const response = await fetch(requestTarget(), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
@@ -33,7 +31,7 @@ export async function authenticateUser(email, password) {
 
 export async function logoutUser(token) {
   if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
-  const response = await fetch(REQUEST_URL, {
+  const response = await fetch(requestTarget(), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: 'logout', token }),
@@ -49,7 +47,7 @@ export async function fetchUserLogs() {
     throw new Error('The Apps Script web app URL is not configured.')
   }
 
-  const response = await fetch(REQUEST_URL, {
+  const response = await fetch(requestTarget(), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: 'userLogs', token: getSessionToken() }),
@@ -73,7 +71,7 @@ export async function fetchUsers() {
     throw new Error('The Apps Script web app URL is not configured.')
   }
 
-  const response = await fetch(REQUEST_URL, {
+  const response = await fetch(requestTarget(), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: 'users', token: getSessionToken() }),
@@ -97,7 +95,7 @@ function getSessionToken() {
 
 async function documentRequest(payload) {
   if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
-  const response = await fetch(REQUEST_URL, {
+  const response = await fetch(requestTarget(), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ ...payload, token: getSessionToken() }),

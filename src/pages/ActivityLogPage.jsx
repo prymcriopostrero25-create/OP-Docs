@@ -10,7 +10,7 @@ export default function ActivityLogPage() {
   const { activityLogs, loading, loadError } = useContext(DocumentContext)
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('newest')
-  const entries = activityLogs.filter(file => `${file.subject || ''} ${file.activity || ''} ${file.type || ''}`.toLowerCase().includes(query.trim().toLowerCase())).sort((a, b) => {
+  const entries = activityLogs.map((file, index) => ({ ...file, entryKey: JSON.stringify([file.id, file.date, file.activity, index]) })).filter(file => `${file.subject || ''} ${file.activity || ''} ${file.type || ''}`.toLowerCase().includes(query.trim().toLowerCase())).sort((a, b) => {
     const first = timestamp(a.date), second = timestamp(b.date)
     if (first === null) return second === null ? 0 : 1
     if (second === null) return -1
@@ -27,7 +27,7 @@ export default function ActivityLogPage() {
       {loading ? <p className="activity-log-state" role="status">Loading activity...</p> : <>
         {entries.length ? <div className="activity-log-table-wrap"><table className="activity-log-table"><thead><tr><th scope="col">Document</th><th scope="col">Activity</th><th scope="col">Date & time</th></tr></thead><tbody>{entries.map(file => {
           const date = timestamp(file.date)
-          return <tr key={file.id}><td><div className="activity-log-document"><span className="activity-log-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8Z" /><path d="M14 3v5h5M8 12h8M8 16h6" /></svg></span><div><strong>{file.subject || 'Untitled document'}</strong>{file.type && <small>{file.type}</small>}</div></div></td><td><span className="activity-log-badge">{file.activity || 'Uploaded'}</span></td><td>{date !== null ? <time dateTime={new Date(date).toISOString()}><strong>{dateFormat.format(date)}</strong><small>{timeFormat.format(date)}</small></time> : 'Date unavailable'}</td></tr>
+          return <tr key={file.entryKey}><td><div className="activity-log-document"><span className="activity-log-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8Z" /><path d="M14 3v5h5M8 12h8M8 16h6" /></svg></span><div><strong>{file.subject || 'Untitled document'}</strong>{file.type && <small>{file.type}</small>}</div></div></td><td><span className="activity-log-badge">{file.activity || 'Uploaded'}</span></td><td>{date !== null ? <time dateTime={new Date(date).toISOString()}><strong>{dateFormat.format(date)}</strong><small>{timeFormat.format(date)}</small></time> : 'Date unavailable'}</td></tr>
         })}</tbody></table></div> : <div className="activity-log-state"><strong>{query.trim() ? 'No matching activity' : loadError ? 'Activity could not be loaded' : 'No activity yet'}</strong><p>{query.trim() ? 'Try another document name, type, or activity.' : loadError ? 'Please try again later.' : 'Document uploads will appear here.'}</p>{query && <button onClick={() => setQuery('')}>Clear search</button>}</div>}
         <footer className="activity-log-footer" role="status">Showing {entries.length} of {activityLogs.length} {activityLogs.length === 1 ? 'activity' : 'activities'}</footer>
       </>}

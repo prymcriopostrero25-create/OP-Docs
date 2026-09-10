@@ -158,7 +158,7 @@ test('all other creation types persist to their matching tab and type/year Drive
     assert.deepEqual(f.destinations, ['OP Systems/' + type + '/2026'])
     assert.equal(f.rows[0][1], request.reference)
     assert.equal(f.shortRows[tab].length, 2)
-    if (tab === 'Trav_Ord') assert.deepEqual(f.shortRows.Trav_Ord[1].slice(1), [request.reference, 'To', '', '', request.destination, request.travelDates, request.transportation, request.purpose, request.remarks])
+    if (tab === 'Trav_Ord') assert.deepEqual(f.shortRows.Trav_Ord[1], [request.reference, 'To', request.recipient, '', request.destination, request.travelDates, request.transportation, request.purpose, request.remarks])
     else if (tab === 'Spe_Ord') assert.equal(f.shortRows[tab][1][7], request.title)
     else assert.deepEqual(f.shortRows[tab][1].slice(1), ['September 9, 2026', request.content])
     assert.equal(f.ctx.createDocument(request).success, true)
@@ -219,12 +219,17 @@ test('authority and certificate need only body and retain the server creation da
   }
 })
 
-test('travel-order PDF fields require no subject/date/body and log ten columns', () => {
+
+
+test('travel-order PDF fields require no subject/date/body and log nine columns', () => {
   const f = fixture()
-  const request = { token: sample.token, requestId: sample.requestId, templateVersion: 2, type: 'Travel Order', reference: 'TO-203', recipientLabel: 'For', recipientPosition: 'Instructor', institution: 'JHCSC', place: 'Pagadian', inclusiveDate: 'September 10-11, 2026', transportation: 'College vehicle', purpose: 'Training', remarks: 'Return after training' }
+  const request = { token: sample.token, logo: 'logo', requestId: sample.requestId, templateVersion: 2, type: 'Travel Order', reference: 'TO-203', recipientLabel: 'For', recipientName: 'Jane Doe', recipientPosition: 'Instructor', place: 'Pagadian', inclusiveDate: 'September 10-11, 2026', transportation: 'College vehicle', purpose: 'Training', remarks: 'Return after training' }
   assert.equal(f.ctx.createDocument(request).success, true)
-  assert.deepEqual(f.shortRows.Trav_Ord[1].slice(1), ['TO-203', 'For', 'Instructor', 'JHCSC', 'Pagadian', 'September 10-11, 2026', 'College vehicle', 'Training', 'Return after training'])
-  assert.equal(f.shortRows.Trav_Ord[0].length, 10)
+  assert.deepEqual(f.shortRows.Trav_Ord[1], ['TO-203', 'For', 'Jane Doe', 'Instructor', 'Pagadian', 'September 10-11, 2026', 'College vehicle', 'Training', 'Return after training'])
+  assert.equal(f.ctx.createDocument(request).success, true)
+  assert.equal(f.shortRows.Trav_Ord.length, 2)
+  assert.deepEqual(f.shortRows.Trav_Ord[0], ['REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'PLACE', 'INCLUSIVE DATES', 'MODE OF TRANSPORTATION', 'PURPOSE', 'REMARKS'])
+  assert.equal(f.ctx.createdDocumentSheet('Travel Order').getLastRow(), 2)
 })
 
 test('template validation allows optional fields and rejects unsupported recipient labels', () => {
@@ -347,4 +352,65 @@ test('unpublished failed file accepts corrected fields but completed documents s
   assert.equal(f.rows[0][3], 'CORRECTED SUBJECT')
   assert.equal(f.allocations, 1)
   assert.match(f.ctx.createExecutiveMemorandum({ ...corrected, requestId: 'new-completed-document-request' }).message, /already exists/)
+})
+
+
+test('order templates render Letter letterhead, populated fields, and travel details', () => {
+  for (const type of ['Travel Order', 'Special Order']) {
+    const f = fixture()
+    const text = [], tables = [], dimensions = []
+    let saved = false
+    function paragraph(value = '') {
+      text.push(value)
+      let p
+      p = new Proxy({}, { get: (_, name) => {
+        if (name === 'editAsText' && !value) return () => { throw new Error('Cannot format an empty text element') }
+        if (name === 'setText') return value => { text.push(value); return null }
+        if (name === 'appendInlineImage') return () => p
+        return () => p
+      } })
+      return p
+    }
+    function section() {
+      let part
+      part = new Proxy({}, { get: (_, name) => {
+        if (name === 'appendParagraph') return paragraph
+        if (name === 'setPageWidth' || name === 'setPageHeight') return value => { dimensions.push(value); return part }
+        if (name === 'appendTable') return rows => {
+          tables.push(rows)
+          const cells = rows.map(row => row.map(value => {
+            const p = paragraph(value)
+            let cell
+            cell = new Proxy({}, { get: (_, method) => method === 'getChild' ? () => p : method === 'appendParagraph' ? paragraph : () => cell })
+            return cell
+          }))
+          let t
+          t = new Proxy({}, { get: (_, method) => method === 'getCell' ? (i, j) => cells[i][j] : () => t })
+          return t
+        }
+        return () => part
+      } })
+      return part
+    }
+    f.ctx.DocumentApp.Attribute = { FONT_FAMILY: 'font', FONT_SIZE: 'size', FOREGROUND_COLOR: 'color' }
+    const doc = { getBody: section, getHeader: section, getFooter: section, saveAndClose() { saved = true } }
+    const data = { reference: '001', year: '2026', date: '2026-09-10', recipientName: 'Jane Doe', recipientLabel: 'For', subject: 'Training', body: 'User-supplied order text.', place: 'Pagadian', inclusiveDate: 'September 10?11', transportation: 'College vehicle', purpose: 'Training', remarks: 'Official time' }
+    f.ctx.renderOrderTemplate(doc, data, type, 'logo')
+    assert.deepEqual(dimensions, [612, 792])
+    assert.ok(text.includes('J.H. CERILLES STATE COLLEGE'))
+    assert.ok(tables.some(rows => rows.some(row => row[1] === 'Jane Doe')))
+    assert.ok(text.some(value => value.includes('EDGARDO H. ROSALES')))
+    if (type === 'Travel Order') assert.ok(tables.some(rows => rows.some(row => row[0] === 'DESTINATION' && row[1] === 'Pagadian')))
+    else assert.ok(text.includes(data.body))
+    assert.ok(saved)
+  }
+})
+
+
+test('Travel Order display IDs combine padded number and creation date', () => {
+  const f = fixture()
+  for (const reference of ['1', '001', 'TO-001', 'Travel Order No. 001']) {
+    assert.equal(f.ctx.travelOrderDisplayId(reference, '2026-09-11'), 'TO001-09112026')
+  }
+  assert.equal(f.ctx.travelOrderDisplayId('119', '2026-12-03'), 'TO119-12032026')
 })
