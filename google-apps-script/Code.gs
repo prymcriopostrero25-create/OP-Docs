@@ -32,10 +32,14 @@ const CREATED_DOCUMENT_SHEETS = {
 const CREATED_DOCUMENT_HEADERS = {
   EX_Memo: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF THE INSTITUTION OR OFFICE', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE'],
   Spe_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF INSTITUTION/OFFICE', 'THRU (Optional)', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF INSTITUTION (OPTIONAL)'],
-  Trav_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION', 'NAME OF INSTITUTION', 'PLACE', 'INCLUSIVE DATE', 'TRANSPORTATION', 'PURPOSE', 'REMARKS'],
+  Trav_Ord: ['REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'PLACE', 'INCLUSIVE DATES', 'MODE OF TRANSPORTATION', 'PURPOSE', 'REMARKS'],
   Auth_Travel: ['ID', 'DATE (date created)', 'BODY'],
   Cert_Travel: ['ID', 'DATE (date created)', 'BODY'],
 };
+const LEGACY_TRAVEL_ORDER_HEADERS = [
+  ['REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION', 'NAME OF INSTITUTION', 'PLACE', 'INCLUSIVE DATE', 'TRANSPORTATION', 'PURPOSE', 'REMARKS'],
+  ['REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'PLACE', 'INCLUSIVE DATES', 'MODE OF TRANSPORTATION', 'PURPOSE', 'REMARKS'],
+];
 
 function normalizeHeader(text) {
   return String(text || '')
@@ -59,11 +63,26 @@ function createdDocumentSheet(type) {
   if (!name) throw new Error('Unsupported document type.');
   const sheet = appSpreadsheet().getSheetByName(name);
   if (!sheet) throw new Error('The ' + name + ' sheet is missing.');
+
   const headers = CREATED_DOCUMENT_HEADERS[name];
   if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
   const actual = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0].map(normalizeHeader);
   const expected = headers.map(normalizeHeader);
-  if (actual.join('|') !== expected.join('|')) throw new Error('Check the ' + name + ' sheet headers.');
+
+  const acceptedTravelOrderHeader = name === 'Trav_Ord' && (
+    actual.join('|') === expected.join('|') ||
+    LEGACY_TRAVEL_ORDER_HEADERS.some(candidate => candidate.map(normalizeHeader).join('|') === actual.join('|'))
+  );
+
+  if (name === 'Trav_Ord' && !acceptedTravelOrderHeader) {
+    throw new Error('Check the ' + name + ' sheet headers.');
+  }
+
+  if (name !== 'Trav_Ord' && actual.join('|') !== expected.join('|')) {
+    throw new Error('Check the ' + name + ' sheet headers.');
+  }
+
   return sheet;
 }
 
@@ -81,7 +100,7 @@ function logCreatedDocument(sheet, record, data, internalId) {
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(record.type);
   const values = simple ? [internalId, record.date, data.body || data.content]
     : record.type === 'Travel Order'
-      ? [internalId, record.id, label, data.recipientPosition, data.institution, data.place || data.destination, data.inclusiveDate || data.travelDates, data.transportation, data.purpose, data.remarks]
+      ? [record.id, label, data.recipientName || data.recipient, data.recipientPosition, data.place || data.destination, data.inclusiveDate || data.travelDates, data.transportation, data.purpose, data.remarks]
       : record.type === 'Executive Memorandum'
         ? [internalId, record.id, label, data.recipientName, data.recipientPosition, data.institution, data.thru, record.subject, record.date, data.body || data.content, record.status, data.additionalInstitution]
       : record.type === 'Special Order'
@@ -91,7 +110,7 @@ function logCreatedDocument(sheet, record, data, internalId) {
   sheet.getRange(row, 1).setNote(JSON.stringify({ createdDocumentId: internalId, reference: record.id, url: record.url }));
   sheet.getRange(row, 1, 1, values.length).setRichTextValues([values.map((value, index) => {
     const builder = SpreadsheetApp.newRichTextValue().setText(String(value || ''));
-    if (index === 0) builder.setLinkUrl(record.url);
+    if (index === 0 && record.type !== 'Travel Order') builder.setLinkUrl(record.url);
     return builder.build();
   })]);
 }
@@ -812,6 +831,7 @@ function renderSpecialOrder(doc, data, type) {
 
 function renderCreatedDocument(doc, data, type) {
   if (type === 'Special Order') return renderSpecialOrder(doc, data, type);
+  if (type === 'Travel Order') return renderOrderTemplate(doc, data, type, data.logo || '');
   const body = doc.getBody();
   body.clear();
   body.setPageWidth(595.28).setPageHeight(841.89).setMarginTop(54).setMarginBottom(54).setMarginLeft(64.8).setMarginRight(64.8);
@@ -827,13 +847,80 @@ function renderCreatedDocument(doc, data, type) {
   doc.saveAndClose();
 }
 
+function renderOrderTemplate(doc, data, type, logo) {
+  const body = doc.getBody();
+  const header = doc.getHeader ? doc.getHeader() : null;
+  if (header && typeof header.clear === 'function') header.clear();
+  if (body && typeof body.clear === 'function') body.clear();
+  if (body && typeof body.setPageWidth === 'function') body.setPageWidth(612).setPageHeight(792);
+
+  if (header && typeof header.appendParagraph === 'function') {
+    header.appendParagraph('J.H. CERILLES STATE COLLEGE').editAsText().setBold(true);
+    header.appendParagraph('OFFICE OF THE PRESIDENT').editAsText().setBold(false);
+    header.appendParagraph(String(data.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.')).editAsText().setBold(true);
+  }
+
+  if (body && typeof body.appendParagraph === 'function') {
+    body.appendParagraph(type === 'Travel Order' ? 'TRAVEL ORDER' : 'ORDER').setSpacingBefore(12).setSpacingAfter(4).editAsText().setBold(true);
+    if (data.reference) body.appendParagraph(data.reference).setSpacingAfter(2).editAsText().setBold(false);
+    if (data.subject && data.subject !== type) body.appendParagraph(data.subject).setSpacingAfter(12).editAsText().setBold(true);
+  }
+
+  const label = String(data.recipientLabel || 'For').toUpperCase();
+  const rows = type === 'Travel Order'
+    ? [
+      ['RECIPIENT LABEL', label],
+      ['RECIPIENT', data.recipientName || data.recipient || ''],
+      ['POSITION/OFFICE', data.recipientPosition || ''],
+      ['DESTINATION', data.place || data.destination || ''],
+      ['INCLUSIVE DATES', data.inclusiveDate || data.travelDates || ''],
+      ['MODE OF TRANSPORTATION', data.transportation || ''],
+      ['PURPOSE', data.purpose || ''],
+      ['REMARKS', data.remarks || '']
+    ]
+    : [
+      ['RECIPIENT LABEL', label],
+      ['RECIPIENT', data.recipientName || data.recipient || ''],
+      ['POSITION/OFFICE', data.recipientPosition || ''],
+      ['DESTINATION', data.place || data.destination || ''],
+      ['INCLUSIVE DATES', data.inclusiveDate || data.travelDates || ''],
+      ['MODE OF TRANSPORTATION', data.transportation || ''],
+      ['PURPOSE', data.purpose || ''],
+      ['REMARKS', data.remarks || '']
+    ];
+
+  if (body && typeof body.appendTable === 'function') {
+    const table = body.appendTable(rows);
+    if (table && typeof table.getCell === 'function') {
+      // Keep the template usable for both previews and saved Google Docs.
+    }
+  }
+
+  if (body && typeof body.appendParagraph === 'function') {
+    const lines = String(data.body || data.content || '').split(/\r?\n/);
+    lines.forEach(line => body.appendParagraph(line).setSpacingAfter(6).editAsText().setBold(false));
+  }
+
+  if (typeof doc.saveAndClose === 'function') doc.saveAndClose();
+}
+
+function travelOrderDisplayId(reference, createdDate) {
+  const raw = String(reference || '').match(/\d+/);
+  const number = raw ? String(Number(raw[0])).padStart(3, '0') : '000';
+  const date = String(createdDate || '').replace(/-/g, '');
+  const month = date.slice(4, 6);
+  const day = date.slice(6, 8);
+  const year = date.slice(0, 4);
+  return 'TO' + number + '-' + month + day + year;
+}
+
 // Field definitions from SHEET NAME FORMAT(TEMPLATE).pdf. POSITION is the recipient's position.
 function validateTemplateDocument(request, type) {
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(type);
   const travel = type === 'Travel Order';
   const data = {};
   const fields = simple ? ['body'] : travel
-    ? ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'place', 'inclusiveDate', 'transportation', 'purpose', 'remarks']
+    ? ['reference', 'recipientLabel', 'recipientName', 'recipientPosition', 'place', 'inclusiveDate', 'transportation', 'purpose', 'remarks']
     : ['Executive Memorandum', 'Special Order'].includes(type)
       ? ['reference', 'recipientLabel', 'recipientName', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution']
       : ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution'];
