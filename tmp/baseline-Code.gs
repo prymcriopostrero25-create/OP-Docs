@@ -755,56 +755,38 @@ function executiveMemoDate(value) {
   return months[parts[1] - 1] + ' ' + parts[2] + ', ' + parts[0];
 }
 
-function renderExecutiveMemorandum(doc, data, logo, heading) {
+function renderExecutiveMemorandum(doc, data, logo) {
   const body = doc.getBody();
   body.clear();
-  // Shared letterhead and layout for memoranda and special orders.
-  const green = '#356442';
-  body.setPageWidth(612).setPageHeight(792).setMarginTop(30).setMarginBottom(36).setMarginLeft(52).setMarginRight(52);
-  body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 10 });
+  body.setPageWidth(595.28).setPageHeight(841.89).setMarginTop(54).setMarginBottom(54).setMarginLeft(64.8).setMarginRight(64.8);
+  body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 11 });
   const header = doc.getHeader() || doc.addHeader();
   header.clear();
-  const letterhead = header.appendTable([['', 'J.H. CERILLES STATE COLLEGE\nMati, San Miguel, Zamboanga del Sur  |  main@jhcsc.edu.ph  |  +63 915 2484 538\nOFFICE OF THE PRESIDENT']]);
-  letterhead.setBorderWidth(0).setColumnWidth(0, 54).setColumnWidth(1, 454);
-  const image = letterhead.getCell(0, 0).getChild(0).asParagraph().appendInlineImage(logo);
-  image.setHeight(Math.round(43 * image.getHeight() / image.getWidth())).setWidth(43);
-  const brand = letterhead.getCell(0, 1);
-  for (let i = 0; i < brand.getNumChildren(); i++) {
-    const p = brand.getChild(i).asParagraph().setSpacingBefore(0).setSpacingAfter(0);
-    p.editAsText().setFontFamily('Arial').setFontSize(i === 0 ? 15 : 8).setBold(i !== 1).setForegroundColor(i === 0 ? green : i === 1 ? '#707875' : '#202820');
-  }
-  // A narrow filled table provides a consistent green rule in Google Docs/PDF.
-  const rule = header.appendTable([['']]);
-  rule.setBorderWidth(0).setColumnWidth(0, 508);
-  rule.getCell(0, 0).setBackgroundColor(green).setPaddingTop(0).setPaddingBottom(0)
-    .getChild(0).asParagraph().setSpacingBefore(0).setSpacingAfter(0).editAsText().setFontSize(1);
-  body.appendParagraph('').setSpacingAfter(12).editAsText().setFontSize(1);
-  const title = heading || (data.number ? 'Executive Memorandum Order No. ' + data.number : data.reference);
-  const banner = body.appendTable([[String(title).toUpperCase(), 'Series of ' + data.year]]);
-  banner.setBorderColor(green).setBorderWidth(0.5).setColumnWidth(0, 290).setColumnWidth(1, 218);
-  for (let col = 0; col < 2; col++) {
-    banner.getCell(0, col).setBackgroundColor('#f4f6f5').setPaddingTop(0).setPaddingBottom(0).setPaddingLeft(0)
-      .editAsText().setFontFamily('Arial').setFontSize(10).setBold(false);
-  }
-  body.appendParagraph('').setSpacingAfter(12).editAsText().setFontSize(1);
+  const image = header.appendParagraph('').setAlignment(DocumentApp.HorizontalAlignment.CENTER).appendInlineImage(logo);
+  image.setHeight(Math.round(55 * image.getHeight() / image.getWidth())).setWidth(55);
+  ['J.H. CERILLES STATE COLLEGE', 'Mati, San Miguel, Zamboanga del Sur', 'main@jhcsc.edu.ph | +63 915 2484 538', 'OFFICE OF THE PRESIDENT'].forEach((text, index) => {
+    const p = header.appendParagraph(text).setAlignment(DocumentApp.HorizontalAlignment.CENTER).setSpacingAfter(index === 3 ? 12 : 2);
+    p.editAsText().setFontFamily('Arial').setFontSize(index === 0 ? 12 : 10).setBold(index === 0 || index === 3);
+  });
+  body.appendParagraph(data.number ? 'Executive Memorandum Order No. ' + data.number : data.reference).setSpacingBefore(12).setSpacingAfter(2).editAsText().setBold(true);
+  body.appendParagraph('Series of ' + data.year).setSpacingAfter(18).editAsText().setBold(false);
   const recipient = [data.recipientName || data.recipient, data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
-  const details = [[(data.recipientLabel || 'For').toUpperCase() + ':', recipient]];
-  if (data.thru) details.push(['THRU:', data.thru]);
-  details.push(['SUBJECT:', String(data.subject || '').toUpperCase()], ['DATE:', executiveMemoDate(data.date).toUpperCase()]);
+  const details = [[(data.recipientLabel || 'For').toUpperCase(), ':', recipient]];
+  if (data.thru) details.push(['THRU', ':', data.thru]);
+  const subjectRow = details.length;
+  details.push(['SUBJECT', ':', data.subject], ['DATE', ':', executiveMemoDate(data.date).toUpperCase()]);
   const info = body.appendTable(details);
-  info.setBorderWidth(0).setColumnWidth(0, 140).setColumnWidth(1, 368);
+  info.setBorderWidth(0).setColumnWidth(0, 64).setColumnWidth(1, 12).setColumnWidth(2, 377.68);
   for (let row = 0; row < details.length; row++) {
-    for (let col = 0; col < 2; col++) {
-      info.getCell(row, col).setPaddingTop(0).setPaddingBottom(2).setPaddingLeft(0).setPaddingRight(0)
-        .editAsText().setFontFamily('Arial').setFontSize(10).setBold(false);
-    }
+    for (let col = 0; col < 3; col++) info.getCell(row, col).setPaddingTop(4).setPaddingBottom(7);
+    info.getCell(row, 0).editAsText().setBold(true);
   }
-  body.appendParagraph('').setSpacingAfter(6).editAsText().setFontSize(1);
-  String(data.body || '').split(/\r?\n/).forEach(line => body.appendParagraph(line)
-    .setIndentFirstLine(21.6).setLineSpacing(1).setSpacingAfter(6).editAsText().setBold(false));
-  body.appendParagraph(data.signatory).setIndentStart(266).setSpacingBefore(24).setSpacingAfter(0).editAsText().setBold(false);
-  body.appendParagraph(data.position).setIndentStart(266).setSpacingAfter(12).editAsText().setBold(false);
-  if (data.cc) body.appendParagraph('cc:\n' + data.cc).editAsText().setFontSize(9).setBold(false);
+  info.getCell(subjectRow, 2).editAsText().setBold(true);
+  body.appendParagraph('').setSpacingAfter(6);
+  data.body.split(/\r?\n/).forEach(line => body.appendParagraph(line).setLineSpacing(1.15).setSpacingAfter(6).editAsText().setBold(false));
+  body.appendParagraph(data.signatory).setSpacingBefore(36).setSpacingAfter(0).editAsText().setBold(true);
+  body.appendParagraph(data.position).setSpacingAfter(12).editAsText().setBold(false);
+  if (data.cc) body.appendParagraph('cc:\n' + data.cc).editAsText().setFontSize(10).setBold(false);
   doc.saveAndClose();
 }
 
@@ -827,20 +809,28 @@ function validateCreatedDocument(request, type) {
   return data;
 }
 
-function renderSpecialOrder(doc, data, logo) {
-  const reference = String(data.reference || '');
-  const heading = /^(?:special order|SO)\b/i.test(reference) ? reference : 'Special Order No. ' + reference;
-  return renderExecutiveMemorandum(doc, {
-    ...data,
-    subject: String(data.subject || '').toUpperCase(),
-    body: data.body || data.content || '',
-    signatory: data.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.',
-    position: data.position || 'SUC President II',
-  }, logo, heading);
+function renderSpecialOrder(doc, data, type) {
+  const body = doc.getBody();
+  body.clear();
+  body.setPageWidth(595.28).setPageHeight(841.89).setMarginTop(54).setMarginBottom(54).setMarginLeft(64.8).setMarginRight(64.8);
+  body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 11 });
+
+  body.appendParagraph('SPECIAL ORDER').setSpacingBefore(12).setSpacingAfter(4).editAsText().setBold(true);
+  if (data.reference) body.appendParagraph(data.reference).setSpacingAfter(2).editAsText().setBold(false);
+  if (data.subject && data.subject !== type) body.appendParagraph(data.subject).setSpacingAfter(12).editAsText().setBold(true);
+
+  const addressee = [data.recipientName || data.recipient, data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
+  const fields = [['DATE', executiveMemoDate(data.date)], [(data.recipientLabel || 'To').toUpperCase(), addressee], ['THRU', data.thru], ['PLACE', data.place || data.destination], ['INCLUSIVE DATE', data.inclusiveDate || data.travelDates], ['TRANSPORTATION', data.transportation], ['PURPOSE', data.purpose], ['REMARKS', data.remarks]];
+  fields.filter(([, value]) => value).forEach(([label, value]) => body.appendParagraph(label + ': ' + value).setSpacingAfter(6).editAsText().setBold(false));
+
+  body.appendParagraph('').setSpacingAfter(6);
+  (data.body || data.content || '').split(/\r?\n/).forEach(line => body.appendParagraph(line).setSpacingAfter(6).editAsText().setBold(false));
+
+  doc.saveAndClose();
 }
 
-function renderCreatedDocument(doc, data, type, logo) {
-  if (type === 'Special Order') return renderSpecialOrder(doc, data, logo);
+function renderCreatedDocument(doc, data, type) {
+  if (type === 'Special Order') return renderSpecialOrder(doc, data, type);
   if (type === 'Travel Order') return renderOrderTemplate(doc, data, type, data.logo || '');
   const body = doc.getBody();
   body.clear();
@@ -958,8 +948,6 @@ function validateTemplateDocument(request, type) {
         data.year = match[2];
       }
     }
-  }
-  if (['Executive Memorandum', 'Special Order'].includes(type)) {
     data.signatory = String(request.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.').trim();
     data.position = String(request.signatoryPosition || 'SUC President II').trim();
   }
@@ -1074,11 +1062,10 @@ function createDocument(request) {
     if (state.allocationName) file.setName(name);
     if (!state.rendered) {
       stage = 'generate';
-      if (memo || type === 'Special Order') {
+      if (memo) {
         if (typeof request.logo !== 'string' || request.logo.length > 1500000) throw new Error('Logo unavailable');
         const logo = Utilities.newBlob(Utilities.base64Decode(request.logo), 'image/png', 'jhcsclogo.png');
-        if (memo) renderExecutiveMemorandum(DocumentApp.openById(state.fileId), data, logo);
-        else renderCreatedDocument(DocumentApp.openById(state.fileId), data, type, logo);
+        renderExecutiveMemorandum(DocumentApp.openById(state.fileId), data, logo);
       } else renderCreatedDocument(DocumentApp.openById(state.fileId), data, type);
       const root = DriveApp.getFolderById(UPLOAD_FOLDER_ID);
       if (root.isTrashed()) throw new Error('The destination folder is in the trash.');

@@ -51,8 +51,8 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
     setError('')
     try {
       let logo
-      if (specialOrder) {
-        const response = await fetch(memo ? '/jhcsclogo.png' : '/order-template-logo.png')
+      if (memo || specialOrder) {
+        const response = await fetch('/jhcsclogo.png')
         if (!response.ok) throw new Error('Unable to load the college logo. Please try again.')
         const blob = await response.blob()
         logo = await new Promise((resolve, reject) => {

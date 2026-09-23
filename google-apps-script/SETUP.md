@@ -112,3 +112,8 @@ Generated Google Docs include the selected recipient label, recipient position, 
 The live sheet structure is already updated. Deploy the updated Code.gs and rebuilt frontend together to activate the matching form and backend. Reuse the existing spreadsheet ID, Drive folder ID, and web-app URL. No new configuration values are required. Older deployed code still expects the previous sheet names and must be replaced.
 
 Validation includes all five PDF column mappings, recipient labels, optional fields, automatic-date retries, matching status-cell updates, duplicate prevention and existing upload/RBAC regression tests. Sheet header values and wrap formatting were verified through the connector; live Google Doc rendering requires the deployed Apps Script account.
+
+
+## Shared Special Order preview layout
+
+Special Orders now use the Executive Memorandum renderer with a Special Order heading, preserving the reference (including letter suffixes), recipient fields, optional THRU, body, and configurable signatory. Both forms send public/jhcsclogo.png for the shared letterhead. Deploy the updated Code.gs as a new version of the existing web app and deploy the rebuilt frontend together. The registry preview displays the saved Drive document, so this layout applies to newly created documents; existing saved documents are not reformatted.

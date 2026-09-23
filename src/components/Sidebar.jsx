@@ -5,7 +5,7 @@ const navItems = [
   ['User management', '♙'], ['User logs', '◷'], ['Settings', '⚙'],
 ]
 
-export default function Sidebar({ active, isOpen, onNavigate, onLogout, onCreateDocument, onClose, user }) {
+export default function Sidebar({ active, isOpen, onNavigate, onLogout, onClose, user }) {
   const name = user.name || 'User'
   const initials = name.split(' ').map((word) => word[0]).join('').slice(0, 2).toUpperCase()
 
@@ -16,7 +16,6 @@ export default function Sidebar({ active, isOpen, onNavigate, onLogout, onCreate
         <img src="/jhcsclogo.png" alt="JHCSC seal" />
         <div><strong>OP-DMS</strong><small>Document Management</small></div>
       </div>
-      <button className="new-document" onClick={onCreateDocument}><span>＋</span><span className="new-document-label">New document</span></button>
       <nav className="main-nav" aria-label="Main navigation">
         <p>Workspace</p>
         {navItems.map(([label, icon], index) => canAccessPage(user, label) && <div key={label}>

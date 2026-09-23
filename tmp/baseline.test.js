@@ -39,7 +39,7 @@ function fixture() {
     DriveApp: { getFilesByName: () => ({ hasNext: () => false }), getFileById: () => ({ isTrashed: () => false, makeCopy() { f.allocations++; return doc }, setName() {}, moveTo(folder) { destinations.push(folder.path) } }), getFolderById: id => { assert.equal(id, '1OVvmtvYjsp4WZz-RY7NkExyNIotO-Vji'); return { path: 'OP Systems', isTrashed: () => false } } },
   }
   vm.createContext(ctx)
-  vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), ctx)
+  vm.runInContext(fs.readFileSync(new URL('./baseline-Code.gs', import.meta.url), 'utf8'), ctx)
   ctx.getDocumentSession = () => f.authenticated
   ctx.canChangeDocumentStatus = () => f.admin
   ctx.isSuperAdminSession = () => false
@@ -120,52 +120,49 @@ test('USER status is forced to Draft; ADMIN can choose status; activity logs rem
   assert.equal(g.ctx.doPost({ postData: { contents: JSON.stringify({ action: 'activityLogs', token: 'session' }) } }).success, false)
 })
 
-test('memo and special order share the horizontal letterhead and aligned layout', () => {
-  const f = fixture()
-  function styled(text = '') {
-    const state = { text, children: text.split('\n').map(styledLine) }
-    function styledLine(value) { return { text: value } }
-    const proxy = new Proxy(state, { get(obj, key) {
-      if (key in obj) return obj[key]
-      if (key === 'getWidth' || key === 'getHeight') return () => 100
-      if (key === 'getNumChildren') return () => obj.children.length
-      if (key === 'getChild') return i => obj.children[i].node ||= styled(obj.children[i].text)
-      if (['asParagraph', 'editAsText', 'appendInlineImage'].includes(key)) return () => proxy
-      return (...args) => { obj['called_' + key] = args; return proxy }
-    } })
-    return proxy
-  }
-  function section() {
-    const node = styled(), tables = [], paragraphs = []
-    node.appendTable = rows => {
-      const table = styled()
-      table.cells = Array.from(rows, row => Array.from(row, styled))
-      table.getCell = (r, c) => table.cells[r][c]
-      tables.push(table)
-      return table
+test('memorandum uses the uniform template, preserves body text and optional fields', () => {
+  const f = fixture(), inserted = [], cells = new Map(), removedRows = []
+  function paragraph(value = '') {
+    return { value, style: { font: 'Arial' }, asParagraph() { return this }, getParent() { return this },
+      editAsText() { return this }, getAttributes() { return this.style }, setAttributes(style) { this.style = style; return this },
+      setText(value) { this.value = value; return this }, setLineSpacing() { return this }, setSpacingBefore() { return this },
+      setSpacingAfter() { return this }, setIndentFirstLine(v) { this.indent = v; return this }, setFontFamily() { return this },
+      setFontSize(v) { this.size = v; return this }, setForegroundColor() { return this }, setBold(v) { this.bold = v; return this },
     }
-    node.appendParagraph = text => { const p = styled(text); paragraphs.push(p); return p }
-    return { node, tables, paragraphs }
   }
-  f.ctx.DocumentApp.Attribute = { FONT_FAMILY: 'font', FONT_SIZE: 'size' }
-  f.ctx.renderExecutiveMemorandum = f.render
-  for (const special of [false, true]) {
-    const body = section(), header = section()
-    let saved = false
-    const doc = { getBody: () => body.node, getHeader: () => header.node, saveAndClose() { saved = true } }
-    const data = { ...sample, reference: '155', recipientLabel: 'To', thru: 'Director' }
-    if (special) f.ctx.renderSpecialOrder(doc, data, 'logo')
-    else f.render(doc, data, 'logo')
-    assert.equal(header.tables[0].cells[0][1].text.split('\n')[0], 'J.H. CERILLES STATE COLLEGE')
-    assert.equal(body.tables[0].cells[0][0].text, special ? 'SPECIAL ORDER NO. 155' : 'EXECUTIVE MEMORANDUM ORDER NO. 203')
-    assert.equal(body.tables[0].cells[0][1].text, 'Series of 2026')
-    assert.equal(body.tables[1].cells[0][0].text, 'TO:')
-    assert.equal(body.tables[1].cells[1][1].text, 'Director')
-    assert.equal(body.tables[1].cells[3][1].text, 'SEPTEMBER 9, 2026')
-    assert.deepEqual(body.paragraphs.find(p => p.text === sample.signatory).called_setIndentStart, [266])
-    assert.ok(body.paragraphs.some(p => p.text === sample.body.split('\n')[0]))
-    assert.equal(saved, true)
+  const marker = paragraph('[MEMORANDUM BODY]'), cc = paragraph('cc: [CONCERNED OFFICE/S]')
+  const tables = [0, 1, 2].map(t => ({ getCell(r, c) { return { getChild(p) { const key = [t,r,c,p].join(':'); if (!cells.has(key)) cells.set(key, paragraph()); return cells.get(key) } } }, removeRow(r) { removedRows.push([t,r]) } }))
+  const source = { getTables: () => tables, getText: () => '[MEMORANDUM BODY]', getAttributes: () => ({ PAGE_WIDTH: 612, PAGE_HEIGHT: 792 }) }
+  const body = { getTables: () => tables, setAttributes(v) { this.style = v },
+    findText(pattern) { return { getElement: () => pattern.startsWith('cc:') ? cc : marker } }, getChildIndex: () => 5,
+    insertParagraph(i, text) { const p = paragraph(text); inserted.push(p); return p }, removeChild(p) { assert.equal(p, marker) },
   }
+  const copied = []
+  f.ctx.copyTravelTemplateSection = (from, to) => copied.push([from,to])
+  f.ctx.DocumentApp.openById = () => ({ getBody: () => source, getHeader: () => 'header', getFooter: () => 'footer' })
+  let saved = false
+  const doc = { getId: () => 'output', getBody: () => body, getHeader: () => 'outputHeader', getFooter: () => 'outputFooter', saveAndClose() { saved = true } }
+  f.render(doc, { ...f.ctx.validateExecutiveMemorandum(sample), thru: 'Office Director', cc: 'Records Office' })
+  const cell = (t,r,c,p=0) => cells.get([t,r,c,p].join(':')).value
+  assert.equal(cell(0,0,0), 'EXECUTIVE MEMORANDUM ORDER NO. 203')
+  assert.equal(cell(0,0,1), 'Series of 2026')
+  assert.equal(cell(1,0,0), 'FOR:')
+  assert.equal(cell(1,0,1), sample.recipient)
+  assert.equal(cell(1,1,1), 'Office Director')
+  assert.equal(cell(1,2,1), sample.subject.toUpperCase())
+  assert.equal(cell(1,3,1), 'SEPTEMBER 9, 2026')
+  assert.equal(cell(2,0,1), sample.signatory)
+  assert.equal(cell(2,0,1,1), sample.position)
+  assert.deepEqual(inserted.map(p => p.value), sample.body.split('\n'))
+  assert.equal(inserted[0].indent, 21.6)
+  assert.equal(cc.value, 'cc: Records Office')
+  assert.equal(copied.length, 3)
+  assert.equal(body.style.PAGE_WIDTH, 612)
+  assert.equal(body.style.PAGE_HEIGHT, 792)
+  assert.equal(saved, true)
+  f.render(doc, f.ctx.validateExecutiveMemorandum(sample))
+  assert.deepEqual(removedRows, [[1,1]])
+  assert.equal(cc.value, '')
 })
 
 test('EX_Memo matches its live-sheet columns and links its internal ID to the saved file', () => {
@@ -508,25 +505,4 @@ test('Travel Order display IDs combine padded number and creation date', () => {
     assert.equal(f.ctx.travelOrderDisplayId(reference, '2026-09-11'), 'TO001-09112026')
   }
   assert.equal(f.ctx.travelOrderDisplayId('119', '2026-12-03'), 'TO119-12032026')
-})
-
-
-test('Special Order shares the memorandum renderer and retains its reference and signatory', () => {
-  const f = fixture()
-  const data = f.ctx.validateTemplateDocument({ templateVersion: 2, reference: '136-b', recipientLabel: 'For', recipientName: 'Recipient', recipientPosition: 'Director', institution: 'College', subject: 'Office assignment', date: '2026-09-23', body: 'First paragraph.\n\nSecond paragraph.', thru: 'Office Director', additionalInstitution: 'Other Office', signatory: 'CUSTOM SIGNATORY', signatoryPosition: 'Acting President' }, 'Special Order')
-  const doc = {}, logo = {}
-  let rendered
-  f.ctx.renderExecutiveMemorandum = (...args) => { rendered = args }
-  f.ctx.renderSpecialOrder(doc, data, logo)
-  assert.equal(rendered[0], doc)
-  assert.equal(rendered[2], logo)
-  assert.equal(rendered[3], 'Special Order No. 136-b')
-  assert.equal(rendered[1].subject, 'OFFICE ASSIGNMENT')
-  assert.equal(rendered[1].body, data.body)
-  assert.equal(rendered[1].thru, 'Office Director')
-  assert.equal(rendered[1].additionalInstitution, 'Other Office')
-  assert.equal(rendered[1].signatory, 'CUSTOM SIGNATORY')
-  assert.equal(rendered[1].position, 'Acting President')
-  f.ctx.renderSpecialOrder(doc, { ...data, reference: 'Special Order No. 136-b' }, logo)
-  assert.equal(rendered[3], 'Special Order No. 136-b')
 })
