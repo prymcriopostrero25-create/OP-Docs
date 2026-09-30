@@ -1,11 +1,12 @@
-﻿import { useState } from 'react'
+﻿import { documentTypes, documentTypeLabel } from '../lib/documentTypes'
+import { useState } from 'react'
 
-const types = ['Executive Memorandum', 'Special Order', 'Travel Order', 'Authority to Travel Abroad', 'Certificate of Travel']
+const types = documentTypes.map(type => type.value)
 const sheetNames = { 'Executive Memorandum': 'EX_Memo', 'Travel Order': 'Trav_Ord', 'Special Order': 'Spe_Ord', 'Authority to Travel Abroad': 'Auth_Travel', 'Certificate of Travel': 'Cert_Travel' }
 const emptyForm = () => ({ templateVersion: 2, type: types[0], reference: '', recipientLabel: 'For', recipientName: '', recipientPosition: '', institution: '', thru: '', subject: '', date: '', body: '', status: 'Draft', additionalInstitution: '', place: '', inclusiveDate: '', travelFrom: '', travelUntil: '', transportation: '', purpose: '', remarks: '', signatory: 'EDGARDO H. ROSALES, JD, Ed.D.', signatoryPosition: 'SUC President II', requestId: crypto.randomUUID() })
 
-export default function CreateDocument({ isOpen, onClose, onCreate, canChangeStatus = false }) {
-  const [form, setForm] = useState(emptyForm)
+export default function CreateDocument({ isOpen, onClose, onCreate, canChangeStatus = false, initialForm = null, page = false }) {
+  const [form, setForm] = useState(() => initialForm ? { ...emptyForm(), ...initialForm } : emptyForm())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [errors, setErrors] = useState({})
@@ -16,7 +17,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(form.type)
   const travel = form.type === 'Travel Order'
   const fields = simple ? [['body', 'Body']] : [
-    ['reference', 'Reference number'], ['recipientLabel', travel ? 'Recipient label (To or For)' : 'Recipient label'], ['recipientName', travel ? 'Name of the recipient' : 'Name of recipient'], ['recipientPosition', travel ? 'Position/Office' : 'Position / office'], ...(!travel ? [['institution', memo ? 'Name of institution or office' : 'Name of institution / office']] : []),
+    ...(initialForm ? [['reference', 'Reference number']] : []), ['recipientLabel', travel ? 'Recipient label (To or For)' : 'Recipient label'], ['recipientName', travel ? 'Name of the recipient' : 'Name of recipient'], ['recipientPosition', travel ? 'Position/Office' : 'Position / office'], ...(!travel ? [['institution', memo ? 'Name of institution or office' : 'Name of institution / office']] : []),
     ...(travel ? [['place', 'Place'], ['travelFrom', 'Inclusive dates - From'], ['travelUntil', 'Inclusive dates - Until'], ['transportation', 'Mode of transportation'], ['purpose', 'Purpose'], ['remarks', 'Remarks']]
       : [['thru', 'Thru (Optional)'], ['subject', 'Subject'], ['date', 'Date'], ['body', 'Body'], ['additionalInstitution', 'Additional name of institution (Optional)']]),
   ]
@@ -64,7 +65,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
       }
       const dateLabel = value => new Date(value + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
       const inclusiveDate = travel ? (form.travelFrom === form.travelUntil ? dateLabel(form.travelFrom) : `${dateLabel(form.travelFrom)} to ${dateLabel(form.travelUntil)}`) : form.inclusiveDate
-      const result = await onCreate({ ...form, inclusiveDate, logo, status: canChangeStatus ? form.status : 'Draft' })
+      const result = await onCreate({ ...form, autoReference: !initialForm, inclusiveDate, logo, status: canChangeStatus ? form.status : 'Draft' })
       setForm(emptyForm())
       setCreated(result)
     } catch (failure) {
@@ -78,7 +79,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
     const Tag = name === 'recipientLabel' ? 'select' : multiline ? 'textarea' : 'input'
     return <div key={name} className={`create-field${multiline ? ' full' : ''}`}>
       <label htmlFor={`document-${name}`}>{label}</label>
-      <Tag id={`document-${name}`} name={name} value={form[name]} onChange={updateField} disabled={busy} required={!optional} aria-invalid={!!errors[name]} aria-describedby={errors[name] ? `error-${name}` : undefined}
+      <Tag id={`document-${name}`} name={name} value={form[name]} onChange={updateField} disabled={busy || (!!initialForm && name === 'reference')} required={!optional} aria-invalid={!!errors[name]} aria-describedby={errors[name] ? `error-${name}` : undefined}
         {...(name === 'recipientLabel' ? {} : { maxLength: name === 'body' ? 50000 : 2000, ...(multiline ? { rows: name === 'body' ? 9 : 2 } : { type: ['date', 'travelFrom', 'travelUntil'].includes(name) ? 'date' : 'text', ...(['travelFrom', 'travelUntil'].includes(name) ? { min: name === 'travelUntil' ? form.travelFrom || '1900-01-01' : '1900-01-01', max: '2099-12-31' } : {}) }) })}>
         {name === 'recipientLabel' ? <><option>To</option><option>For</option></> : undefined}
       </Tag>
@@ -87,17 +88,17 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
   }
   function close() { if (!busy) { setCreated(null); onClose() } }
 
-  return <div className="create-document-overlay" onMouseDown={event => event.target === event.currentTarget && close()}>
-    <section className="create-document-modal" role="dialog" aria-modal="true" aria-labelledby="create-document-title" aria-busy={busy} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); close() } }}>
-      <header><div><p>Document registry</p><h2 id="create-document-title">Create new document</h2><span>Create and save an official document.</span></div><button type="button" onClick={close} disabled={busy} aria-label="Close">×</button></header>
-      {created ? <div className="create-result" role="status"><p>Document Created Successfully</p><a href={created.url} target="_blank" rel="noreferrer">Open {created.type}</a><p>Saved to Google Drive, MAIN Files, and {sheetNames[created.type]}.</p><button type="button" onClick={close}>Done</button></div> : <form onSubmit={handleSubmit} noValidate>
-        <div className="create-field full"><label htmlFor="document-type">Document type</label><select id="document-type" name="type" value={form.type} onChange={updateField} disabled={busy}>{types.map(type => <option key={type}>{type}</option>)}</select></div>
-        <div className="create-field full"><span className="create-field-caption">ID</span><span>Assigned automatically when saved.</span>{simple && <p>Date created is recorded automatically.</p>}</div>
+  return <div className={page ? 'create-document-page-content' : 'create-document-overlay'} onMouseDown={event => !page && event.target === event.currentTarget && close()}>
+    <section className={`create-document-modal${page ? ' create-document-panel' : ''}`} role={page ? undefined : 'dialog'} aria-modal={page ? undefined : true} aria-labelledby="create-document-title" aria-busy={busy} onKeyDown={event => { if (!page && event.key === 'Escape') { event.stopPropagation(); close() } }}>
+      <header><div><p>Document registry</p><h2 id="create-document-title">{initialForm ? 'Edit document' : 'Create new document'}</h2><span>Create and save an official document.</span></div><button type="button" onClick={close} disabled={busy} aria-label="Close">×</button></header>
+      {created ? <div className="create-result" role="status"><p>Document saved successfully</p><p>Reference number: <strong>{created.id}</strong></p><a href={created.url} target="_blank" rel="noreferrer">Open {created.type}</a><p>Saved to Google Drive, MAIN Files, and {sheetNames[created.type]}.</p><button type="button" onClick={close}>Done</button></div> : <form onSubmit={handleSubmit} noValidate>
+        <div className="create-field full"><label htmlFor="document-type">Document type</label><select id="document-type" name="type" value={form.type} onChange={updateField} disabled={busy || !!initialForm}>{types.map(type => <option key={type} value={type}>{documentTypeLabel(type)}</option>)}</select></div>
+        <div className="create-field full"><span className="create-field-caption">Reference number</span><span>{initialForm ? form.reference : 'Generated automatically when saved.'}</span>{simple && <p>Date created is recorded automatically.</p>}</div>
         {fields.map(([name, label]) => field(name, label))}
-        {!simple && !travel && <div className="create-field"><label htmlFor="document-status">Status</label><select id="document-status" name="status" value={canChangeStatus ? form.status : 'Draft'} onChange={updateField} disabled={busy || !canChangeStatus}>{['Draft', 'For Review', 'For Signature', 'Approved', 'Out'].map(status => <option key={status}>{status}</option>)}</select></div>}
+        {!initialForm && <div className="create-field"><label htmlFor="document-status">Status</label><select id="document-status" name="status" value={canChangeStatus ? form.status : 'Draft'} onChange={updateField} disabled={busy || !canChangeStatus}>{['Draft', 'For Review', 'For Signature', 'Approved', 'Out'].map(status => <option key={status}>{status}</option>)}</select></div>}
         {(memo || specialOrder || travel) && <details className="create-field full"><summary>Signatory</summary>{field('signatory', 'Signatory name')}{field('signatoryPosition', 'Signatory position')}</details>}
         {error && <p className="create-field-error create-field full" role="alert">{error}</p>}
-        <div className="create-form-actions"><button type="button" onClick={close} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Creating document…' : 'Create document'}</button></div>
+        <div className="create-form-actions"><button type="button" onClick={close} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Saving document…' : initialForm ? 'Save changes' : 'Create document'}</button></div>
       </form>}
     </section>
   </div>

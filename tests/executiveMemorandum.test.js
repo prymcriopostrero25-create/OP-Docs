@@ -44,7 +44,7 @@ function fixture() {
   ctx.canChangeDocumentStatus = () => f.admin
   ctx.isSuperAdminSession = () => false
   ctx.mainFilesSheet = () => sheet
-  ctx.typeLogSheet = () => ({ getLastRow: () => log.length + 1 })
+  ctx.typeLogSheet = () => ({ getLastRow: () => log.length + 1, getRange: () => ({ getDisplayValues: () => log.map(record => [record.id, record.year]) }) })
   ctx.existingTypeLogRow = (_, id) => log.find(item => item.id === id) ? 2 : 0
   ctx.writeTypeLog = (_, __, value) => { if (f.failCategory) throw Error('log failure'); log.push(value) }
   ctx.filingSubfolder = (parent, name) => ({ path: parent.path + '/' + name })
@@ -529,4 +529,32 @@ test('Special Order shares the memorandum renderer and retains its reference and
   assert.equal(rendered[1].position, 'Acting President')
   f.ctx.renderSpecialOrder(doc, { ...data, reference: 'Special Order No. 136-b' }, logo)
   assert.equal(rendered[3], 'Special Order No. 136-b')
+})
+
+ test('automatic creation saves generated references and retries without duplicate files', () => {
+  for (const type of ['Executive Memorandum', 'Travel Order', 'Special Order', 'Authority to Travel Abroad', 'Certificate of Travel']) {
+    const f = fixture()
+    const request = { token: 'session', requestId: 'automatic-request-12345', templateVersion: 2, autoReference: true, type, recipientLabel: 'For', recipientName: 'Recipient', recipientPosition: 'Director', institution: 'College', subject: 'Subject', date: '2026-09-09', body: 'Body', place: 'Manila', inclusiveDate: 'September 9, 2026', transportation: 'Air', purpose: 'Meeting', remarks: 'Official', logo: 'logo' }
+    const first = f.ctx.createDocument(request)
+    assert.equal(first.success, true, first.message)
+    assert.equal(first.document.id, type + ' No. 001, s. 2026')
+    assert.equal(f.ctx.createDocument(request).document.id, first.document.id)
+    assert.equal(f.allocations, 1)
+    assert.equal(f.rows.length, 1)
+  }
+})
+
+test('fresh creation renders the open document without reopening it or rereading the category log', () => {
+  const f = fixture()
+  let opens = 0, categoryReads = 0
+  const existing = f.ctx.existingTypeLogRow
+  f.ctx.existingTypeLogRow = (...args) => { categoryReads++; return existing(...args) }
+  f.ctx.DocumentApp.openById = () => { opens++; throw new Error('Fresh document should already be open') }
+  const result = f.ctx.createExecutiveMemorandum(sample)
+  assert.equal(result.success, true, result.message)
+  assert.equal(opens, 0)
+  assert.equal(categoryReads, 1)
+  assert.equal(f.renders, 1)
+  assert.equal(f.rows.length, 1)
+  assert.equal(f.log.length, 1)
 })

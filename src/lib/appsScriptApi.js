@@ -99,6 +99,7 @@ async function documentRequest(payload) {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ ...payload, token: getSessionToken() }),
+    signal: AbortSignal.timeout(90000),
   })
   if (!response.ok) throw new Error(`Document request failed with status ${response.status}.`)
   const result = await response.json()
@@ -110,6 +111,19 @@ export async function fetchDocuments() {
   const files = (await documentRequest({ action: 'documents' })).documents || []
   // Exclude the specific sample upload while its owner completes Drive cleanup.
   return files.filter(file => file.id !== '1cb7ca84-b1d8-420a-a4ce-84dc89f79281')
+}
+
+export const currentUser = async () => (await documentRequest({ action: 'currentUser' })).user
+export const saveUser = (form, creating) => documentRequest({ ...form, action: creating ? 'createUser' : 'updateUser' })
+export const removeUser = email => documentRequest({ action: 'deleteUser', email })
+export const verificationLink = async id => (await documentRequest({ action: 'verificationLink', id })).code
+export const verifyDocument = async code => (await documentRequest({ action: 'verify', code })).document
+export const sendDocument = async form => (await documentRequest({ ...form, action: 'sendDocument' })).document
+export const documentDetails = async id => (await documentRequest({ action: 'documentDetails', id })).form
+export const updateDocumentContent = async (id, form) => (await documentRequest({ ...form, id, action: 'updateDocumentContent' })).document
+
+export async function prepareDocumentPreview(id) {
+  return documentRequest({ action: 'prepareDocumentPreview', id })
 }
 
 export async function createExecutiveMemorandum(form) {

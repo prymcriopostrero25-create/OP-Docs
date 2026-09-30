@@ -1,6 +1,7 @@
 import { DocumentContext } from '../lib/documentContext'
 import { useContext, useEffect, useRef, useState } from 'react'
 import { uploadPdf } from '../lib/appsScriptApi'
+import { documentTypeLabel } from '../lib/documentTypes'
 import { filingTypes } from '../lib/documentClassification'
 import { readPdfClassification } from '../lib/readPdfClassification'
 
@@ -108,7 +109,7 @@ export default function DocumentUploads({ onCreateDocument }) {
           {selection ? <form id="pdf-filing-form" className="filing-form" onSubmit={submit}>
             <p className="upload-detection-note">{note}</p>
             <div className="upload-fields">
-              <label htmlFor="filing-type">Document type<select id="filing-type" value={type} required disabled={!!busy} onChange={event => updateFiling(setType, event.target.value)}><option value="">Select document type</option>{filingTypes.map(value => <option key={value}>{value}</option>)}</select></label>
+              <label htmlFor="filing-type">Document type<select id="filing-type" value={type} required disabled={!!busy} onChange={event => updateFiling(setType, event.target.value)}><option value="">Select document type</option>{filingTypes.map(value => <option key={value} value={value}>{documentTypeLabel(value)}</option>)}</select></label>
               <label htmlFor="filing-year">Document year<input id="filing-year" type="number" min="1900" max="2099" step="1" required value={year} disabled={!!busy} placeholder="e.g. 2026" onChange={event => updateFiling(setYear, event.target.value)} /></label>
             </div>
             <div className="upload-destination"><small>Filing destination</small><p><span>OP Systems</span><span aria-hidden="true">/</span><strong>{type || 'Document type'}</strong><span aria-hidden="true">/</span><strong>{year || 'Year'}</strong></p></div>

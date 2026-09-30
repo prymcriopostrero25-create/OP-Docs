@@ -1,4 +1,11 @@
 import { DocumentContext } from '../../lib/documentContext'
+import { documentTypeLabel } from '../../lib/documentTypes'
+import { filterRecords, recordsCsv, downloadFile } from '../../lib/recordTools'
+import { verifiedPdf } from '../../lib/verifiedPdf'
+import SendDocument from '../../components/SendDocument'
+import DocumentPages from '../../components/DocumentPages'
+import CreateDocument from '../../components/CreateDocument'
+import { prepareDocumentPreview, documentDetails, updateDocumentContent } from '../../lib/appsScriptApi'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 
@@ -14,12 +21,23 @@ function ActionIcon({ kind }) {
   return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{kind === 'edit' ? <><path d="m16 3 5 5-12 12-6 1 1-6Z" /><path d="m14 5 5 5" /></> : kind === 'preview' ? <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> : <><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></>}</svg>
 }
 
-export default function DocumentRecordPage({ title, type }) {
-  const { records, changeStatus, editRecord, deleteRecord, permissions, loading, loadError } = useContext(DocumentContext)
+export default function DocumentRecordPage({ title, type, initialStatus = 'All statuses' }) {
+  const { records, changeStatus, editRecord, deleteRecord, permissions, loading, loadError, setFiles, refreshRecords } = useContext(DocumentContext)
+  const [emailRecord, setEmailRecord] = useState(null)
+  const [editing, setEditing] = useState(null)
+  const [qrBusy, setQrBusy] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+  const [sort, setSort] = useState('newest')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [preview, setPreview] = useState(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [preparedPreview, setPreparedPreview] = useState(null)
+  const [previewError, setPreviewError] = useState('')
+  const [sending, setSending] = useState(false)
   const previewDialog = useRef(null)
   const [action, setAction] = useState(null)
   const [editedTitle, setEditedTitle] = useState('')
@@ -36,7 +54,14 @@ export default function DocumentRecordPage({ title, type }) {
     return () => { document.body.style.overflow = previousOverflow; trigger?.focus() }
   }, [action])
 
-  function openAction(kind, record) {
+  async function openAction(kind, record) {
+    if (kind === 'edit' && record.editableContent) {
+      setSaving(true); setError('')
+      try { const form = await documentDetails(record.reference); setEditing({ record, form }) }
+      catch (failure) { setError(failure.message) }
+      finally { setSaving(false) }
+      return
+    }
     setEditedTitle(record.title)
     setActionError('')
     setAction({ kind, record })
@@ -62,13 +87,31 @@ export default function DocumentRecordPage({ title, type }) {
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     previewDialog.current.showModal()
+    let cancelled = false
+    let objectUrl
+    prepareDocumentPreview(preview.reference).then(result => {
+      if (cancelled) return
+      const bytes = Uint8Array.from(atob(result.data), character => character.charCodeAt(0))
+      const file = new File([bytes], result.name, { type: 'application/pdf' })
+      objectUrl = URL.createObjectURL(file)
+      setPreparedPreview({ file, url: objectUrl })
+    }).catch(failure => {
+      if (!cancelled) {
+        setPreviewError('Unable to prepare the PDF preview. ' + failure.message)
+        setPreviewLoading(false)
+      }
+    })
     return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
       document.body.style.overflow = previousOverflow
       trigger?.focus()
     }
   }, [preview])
 
   function openPreview(record) {
+    setPreparedPreview(null)
+    setPreviewError('')
     setPreview(record)
     setPreviewLoading(true)
   }
@@ -77,40 +120,54 @@ export default function DocumentRecordPage({ title, type }) {
     setPreview(null)
     setPreviewLoading(false)
   }
+  async function sendPdf() {
+    const files = [preparedPreview.file]
+    if (!navigator.canShare?.({ files })) {
+      setPreviewError('File sharing is unavailable in this browser. Save the PDF and attach it to your email or messaging app.')
+      return
+    }
+    setSending(true)
+    setPreviewError('')
+    try { await navigator.share({ files, title: preview.title }) }
+    catch (failure) { if (failure.name !== 'AbortError') setPreviewError('Unable to share the PDF. Save it and attach it to your message.') }
+    finally { setSending(false) }
+  }
   async function saveStatus(id, value) {
     setSaving(true); setError('')
     try { await changeStatus(id, value) } catch (failure) { setError(failure.message) }
     finally { setSaving(false) }
   }
   const [query, setQuery] = useState('')
-  const [status, setStatus] = useState('All statuses')
+  const [status, setStatus] = useState(initialStatus)
 
-  const visibleRecords = useMemo(() => {
-    const search = query.trim().toLowerCase()
-    return records.filter((record) => {
-      const matchesType = !type || record.type === type
-      const matchesStatus = status === 'All statuses' || record.status === status
-      const matchesSearch = !search || Object.values(record).some((value) => String(value).toLowerCase().includes(search))
-      return matchesType && matchesStatus && matchesSearch
-    })
-  }, [query, status, type, records])
-
+  const visibleRecords = useMemo(() => filterRecords(records, { type, query, status, start, end, sort }), [records, type, query, status, start, end, sort])
+  const pageCount = Math.max(1, Math.ceil(visibleRecords.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const pageRecords = visibleRecords.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const resetFilters = () => { setQuery(''); setStatus('All statuses'); setStart(''); setEnd(''); setPage(1) }
+  async function saveVerifiedPdf() {
+    setQrBusy(true); setPreviewError('')
+    try { const result = await verifiedPdf(preparedPreview.file, preview.reference); downloadFile(result.file, result.file.name) }
+    catch (failure) { setPreviewError(failure.message) }
+    finally { setQrBusy(false) }
+  }
   return (
     <section className="documents-panel document-registry">
       {(error || loadError) && <p role="alert">{error || loadError}</p>}
       {loading && <p role="status">Loading documents...</p>}
       <div className="documents-toolbar">
-        <div className="document-search"><span aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg></span><input name="documentSearch" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search documents..." aria-label={`Search ${title}`} /></div>
-        <select name="statusFilter" value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter by status">{statuses.map((option) => <option key={option}>{option}</option>)}</select>
-        {(query || status !== 'All statuses') && <button type="button" className="filter-button" onClick={() => { setQuery(''); setStatus('All statuses') }}>Clear filters</button>}
+        <div className="document-search"><span aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg></span><input name="documentSearch" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Search documents..." aria-label={`Search ${title}`} /></div>
+        <select name="statusFilter" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }} aria-label="Filter by status">{statuses.map((option) => <option key={option}>{option}</option>)}</select>
+        <input type="date" aria-label="From date" value={start} max={end} onChange={event => { setStart(event.target.value); setPage(1) }} /><input type="date" aria-label="Until date" value={end} min={start} onChange={event => { setEnd(event.target.value); setPage(1) }} /><select aria-label="Sort documents" value={sort} onChange={event => { setSort(event.target.value); setPage(1) }}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="title">Title A–Z</option></select>
+        {(query || start || end || status !== 'All statuses') && <button type="button" className="filter-button" onClick={resetFilters}>Clear filters</button>}
       </div>
-      <div className="registry-heading"><div><h2>{title}</h2><p>{visibleRecords.length} shown from {records.filter(record => !type || record.type === type).length} records</p></div><button>⇩ Export list</button></div>
+      <div className="registry-heading"><div><h2>{title}</h2><p>{visibleRecords.length} shown from {records.filter(record => !type || record.type === type).length} records</p></div><div><button onClick={refreshRecords} disabled={loading}>Refresh</button><button onClick={() => downloadFile(new Blob([recordsCsv(visibleRecords)], { type: 'text/csv;charset=utf-8' }), 'documents.csv')}>Export list</button></div></div>
       <div className="table-wrap registry-table"><table>
         <thead><tr><th>Document</th><th>Type</th><th>Owner</th><th>Last updated</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
-          {visibleRecords.map((record, index) => <tr key={JSON.stringify([record.type, record.reference, record.url, index])}>
+          {pageRecords.map((record, index) => <tr key={JSON.stringify([record.type, record.reference, record.url, index])}>
             <td><div className="doc-cell"><span className="file-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M14 3H5v18h14V8Z M14 3v5h5 M8 12h8 M8 16h6" /></svg></span><div><strong title={record.title}>{record.title}</strong><small title={record.reference}>Ref: {record.reference}</small></div></div></td>
-            <td><span className="record-type">{record.type}</span></td><td><span className={!record.owner || record.owner === '?' ? 'record-muted' : 'record-owner'}>{!record.owner || record.owner === '?' ? 'Unassigned' : record.owner}</span></td><td><UpdatedDate value={record.updated} /></td>
+            <td><span className="record-type">{documentTypeLabel(record.type)}</span></td><td><span className={!record.owner || record.owner === '?' ? 'record-muted' : 'record-owner'}>{!record.owner || record.owner === '?' ? 'Unassigned' : record.owner}</span></td><td><UpdatedDate value={record.updated} /></td>
             <td>{permissions.changeStatus && record.status !== 'Out' ? <select name={`status-${record.reference}`} className={`record-status ${record.status.toLowerCase().replaceAll(' ', '-')}`} aria-label={`Change status for ${record.title}`} disabled={saving} value={record.status} onChange={(event) => saveStatus(record.reference, event.target.value)}>{statuses.slice(1).map((option) => <option key={option}>{option}</option>)}</select> : <span className={`status ${record.status.toLowerCase().replaceAll(' ', '-')}`}>{record.status === 'Out' ? 'OUT' : record.status}</span>}</td>
             <td><div className="record-actions">
               <button type="button" aria-label={`Edit ${record.title}`} title={record.status === 'Out' ? 'OUT documents are locked' : !permissions.changeStatus ? 'Admin access required' : 'Edit title'} disabled={saving || !permissions.changeStatus || record.status === 'Out'} onClick={() => openAction('edit', record)}><ActionIcon kind="edit" /></button>
@@ -121,7 +178,7 @@ export default function DocumentRecordPage({ title, type }) {
           {!visibleRecords.length && <tr><td colSpan="6" className="empty-records">No documents match your search.</td></tr>}
         </tbody>
       </table></div>
-      <div className="documents-pagination"><span>{visibleRecords.length} records</span></div>
+      <div className="documents-pagination"><span>{visibleRecords.length} records · Page {currentPage} of {pageCount}</span><select aria-label="Records per page" value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1) }}>{[10, 25, 50].map(size => <option key={size} value={size}>{size} per page</option>)}</select><button disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button><button disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div>
       {action && <dialog ref={actionDialog} className="record-action-dialog" aria-labelledby="record-action-title" onCancel={event => { if (actionBusy.current) event.preventDefault(); else setAction(null) }}>
         <form onSubmit={submitAction}>
           <h2 id="record-action-title">{action.kind === 'edit' ? 'Edit document title' : 'Delete document?'}</h2>
@@ -131,12 +188,21 @@ export default function DocumentRecordPage({ title, type }) {
         </form>
       </dialog>}
       {preview && <dialog ref={previewDialog} className="pdf-preview-dialog" aria-labelledby="pdf-preview-title" onCancel={closePreview} onClose={closePreview}>
-        <header><h2 id="pdf-preview-title">{preview.title}</h2><button type="button" className="secondary-action" autoFocus onClick={closePreview}>Close preview</button></header>
+        <header><div><h2 id="pdf-preview-title">OFFICIAL PREVIEW</h2><p className="preview-reference">{preview.reference}</p></div><button type="button" className="secondary-action" autoFocus onClick={closePreview}>Close preview</button></header>
         <div className="preview-frame-wrap">
-          {previewLoading && <div className="preview-loading" role="status" aria-live="polite"><span className="preview-spinner" /><span className="preview-loading-text">Loading preview...</span></div>}
-          <iframe title={`PDF preview: ${preview.title}`} src={`https://drive.google.com/file/d/${preview.url.split('/')[5]}/preview`} onLoad={() => setPreviewLoading(false)} onError={() => setPreviewLoading(false)} />
+          {previewLoading && <div className="preview-loading" role="status" aria-live="polite"><span className="preview-spinner" /><span className="preview-loading-text">Loading document preview...</span></div>}
+          {preparedPreview && <DocumentPages file={preparedPreview.file} onReady={() => setPreviewLoading(false)} onError={() => { setPreviewLoading(false); setPreviewError('Unable to display the document. You can still save it using Save as PDF.') }} />}
         </div>
+        {previewError && <div className="preview-message" role="alert"><p>{previewError}</p><button type="button" className="secondary-action" onClick={() => openPreview({ ...preview })}>Retry preview</button></div>}
+        <footer className="preview-actions official-preview-actions">
+          <button type="button" className="secondary-action" disabled={!preparedPreview || sending} onClick={sendPdf}>{sending ? 'Sharing...' : 'Share PDF'}</button>
+          {permissions.changeStatus && <button type="button" className="secondary-action" disabled={!['Approved', 'Out'].includes(preview.status)} title="Approve this document before emailing" onClick={() => setEmailRecord(preview)}>Email PDF</button>}
+          <button type="button" className="secondary-action" disabled={!preparedPreview || qrBusy} onClick={saveVerifiedPdf}>{qrBusy ? 'Preparing QR…' : 'Save PDF with QR'}</button>
+          {preparedPreview ? <a className="primary-action" href={preparedPreview.url} download={preparedPreview.file.name}>Save as PDF</a> : <button type="button" className="primary-action" disabled>Save as PDF</button>}
+        </footer>
       </dialog>}
+      {emailRecord && <SendDocument record={emailRecord} onClose={() => setEmailRecord(null)} onSent={record => { setFiles(current => current.map(file => file.id === record.id ? record : file)); setPreview(current => current ? { ...current, status: record.status } : current) }} />}
+      {editing && <CreateDocument key={editing.record.reference} isOpen initialForm={editing.form} onClose={() => setEditing(null)} onCreate={async form => { const record = await updateDocumentContent(editing.record.reference, form); setFiles(current => current.map(file => file.id === record.id ? record : file)); return record }} />}
     </section>
   )
 }

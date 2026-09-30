@@ -16,7 +16,7 @@ import './Dashboard.css'
 
 export default function Dashboard({ user, onLogout }) {
   const [selectedPage, setActive] = useState('Overview')
-  const active = canAccessPage(user, selectedPage) ? selectedPage : 'Overview'
+  const active = selectedPage === 'Create document' || canAccessPage(user, selectedPage) ? selectedPage : 'Overview'
   const permissions = permissionsFor(user)
   const [files, setFiles] = useState([])
   const [activityLogs, setActivityLogs] = useState([])
@@ -30,7 +30,7 @@ export default function Dashboard({ user, onLogout }) {
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [permissions.fullAccess])
-  const records = [...drafts, ...files.map(file => ({ ...file, title: file.subject, reference: file.id, owner: '', updated: file.date, status: file.status || 'For Review' }))]
+  const records = [...drafts, ...files.map(file => ({ ...file, title: file.subject, reference: file.id, owner: file.owner || '', updated: file.updated || file.date, status: file.status || 'For Review' }))]
 
   async function changeStatus(reference, status) {
     if (!permissions.changeStatus || records.find(record => record.reference === reference)?.status === 'Out') return
@@ -46,7 +46,6 @@ export default function Dashboard({ user, onLogout }) {
     const type = form.type === 'Certification of Travel Abroad' ? 'Certificate of Travel' : form.type === 'Travel Authority Abroad' ? 'Authority to Travel Abroad' : form.type
     const record = await saveCreatedDocument({ ...form, type })
     setFiles(current => [record, ...current.filter(file => file.id !== record.id)])
-    setActive('Documents')
     return record
   }
   async function editRecord(reference, title) {
@@ -71,15 +70,13 @@ export default function Dashboard({ user, onLogout }) {
     setActivityLogs(current => [...current, { ...deleted, activity: 'Deleted', date: new Date().toISOString(), subject: deleted?.title }])
   }
   const [menuOpen, setMenuOpen] = useState(false)
-  const [createOpen, setCreateOpen] = useState(false)
   useEffect(() => {
-    if (!menuOpen && !createOpen) return
+    if (!menuOpen) return
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') {
         setMenuOpen(false)
-        setCreateOpen(false)
       }
     }
     window.addEventListener('keydown', closeOnEscape)
@@ -87,7 +84,7 @@ export default function Dashboard({ user, onLogout }) {
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', closeOnEscape)
     }
-  }, [menuOpen, createOpen])
+  }, [menuOpen])
 
   useEffect(() => {
     const desktop = window.matchMedia('(min-width: 851px)')
@@ -98,10 +95,10 @@ export default function Dashboard({ user, onLogout }) {
 
 
   return (
-    <DocumentContext.Provider value={{ records, files, setFiles, activityLogs, loading, loadError, changeStatus, editRecord, deleteRecord, permissions }}>
+    <DocumentContext.Provider value={{ records, files, setFiles, activityLogs, loading, loadError, changeStatus, editRecord, deleteRecord, permissions, refreshRecords: async () => { setLoadError(''); try { const documents = await fetchDocuments(); setFiles(documents); if (permissions.fullAccess) setActivityLogs(await fetchActivityLogs()) } catch (error) { setLoadError(error.message) } } }}>
     <div className="dashboard-shell">
       <Sidebar
-        active={active}
+        active={active === 'Create document' ? 'Documents' : active}
         isOpen={menuOpen}
         onNavigate={(label) => {
           if (canAccessPage(user, label)) setActive(label)
@@ -112,19 +109,19 @@ export default function Dashboard({ user, onLogout }) {
         user={user}
       />
 
-      <div className="dashboard-main" inert={menuOpen || createOpen}>
+      <div className="dashboard-main" inert={menuOpen}>
         <Navbar isMenuOpen={menuOpen} onToggleMenu={() => setMenuOpen((isOpen) => !isOpen)} />
 
-        {active === 'Documents' ? <DocumentsPage onCreateDocument={() => { setMenuOpen(false); setCreateOpen(true) }} />
+        {active === 'Create document' ? <main className="dashboard-content create-document-page"><CreateDocument isOpen page onClose={() => setActive('Documents')} onCreate={createDocument} canChangeStatus={permissions.changeStatus} /></main>
+          : active === 'Documents' ? <DocumentsPage onCreateDocument={() => { setMenuOpen(false); setActive('Create document') }} />
           : active === 'Archive' ? <ArchivePage />
           : active === 'Activity log' ? <ActivityLogPage />
           : active === 'User management' ? <UserManagementPage />
           : active === 'User logs' ? <UserLogsPage />
           : active === 'Settings' ? <SettingsPage />
-          : <LiveOverview user={user} onDocuments={() => setActive('Documents')} onCreate={() => { setMenuOpen(false); setCreateOpen(true) }} />}
+          : <LiveOverview user={user} onDocuments={() => setActive('Documents')} onCreate={() => { setMenuOpen(false); setActive('Create document') }} />}
       </div>
       {menuOpen && <button className="menu-backdrop" onClick={() => setMenuOpen(false)} aria-label="Close menu" />}
-      <CreateDocument isOpen={createOpen} onClose={() => setCreateOpen(false)} onCreate={createDocument} canChangeStatus={permissions.changeStatus} />
     </div>
     </DocumentContext.Provider>
   )

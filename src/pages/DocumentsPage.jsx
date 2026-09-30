@@ -7,19 +7,14 @@ import TravelOrder from './documents/TravelOrder'
 import Certification from './documents/Certification'
 import TravelAuthority from './documents/TravelAuthority'
 import SpecialOrder from './documents/SpecialOrder'
+import { documentTypes as categories } from '../lib/documentTypes'
 
-const documentTypes = [
-  { label: 'All documents', short: 'ALL', Page: AllDocument },
-  { label: 'Executive Memorandum', short: 'EM', Page: ExecutiveMemo },
-  { label: 'Travel Order', short: 'TO', Page: TravelOrder },
-  { label: 'Certification', short: 'CTA', Page: Certification },
-  { label: 'Travel Authority', short: 'TAA', Page: TravelAuthority },
-  { label: 'Special Order', short: 'SO', Page: SpecialOrder },
-]
+const pages = { EM: ExecutiveMemo, TO: TravelOrder, CTA: Certification, TAA: TravelAuthority, SO: SpecialOrder }
+const documentTypes = [{ label: 'All documents', short: 'ALL', Page: AllDocument }, ...categories.map(type => ({ ...type, Page: pages[type.short] }))]
 
 export default function DocumentsPage({ onCreateDocument }) {
   const { records } = useContext(DocumentContext)
-  const typeCounts = (label) => records.filter(record => label === 'All documents' || record.type === ({ Certification: 'Certificate of Travel', 'Travel Authority': 'Authority to Travel Abroad' }[label] || label)).length
+  const typeCounts = (label) => records.filter(record => label === 'All documents' || record.type === categories.find(type => type.label === label)?.value).length
   const [selectedType, setSelectedType] = useState('All documents')
   const ActivePage = documentTypes.find((type) => type.label === selectedType).Page
   return <main className="dashboard-content documents-page">

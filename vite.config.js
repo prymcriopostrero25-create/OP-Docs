@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv } from 'vite'
+import process from 'node:process'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
 
@@ -20,6 +21,9 @@ export default defineConfig(({ mode }) => {
           target: targetUrl.origin,
           changeOrigin: true,
           secure: true,
+          // Resolve Apps Script's ContentService redirect inside the proxy.
+          // Forwarding it to the browser makes the request cross-origin again.
+          followRedirects: true,
           rewrite: (path) => {
             const suffix = path === '/apps-script' ? '' : path.replace(/^\/apps-script/, '')
             return `${targetUrl.pathname}${suffix}`

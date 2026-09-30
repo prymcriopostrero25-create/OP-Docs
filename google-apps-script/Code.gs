@@ -1,6 +1,9 @@
 const SPREADSHEET_ID = '1_XdWhaHzHqgfa_sUIzp4gTg00E7FeK3XWAh6ckTS2WM';
+// Reuse the spreadsheet handle within this Apps Script execution only.
+let spreadsheetForExecution;
 function appSpreadsheet() {
-  return SpreadsheetApp.openById(SPREADSHEET_ID);
+  if (!spreadsheetForExecution) spreadsheetForExecution = SpreadsheetApp.openById(SPREADSHEET_ID);
+  return spreadsheetForExecution;
 }
 
 // Run in the editor: checks account configuration without logging passwords.
@@ -86,16 +89,20 @@ function createdDocumentSheet(type) {
   return sheet;
 }
 
-function logCreatedDocument(sheet, record, data, internalId) {
-  const count = sheet.getLastRow() - 1;
-  const rows = count > 0 ? sheet.getRange(2, 1, count, 1).getDisplayValues() : [];
-  const notes = count > 0 ? sheet.getRange(2, 1, count, 1).getNotes() : [];
+function createdDocumentLogSnapshot(sheet) {
+  const lastRow = sheet.getLastRow();
+  const range = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, 1) : null;
+  return { lastRow: lastRow, rows: range ? range.getDisplayValues() : [], notes: range ? range.getNotes() : [] };
+}
+
+function logCreatedDocument(sheet, record, data, internalId, snapshot) {
+  const { lastRow, rows, notes } = snapshot || createdDocumentLogSnapshot(sheet);
   const existing = rows.findIndex((row, index) => {
     let note = {};
     try { note = JSON.parse(notes[index][0] || '{}') || {}; } catch (error) { /* Legacy rows. */ }
     return row[0] === internalId || note.createdDocumentId === internalId;
   });
-  const row = existing >= 0 ? existing + 2 : sheet.getLastRow() + 1;
+  const row = existing >= 0 ? existing + 2 : lastRow + 1;
   const label = data.recipientLabel || (data.to ? 'To' : 'For');
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(record.type);
   const values = simple ? [internalId, record.date, data.body || data.content]
@@ -128,7 +135,7 @@ function syncCreatedDocumentStatus(type, internalId, status) {
 function canChangeDocumentStatus(token) {
   if (typeof token !== 'string' || !token) return false;
   const email = CacheService.getScriptCache().get('session:' + token);
-  if (!email) return false;
+  if (!email || sessionRevoked(email, token)) return false;
   const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
   if (!sheet || sheet.getLastRow() < 2) return false;
   const account = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues()
@@ -154,6 +161,8 @@ function updateDocumentStatus(request) {
     try { metadata = JSON.parse(cell.getNote() || '{}'); } catch (error) { /* Legacy metadata. */ }
     if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
     metadata.status = request.status;
+    metadata.updated = new Date().toISOString();
+    if (request.status === 'Approved' && !metadata.approvedAt) metadata.approvedAt = metadata.updated;
     syncCreatedDocumentStatus(metadata.type, metadata.createdDocumentId, request.status);
     cell.setNote(JSON.stringify(metadata));
     appendActivityEvent({ activity: 'Status changed to ' + request.status, id: rows[index][1], date: new Date().toISOString(), subject: rows[index][3], url: rows[index][4], type: documentFromRow(rows[index], JSON.stringify(metadata)).type });
@@ -214,7 +223,7 @@ function documentFromRow(row, note) {
   try { metadata = JSON.parse(note || '{}'); } catch (error) { /* Legacy rows have no filing metadata. */ }
   if (!metadata || typeof metadata !== 'object') metadata = {};
   return { activity: row[0], id: row[1], date: row[2], subject: row[3], url: row[4],
-    deleted: metadata.deleted === true,
+    deleted: metadata.deleted === true, owner: metadata.owner || '', updated: metadata.updated || row[2], editableContent: !!metadata.form && metadata.form.templateVersion === 2, approvedAt: metadata.approvedAt || '',
     status: DOCUMENT_STATUSES.includes(metadata.status) ? metadata.status : 'For Review',
     type: FILING_TYPES.includes(metadata.type) ? metadata.type : '',
     year: /^(19|20)\d{2}$/.test(String(metadata.year)) ? String(metadata.year) : '' };
@@ -276,6 +285,8 @@ function deleteDocumentFiles(record, mainSheet, mainRow) {
 function doPost(e) {
   try {
     const request = JSON.parse(e.postData.contents || '{}');
+    if (['currentUser', 'createUser', 'updateUser', 'deleteUser', 'verificationLink', 'verify', 'sendDocument', 'documentDetails', 'updateDocumentContent'].includes(request.action)) return workflowRequest(request);
+    if (request.action === 'prepareDocumentPreview') return prepareDocumentPreview(request);
     if (request.action === 'createExecutiveMemorandum') return createExecutiveMemorandum(request);
     if (request.action === 'createDocument') return createDocument(request);
     if (request.action === 'activityLogs' && !isSuperAdminSession(request.token)) {
@@ -338,17 +349,19 @@ function doPost(e) {
     // CREDENTIALS columns: A EMAIL, B NAME, C PASSWORD, D ROLE.
     const accounts = sheet.getRange(2, 1, lastRow - 1, 4).getDisplayValues();
     const account = accounts.find((row) =>
-      String(row[0]).trim().toLowerCase() === email && String(row[2]) === password
+      String(row[0]).trim().toLowerCase() === email && verifyPassword_(password, row[2])
     );
 
-    if (!account) {
+    if (!account || accountSettings(email).disabled) {
       return jsonResponse({ success: false, message: 'Incorrect email or password.' });
     }
 
+    if (!String(account[2]).startsWith('v2$')) sheet.getRange(accounts.indexOf(account) + 2, 3).setValue(hashPassword_(password));
     logSuccessfulLogin(String(account[1]).trim());
 
     const token = Utilities.getUuid() + Utilities.getUuid();
     CacheService.getScriptCache().put('session:' + token, email, 21600);
+    CacheService.getScriptCache().put('issued:' + token, String(Date.now()), 21600);
 
     return jsonResponse({
       success: true,
@@ -361,6 +374,27 @@ function doPost(e) {
     });
   } catch (error) {
     return jsonResponse({ success: false, message: 'Unable to process the login request.' });
+  }
+}
+
+// Export only the registered document, and only when its preview is opened.
+function prepareDocumentPreview(request) {
+  if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
+  try {
+    const sheet = mainFilesSheet();
+    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+    const index = rows.findIndex(row => row[1] === request.id);
+    if (index < 0 || documentFromRow(rows[index], sheet.getRange(index + 2, 2).getNote()).deleted) throw new Error('Document was not found.');
+    const match = /^https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)\/(view|preview)$/.exec(rows[index][4]);
+    if (!match) throw new Error('Invalid document link.');
+    const file = DriveApp.getFileById(match[1]);
+    if (file.isTrashed()) throw new Error('Document is in Trash.');
+    const native = file.getMimeType() === 'application/vnd.google-apps.document';
+    if (!native && file.getMimeType() !== 'application/pdf') throw new Error('Unsupported document format.');
+    const pdf = native ? file.getAs('application/pdf') : file.getBlob();
+    return jsonResponse({ success: true, native: native, fileId: file.getId(), name: file.getName().replace(/\.pdf$/i, '') + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) });
+  } catch (error) {
+    return jsonResponse({ success: false, message: 'Unable to prepare the PDF. ' + error.message });
   }
 }
 
@@ -442,6 +476,7 @@ function getUsers() {
       email: String(row[0]).trim(),
       name: String(row[1]).trim(),
       role: normalizeRole(row[3]),
+      status: accountSettings(String(row[0]).trim().toLowerCase()).disabled ? 'Inactive' : 'Active',
     }));
 
   return jsonResponse({ success: true, users });
@@ -462,7 +497,7 @@ function normalizeRole(role) {
 function isSuperAdminSession(token) {
   if (typeof token !== 'string' || !token) return false;
   const email = CacheService.getScriptCache().get('session:' + token);
-  if (!email) return false;
+  if (!email || sessionRevoked(email, token)) return false;
   const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
   if (!sheet || sheet.getLastRow() < 2) return false;
   const account = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues()
@@ -516,7 +551,7 @@ function requestAuthorizationPopup() {
 function getDocumentSession(token) {
   if (typeof token !== 'string' || !token) return false;
   const email = CacheService.getScriptCache().get('session:' + token);
-  if (!email) return false;
+  if (!email || sessionRevoked(email, token)) return false;
   const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
   return sheet && sheet.getLastRow() > 1 && sheet.getRange(2, 1, sheet.getLastRow() - 1, 1)
     .getDisplayValues().some((row) => String(row[0]).trim().toLowerCase() === email);
@@ -663,7 +698,7 @@ function uploadDocument(request) {
     stage = 'writing the file link to MAIN Files';
     sheet.getRange(row, 1, 1, 5).setRichTextValues([values]);
     // Keep the existing A:E schema. The ID cell note stores filing metadata.
-    sheet.getRange(row, 2).setNote(JSON.stringify({ type: type, year: year, status: record.status }));
+    sheet.getRange(row, 2).setNote(JSON.stringify({ type: type, year: year, status: record.status, owner: CacheService.getScriptCache().get('session:' + request.token) }));
     stage = 'saving MAIN Files changes';
     SpreadsheetApp.flush();
     committed = true;
@@ -800,10 +835,11 @@ function renderExecutiveMemorandum(doc, data, logo, heading) {
     }
   }
   body.appendParagraph('').setSpacingAfter(6).editAsText().setFontSize(1);
+  // Explicit sizing prevents content from inheriting the 1-point spacer style.
   String(data.body || '').split(/\r?\n/).forEach(line => body.appendParagraph(line)
-    .setIndentFirstLine(21.6).setLineSpacing(1).setSpacingAfter(6).editAsText().setBold(false));
-  body.appendParagraph(data.signatory).setIndentStart(266).setSpacingBefore(24).setSpacingAfter(0).editAsText().setBold(false);
-  body.appendParagraph(data.position).setIndentStart(266).setSpacingAfter(12).editAsText().setBold(false);
+    .setIndentFirstLine(21.6).setLineSpacing(1).setSpacingAfter(6).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false));
+  body.appendParagraph(data.signatory).setIndentStart(266).setSpacingBefore(24).setSpacingAfter(0).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false);
+  body.appendParagraph(data.position).setIndentStart(266).setSpacingAfter(12).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false);
   if (data.cc) body.appendParagraph('cc:\n' + data.cc).editAsText().setFontSize(9).setBold(false);
   doc.saveAndClose();
 }
@@ -966,6 +1002,39 @@ function validateTemplateDocument(request, type) {
   return data;
 }
 
+// Called under the creation lock. Persist reservations so retries keep their number.
+function reserveDocumentReference(request, data, automaticDate, categorySheet) {
+  const properties = PropertiesService.getScriptProperties();
+  const owner = CacheService.getScriptCache().get('session:' + request.token);
+  const reservationKey = 'reference-request:' + request.requestId;
+  const previous = JSON.parse(properties.getProperty(reservationKey) || 'null');
+  if (previous) {
+    if (previous.owner !== owner || previous.type !== request.type) throw new Error('Creation request does not match its reference reservation.');
+    if (!automaticDate && previous.year !== data.year) throw new Error('Keep the original document year when retrying this creation.');
+    return previous;
+  }
+  const date = automaticDate ? Utilities.formatDate(new Date(), appSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd') : data.date;
+  const year = date.slice(0, 4);
+  const counterKey = 'reference-counter:' + request.type + ':' + year;
+  let number = Number(properties.getProperty(counterKey) || 0);
+  const log = categorySheet || typeLogSheet(request.type);
+  const lastRow = log.getLastRow();
+  const rows = lastRow > 1 ? log.getRange(2, 2, lastRow - 1, 2).getDisplayValues() : [];
+  rows.forEach(row => {
+    if (String(row[1]) !== year) return;
+    const match = String(row[0]).match(/^(?:(?:Executive Memorandum(?: Order)?|Special Order|Travel Order|Authority to Travel Abroad|Certificate of Travel)\s*(?:No\.?\s*)?|(?:EM|SO|TO|ATA|CTA)[ -]*|)(\d{1,6})(?=\D|$)/i);
+    if (match) number = Math.max(number, Number(match[1]));
+  });
+  number++;
+  if (number > 999999) throw new Error('The annual reference number limit has been reached.');
+  const reference = request.type + ' No. ' + String(number).padStart(3, '0') + ', s. ' + year;
+  const reservation = { owner: owner, type: request.type, reference: reference, date: date, year: year };
+  // Advance first: an interrupted reservation may leave a gap but cannot reuse a number.
+  properties.setProperty(counterKey, String(number));
+  properties.setProperty(reservationKey, JSON.stringify(reservation));
+  return reservation;
+}
+
 function createDocument(request) {
   if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
   const type = request.type;
@@ -974,13 +1043,10 @@ function createDocument(request) {
   const template = request.templateVersion === 2;
   const automaticDate = template && ['Authority to Travel Abroad', 'Certificate of Travel', 'Travel Order'].includes(type);
   const simple = template && ['Authority to Travel Abroad', 'Certificate of Travel'].includes(type);
+  const autoReference = template && request.autoReference === true;
   let data;
-  try { data = template ? validateTemplateDocument(request, type) : memo ? validateExecutiveMemorandum(request) : validateCreatedDocument(request, type); } catch (error) { return jsonResponse({ success: false, message: error.message }); }
+  try { data = template ? validateTemplateDocument(autoReference ? { ...request, reference: 'AUTO' } : request, type) : memo ? validateExecutiveMemorandum(request) : validateCreatedDocument(request, type); } catch (error) { return jsonResponse({ success: false, message: error.message }); }
   if (!/^[a-zA-Z0-9-]{16,80}$/.test(String(request.requestId || ''))) return jsonResponse({ success: false, message: 'Invalid creation request. Reopen the form.' });
-  const id = memo && data.number ? 'Executive Memorandum No. ' + data.number + ', s. ' + data.year : simple ? CREATED_DOCUMENT_SHEETS[type] + '-' + request.requestId : data.reference;
-  // Keep reservation prefixes stable across spreadsheet-tab renames.
-  const prefixes = { 'Special Order': 'SO', 'Travel Order': 'TO', 'Authority to Travel Abroad': 'ATA', 'Certificate of Travel': 'CTA', 'Executive Memorandum': 'EM' };
-  const key = memo && data.number ? 'EM-' + data.year + '-' + data.number : prefixes[type] + '-' + (data.year || 'AUTO') + '-' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, id.toUpperCase()));
   const lock = LockService.getScriptLock();
   let locked = false;
   let state;
@@ -991,6 +1057,17 @@ function createDocument(request) {
     const sheet = mainFilesSheet();
     const logSheet = typeLogSheet(type);
     const creationSheet = createdDocumentSheet(type);
+    if (autoReference) {
+      const reserved = reserveDocumentReference(request, data, automaticDate, logSheet);
+      data.reference = reserved.reference;
+      data.date = reserved.date;
+      data.year = reserved.year;
+      if (memo) data.number = /No\. (\d+)/.exec(reserved.reference)[1];
+    }
+  const id = memo && data.number ? 'Executive Memorandum No. ' + data.number + ', s. ' + data.year : simple && !autoReference ? CREATED_DOCUMENT_SHEETS[type] + '-' + request.requestId : data.reference;
+  // Keep reservation prefixes stable across spreadsheet-tab renames.
+  const prefixes = { 'Special Order': 'SO', 'Travel Order': 'TO', 'Authority to Travel Abroad': 'ATA', 'Certificate of Travel': 'CTA', 'Executive Memorandum': 'EM' };
+  const key = memo && data.number ? 'EM-' + data.year + '-' + data.number : prefixes[type] + '-' + (data.year || 'AUTO') + '-' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, id.toUpperCase()));
     const properties = PropertiesService.getScriptProperties();
     state = JSON.parse(properties.getProperty(key) || 'null');
     const fingerprint = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(data)));
@@ -1000,8 +1077,8 @@ function createDocument(request) {
       const match = /^Executive Memorandum(?: Order)? No\.\s*0*(\d+),?\s*s\.\s*(\d{4})$/i.exec(row[1]);
       return String(row[1]).toUpperCase() === id.toUpperCase() || row[1] === key || (memo && match && Number(match[1]) === Number(data.number) && match[2] === data.year);
     });
-    const creationRows = creationSheet.getLastRow() > 1
-      ? creationSheet.getRange(2, 1, creationSheet.getLastRow() - 1, 1).getDisplayValues() : [];
+    const creationSnapshot = createdDocumentLogSnapshot(creationSheet);
+    const creationRows = creationSnapshot.rows;
     const hasLogEvidence = existingTypeLogRow(logSheet, id);
     const hasCreationEvidence = creationRows.some(row => row[0] === key);
     const hasMainRowEvidence = index >= 0;
@@ -1027,16 +1104,17 @@ function createDocument(request) {
         state.rendered = false;
       } else return jsonResponse({ success: false, message: 'This number belongs to an unfinished attempt with different fields. Restore the original fields to resume it safely.' });
     }
+    if (completed && index >= 0) return jsonResponse({ success: true, document: documentFromRow(rows[index], sheet.getRange(index + 2, 2).getNote()) });
     if (recoverReservation) state.requestId = request.requestId;
     const saveState = () => properties.setProperty(key, JSON.stringify(state));
     if (!state) {
       state = { requestId: request.requestId, owner: owner, fingerprint: fingerprint, status: canChangeDocumentStatus(request.token) && DOCUMENT_STATUSES.includes(request.status) ? request.status : 'Draft' };
-      if (automaticDate) state.createdDate = Utilities.formatDate(new Date(), appSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
-      saveState();
+      if (automaticDate) state.createdDate = autoReference ? data.date : Utilities.formatDate(new Date(), appSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
     }
     // Persist resumed request ownership and any corrected draft before rendering.
     saveState();
     const name = (id + ' - ' + data.subject.slice(0, 90)).replace(/[<>:"/\\|?*\x00-\x1f]/g, '-');
+    let freshDocument;
     if (!state.fileId) {
       stage = 'allocate';
       // Legacy attempts used the final name; new attempts use a request-specific name.
@@ -1065,7 +1143,7 @@ function createDocument(request) {
         const doc = DocumentApp.create(state.allocationName);
         state.fileId = doc.getId();
         saveState();
-        doc.saveAndClose();
+        freshDocument = doc;
       }
     }
     if (automaticDate) { data.date = state.createdDate; data.year = state.createdDate.slice(0, 4); }
@@ -1077,9 +1155,9 @@ function createDocument(request) {
       if (memo || type === 'Special Order') {
         if (typeof request.logo !== 'string' || request.logo.length > 1500000) throw new Error('Logo unavailable');
         const logo = Utilities.newBlob(Utilities.base64Decode(request.logo), 'image/png', 'jhcsclogo.png');
-        if (memo) renderExecutiveMemorandum(DocumentApp.openById(state.fileId), data, logo);
-        else renderCreatedDocument(DocumentApp.openById(state.fileId), data, type, logo);
-      } else renderCreatedDocument(DocumentApp.openById(state.fileId), data, type);
+        if (memo) renderExecutiveMemorandum(freshDocument || DocumentApp.openById(state.fileId), data, logo);
+        else renderCreatedDocument(freshDocument || DocumentApp.openById(state.fileId), data, type, logo);
+      } else renderCreatedDocument(freshDocument || DocumentApp.openById(state.fileId), data, type);
       const root = DriveApp.getFolderById(UPLOAD_FOLDER_ID);
       if (root.isTrashed()) throw new Error('The destination folder is in the trash.');
       const folder = filingSubfolder(filingSubfolder(root, type), data.year);
@@ -1101,13 +1179,14 @@ function createDocument(request) {
     const cell = sheet.getRange(row, 2);
     let metadata = {};
     try { metadata = JSON.parse(cell.getNote() || '{}') || {}; } catch (error) { /* Repair a partial registry write. */ }
-    cell.setNote(JSON.stringify({ ...metadata, type: record.type, year: record.year, status: metadata.status || record.status, createdDocumentId: key }));
-    if (!existingTypeLogRow(logSheet, id)) writeTypeLog(logSheet, logSheet.getLastRow() + 1, { ...record, date: new Date().toISOString() });
-    logCreatedDocument(creationSheet, { ...record, status: metadata.status || record.status }, data, key);
+    const savedNote = JSON.stringify({ ...metadata, type: record.type, year: record.year, status: metadata.status || record.status, owner: owner, form: { ...data, travelFrom: request.travelFrom || '', travelUntil: request.travelUntil || '', templateVersion: request.templateVersion || 1, type: type, signatoryPosition: data.position || request.signatoryPosition || '' }, createdDocumentId: key });
+    cell.setNote(savedNote);
+    if (!hasLogEvidence) writeTypeLog(logSheet, logSheet.getLastRow() + 1, { ...record, date: new Date().toISOString() });
+    logCreatedDocument(creationSheet, { ...record, status: metadata.status || record.status }, data, key, creationSnapshot);
     SpreadsheetApp.flush();
     state.completed = true;
     saveState();
-    return jsonResponse({ success: true, document: documentFromRow([record.activity, id, record.date, record.subject, record.url], cell.getNote()) });
+    return jsonResponse({ success: true, document: documentFromRow([record.activity, id, record.date, record.subject, record.url], savedNote) });
   } catch (error) {
     console.error('Document creation failed during ' + stage + ': ' + String(error && error.message || error));
     if (stage === 'allocate') return jsonResponse({ success: false, message: 'Google Docs creation could not finish. The deployment owner should run checkCreateDocumentSetup in Apps Script and authorize access, then update the web app deployment. Retry the same fields afterward; the reserved number can be recovered automatically.' });
@@ -1121,4 +1200,276 @@ function checkCreateDocumentSetup() {
   Object.keys(CREATED_DOCUMENT_SHEETS).forEach(type => createdDocumentSheet(type));
   DocumentApp.getActiveDocument();
   console.log('Creation configuration checked. Update the web app deployment after authorizing access.');
+}
+
+const PASSWORD_PEPPER_KEY = 'OP_PASSWORD_PEPPER';
+// Additional account state lives outside the existing four-column credentials schema.
+function accountSettings(email) {
+  return JSON.parse(PropertiesService.getScriptProperties().getProperty('account:' + email) || '{}');
+}
+
+function sessionRevoked(email, token) {
+  const settings = accountSettings(email);
+  return settings.disabled || (settings.revokedBefore && Number(CacheService.getScriptCache().get('issued:' + token) || 0) <= settings.revokedBefore);
+}
+
+function sessionAccount(token) {
+  if (!getDocumentSession(token)) throw new Error('Your session expired. Please sign in again.');
+  const email = CacheService.getScriptCache().get('session:' + token);
+  const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
+  const row = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues().find(row => String(row[0]).trim().toLowerCase() === email);
+  return { email: email, name: row[1], role: normalizeRole(row[3]), token: token };
+}
+
+function workflowRequest(request) {
+  try {
+    if (request.action === 'verify') return verifyRegisteredDocument(request.code);
+    const user = sessionAccount(request.token);
+    if (request.action === 'currentUser') return jsonResponse({ success: true, user: user });
+    if (['createUser', 'updateUser', 'deleteUser'].includes(request.action)) return manageAccount(request, user);
+    if (request.action === 'verificationLink') return documentVerificationLink(request);
+    if (request.action === 'documentDetails') {
+      if (!canChangeDocumentStatus(request.token)) throw new Error('Admin access is required.');
+      const entry = workflowDocument(request.id);
+      if (!entry.metadata.form) throw new Error('This record has no editable form. You can edit its registry title.');
+      return jsonResponse({ success: true, form: entry.metadata.form });
+    }
+    if (request.action === 'updateDocumentContent') return updateDocumentContent(request);
+    if (request.action === 'sendDocument') return sendRegisteredDocument(request, user);
+    throw new Error('Unsupported action.');
+  } catch (error) { return jsonResponse({ success: false, message: error.message }); }
+}
+
+function manageAccount(request, user) {
+  if (user.role !== 'super admin') throw new Error('Super admin access is required.');
+  const email = String(request.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@jhcsc\.edu\.ph$/.test(email)) throw new Error('Use an institutional @jhcsc.edu.ph email.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
+    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues() : [];
+    const index = rows.findIndex(row => String(row[0]).trim().toLowerCase() === email);
+    const creating = request.action === 'createUser';
+    const deleting = request.action === 'deleteUser';
+    if (creating && index >= 0) throw new Error('An account with this email already exists.');
+    if (!creating && index < 0) throw new Error('Account was not found.');
+    const role = normalizeRole(request.role);
+    if (email === user.email && (deleting || request.status === 'Inactive' || role !== 'super admin')) throw new Error('You cannot remove, deactivate, or demote your own account.');
+    if (!creating && normalizeRole(rows[index][3]) === 'super admin' && (deleting || role !== 'super admin' || request.status === 'Inactive')) {
+      const others = rows.filter((row, i) => i !== index && normalizeRole(row[3]) === 'super admin' && !accountSettings(String(row[0]).trim().toLowerCase()).disabled);
+      if (!others.length) throw new Error('At least one active super admin is required.');
+    }
+    const props = PropertiesService.getScriptProperties();
+    if (deleting) {
+      sheet.deleteRow(index + 2);
+      // Preserve disabled state so old tokens cannot regain access if recreated.
+      props.setProperty('account:' + email, JSON.stringify({ disabled: true }));
+    } else {
+      const name = String(request.name || '').trim();
+      if (!name || name.length > 150) throw new Error('Enter a name up to 150 characters.');
+      const password = String(request.password || '');
+      if ((creating || password) && password.length < 12) throw new Error('Use a password of at least 12 characters.');
+      if (password.length > 256) throw new Error('Password is too long.');
+      const values = [email, name, password ? hashPassword_(password) : rows[index][2], role];
+      sheet.getRange(creating ? sheet.getLastRow() + 1 : index + 2, 1, 1, 4).setRichTextValues([values.map(value => SpreadsheetApp.newRichTextValue().setText(value).build())]);
+      const settings = accountSettings(email);
+      settings.disabled = request.status === 'Inactive';
+      if (creating || password || settings.disabled) settings.revokedBefore = Date.now();
+      props.setProperty('account:' + email, JSON.stringify(settings));
+    }
+    logUserEvent(user.name, request.action + ': ' + email);
+    return jsonResponse({ success: true });
+  } finally { lock.releaseLock(); }
+}
+
+function workflowDocument(id) {
+  const sheet = mainFilesSheet();
+  const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+  const index = rows.findIndex(row => row[1] === id);
+  if (index < 0) throw new Error('Document was not found.');
+  const cell = sheet.getRange(index + 2, 2);
+  const metadata = JSON.parse(cell.getNote() || '{}');
+  const record = documentFromRow(rows[index], cell.getNote());
+  if (record.deleted) throw new Error('Document was not found.');
+  return { sheet: sheet, row: index + 2, cell: cell, metadata: metadata, record: record };
+}
+
+function documentVerificationLink(request) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const entry = workflowDocument(request.id);
+    if (!entry.metadata.verificationCode) {
+      entry.metadata.verificationCode = Utilities.getUuid() + Utilities.getUuid();
+      entry.cell.setNote(JSON.stringify(entry.metadata));
+    }
+    return jsonResponse({ success: true, code: entry.metadata.verificationCode });
+  } finally { lock.releaseLock(); }
+}
+
+function verifyRegisteredDocument(code) {
+  if (!/^[a-f0-9-]{72}$/i.test(String(code || ''))) throw new Error('Invalid verification code.');
+  const sheet = mainFilesSheet();
+  const count = sheet.getLastRow() - 1;
+  const notes = count > 0 ? sheet.getRange(2, 2, count, 1).getNotes() : [];
+  const index = notes.findIndex(note => { try { return JSON.parse(note[0]).verificationCode === code; } catch (error) { return false; } });
+  if (index < 0) throw new Error('No registered document matches this code.');
+  const row = sheet.getRange(index + 2, 1, 1, 5).getDisplayValues()[0];
+  const record = documentFromRow(row, notes[index][0]);
+  if (record.deleted) throw new Error('This record is no longer available.');
+  // Public verification reveals registry facts, never the Drive URL or full body.
+  return jsonResponse({ success: true, document: { id: record.id, type: record.type, date: record.date, status: record.status } });
+}
+
+function updateDocumentContent(request) {
+  if (!canChangeDocumentStatus(request.token)) throw new Error('Admin access is required.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const entry = workflowDocument(request.id);
+    if (entry.record.status === 'Out') throw new Error('OUT documents are locked.');
+    if (!entry.metadata.form || entry.metadata.form.templateVersion !== 2) throw new Error('This legacy document supports title editing only.');
+    const data = validateTemplateDocument({ ...request, reference: entry.metadata.form.reference }, entry.record.type);
+    data.date = data.date || entry.metadata.form.date;
+    data.year = entry.record.year;
+    const match = /\/d\/([a-zA-Z0-9_-]+)/.exec(entry.record.url);
+    const file = match && DriveApp.getFileById(match[1]);
+    if (!file || file.isTrashed() || file.getMimeType() !== 'application/vnd.google-apps.document') throw new Error('The editable document is unavailable.');
+    let logo;
+    if (['Executive Memorandum', 'Special Order'].includes(entry.record.type)) {
+      if (!request.logo || request.logo.length > 1500000) throw new Error('The college logo is required.');
+      logo = Utilities.newBlob(Utilities.base64Decode(request.logo), 'image/png', 'jhcsclogo.png');
+    }
+    const doc = DocumentApp.openById(file.getId());
+    if (entry.record.type === 'Executive Memorandum') renderExecutiveMemorandum(doc, data, logo);
+    else renderCreatedDocument(doc, data, entry.record.type, logo);
+    entry.metadata.form = { ...data, travelFrom: request.travelFrom || '', travelUntil: request.travelUntil || '', type: entry.record.type, templateVersion: 2, signatoryPosition: data.position || request.signatoryPosition || '' };
+    entry.metadata.updated = new Date().toISOString();
+    entry.cell.setNote(JSON.stringify(entry.metadata));
+    entry.sheet.getRange(entry.row, 4).setRichTextValue(SpreadsheetApp.newRichTextValue().setText(data.subject).build());
+    logCreatedDocument(createdDocumentSheet(entry.record.type), { ...entry.record, subject: data.subject }, data, entry.metadata.createdDocumentId);
+    appendActivityEvent({ ...entry.record, activity: 'Document content edited', date: entry.metadata.updated });
+    return jsonResponse({ success: true, document: { ...entry.record, subject: data.subject, updated: entry.metadata.updated } });
+  } finally { lock.releaseLock(); }
+}
+
+function emailAddresses(value, required) {
+  const addresses = [...new Set(String(value || '').split(/[;,\s]+/).filter(Boolean))];
+  if ((required && !addresses.length) || addresses.length > 30 || addresses.some(address => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address))) throw new Error('Enter valid email recipients (maximum 30 per field).');
+  return addresses;
+}
+
+function sendRegisteredDocument(request, user) {
+  if (!canChangeDocumentStatus(request.token)) throw new Error('Admin access is required to send documents.');
+  const to = emailAddresses(request.to, true), cc = emailAddresses(request.cc, false);
+  if (!/^[a-zA-Z0-9-]{16,80}$/.test(String(request.requestId || ''))) throw new Error('Invalid send request.');
+  const subject = String(request.subject || '').trim(), message = String(request.message || '').trim();
+  if (!subject || subject.length > 200 || !message || message.length > 10000) throw new Error('Enter a subject and message within the allowed lengths.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const entry = workflowDocument(request.id);
+    const props = PropertiesService.getScriptProperties();
+    const key = 'sent:' + request.requestId;
+    const prior = JSON.parse(props.getProperty(key) || 'null');
+    const fingerprint = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([request.id, to, cc, subject, message])));
+    if (prior) {
+      if (prior.id !== request.id || prior.owner !== user.email) throw new Error('Send request does not match.');
+      if (prior.fingerprint !== fingerprint) throw new Error('This send request already used different recipients or content. Close and reopen the email form to start a new email.');
+      if (prior.state !== 'sent') throw new Error('This send attempt has an uncertain result. Check the sender mailbox before starting another email.');
+      return finishDocumentSend(entry, request, to, cc);
+    }
+    if (!['Approved', 'Out'].includes(entry.record.status)) throw new Error('Approve the document before sending it.');
+    const match = /\/d\/([a-zA-Z0-9_-]+)/.exec(entry.record.url);
+    const file = match && DriveApp.getFileById(match[1]);
+    if (!file || file.isTrashed()) throw new Error('The registered file is unavailable.');
+    const pdf = file.getMimeType() === 'application/vnd.google-apps.document' ? file.getAs('application/pdf') : file.getBlob();
+    if (pdf.getBytes().length > 20 * 1024 * 1024) throw new Error('This PDF exceeds the 20 MB email attachment limit.');
+    if (MailApp.getRemainingDailyQuota() < to.length + cc.length) throw new Error('The sender has insufficient daily email quota.');
+    const state = { id: request.id, owner: user.email, state: 'pending', fingerprint: fingerprint };
+    props.setProperty(key, JSON.stringify(state));
+    MailApp.sendEmail({ to: to.join(','), cc: cc.join(','), subject: subject, body: message, replyTo: user.email, name: user.name + ' — Office of the President', attachments: [pdf.setName(file.getName().replace(/\.pdf$/i, '') + '.pdf')] });
+    state.state = 'sent';
+    props.setProperty(key, JSON.stringify(state));
+    return finishDocumentSend(entry, request, to, cc);
+  } finally { lock.releaseLock(); }
+}
+
+function finishDocumentSend(entry, request, to, cc) {
+  entry.metadata.status = 'Out';
+  entry.metadata.updated = entry.metadata.updated || new Date().toISOString();
+  entry.cell.setNote(JSON.stringify(entry.metadata));
+  syncCreatedDocumentStatus(entry.record.type, entry.metadata.createdDocumentId, 'Out');
+  if (entry.metadata.lastSendRequest !== request.requestId) {
+    appendActivityEvent({ ...entry.record, activity: 'PDF emailed to ' + to.join(', ') + (cc.length ? '; CC: ' + cc.join(', ') : ''), date: new Date().toISOString() });
+    entry.metadata.lastSendRequest = request.requestId;
+    entry.cell.setNote(JSON.stringify(entry.metadata));
+  }
+  return jsonResponse({ success: true, document: { ...entry.record, status: 'Out', updated: entry.metadata.updated } });
+}
+
+// Run once as deployment owner to grant the mail scope without sending an email.
+function checkEmailSetup() { console.log('Remaining email recipient quota: ' + MailApp.getRemainingDailyQuota()); }
+
+function hashPassword_(password) {
+  const props = PropertiesService.getScriptProperties();
+  let pepper = props.getProperty(PASSWORD_PEPPER_KEY);
+  if (!pepper) {
+    pepper =
+      Utilities.getUuid().replace(/-/g, "") +
+      Utilities.getUuid().replace(/-/g, "");
+    props.setProperty(PASSWORD_PEPPER_KEY, pepper);
+  }
+  const salt = Utilities.getUuid().replace(/-/g, "");
+  const signature = Utilities.computeHmacSha256Signature(
+    salt + String(password),
+    pepper,
+    Utilities.Charset.UTF_8
+  );
+  return "v2$" + salt + "$" + Utilities.base64EncodeWebSafe(signature);
+}
+
+function hashLegacyPassword_(password) {
+  const raw = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    password,
+    Utilities.Charset.UTF_8
+  );
+  return Utilities.base64EncodeWebSafe(raw);
+}
+
+function constantTimeEqual_(left, right) {
+  const first = String(left || "");
+  const second = String(right || "");
+  let difference = first.length ^ second.length;
+  const length = Math.max(first.length, second.length);
+  for (let index = 0; index < length; index++) {
+    difference |= (first.charCodeAt(index) || 0) ^
+      (second.charCodeAt(index) || 0);
+  }
+  return difference === 0;
+}
+
+function verifyPassword_(plainPassword, hashedPassword) {
+  const storedPassword = String(hashedPassword || "");
+  if (!storedPassword.startsWith("v2$")) {
+    // Transitional support for old rows that contain either the previous
+    // SHA-256 value or a manually entered plaintext password. loginUser_()
+    // replaces either format with a salted v2 value after the first match.
+    return constantTimeEqual_(hashLegacyPassword_(plainPassword), storedPassword) ||
+      constantTimeEqual_(plainPassword, storedPassword);
+  }
+
+  const parts = storedPassword.split("$");
+  if (parts.length !== 3) return false;
+  const pepper =
+    PropertiesService.getScriptProperties().getProperty(PASSWORD_PEPPER_KEY) || "";
+  if (!pepper) return false;
+  const signature = Utilities.computeHmacSha256Signature(
+    parts[1] + String(plainPassword),
+    pepper,
+    Utilities.Charset.UTF_8
+  );
+  return constantTimeEqual_(Utilities.base64EncodeWebSafe(signature), parts[2]);
 }
