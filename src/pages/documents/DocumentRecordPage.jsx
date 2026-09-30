@@ -1,7 +1,6 @@
 import { DocumentContext } from '../../lib/documentContext'
 import { documentTypeLabel } from '../../lib/documentTypes'
 import { filterRecords, recordsCsv, downloadFile } from '../../lib/recordTools'
-import { verifiedPdf } from '../../lib/verifiedPdf'
 import SendDocument from '../../components/SendDocument'
 import DocumentPage from '../../components/DocumentPage'
 import DocumentPages from '../../components/DocumentPages'
@@ -22,11 +21,14 @@ function ActionIcon({ kind }) {
   return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{kind === 'edit' ? <><path d="m16 3 5 5-12 12-6 1 1-6Z" /><path d="m14 5 5 5" /></> : kind === 'preview' ? <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> : <><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></>}</svg>
 }
 
+function PreviewActionIcon({ kind }) {
+  return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{kind === 'send' ? <path d="m22 2-7 20-4-9-9-4 20-7ZM11 13 22 2" /> : kind === 'save' ? <><path d="M14 3H5v18h14V8l-5-5Zm0 0v5h5M12 11v6m-3-3 3 3 3-3" /></> : <path d="m6 6 12 12M18 6 6 18" />}</svg>
+}
+
 export default function DocumentRecordPage({ title, type, initialStatus = 'All statuses' }) {
   const { records, changeStatus, editRecord, deleteRecord, permissions, loading, loadError, setFiles, refreshRecords } = useContext(DocumentContext)
   const [emailRecord, setEmailRecord] = useState(null)
   const [editing, setEditing] = useState(null)
-  const [qrBusy, setQrBusy] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [start, setStart] = useState('')
@@ -40,7 +42,6 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   const [pdfError, setPdfError] = useState('')
   const [preparedPreview, setPreparedPreview] = useState(null)
   const [previewError, setPreviewError] = useState('')
-  const [sending, setSending] = useState(false)
   const previewDialog = useRef(null)
   const [action, setAction] = useState(null)
   const [editedTitle, setEditedTitle] = useState('')
@@ -132,18 +133,6 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     setPreview(null)
     setPreviewLoading(false)
   }
-  async function sendPdf() {
-    const files = [preparedPreview.file]
-    if (!navigator.canShare?.({ files })) {
-      setPreviewError('File sharing is unavailable in this browser. Save the PDF and attach it to your email or messaging app.')
-      return
-    }
-    setSending(true)
-    setPreviewError('')
-    try { await navigator.share({ files, title: preview.title }) }
-    catch (failure) { if (failure.name !== 'AbortError') setPreviewError('Unable to share the PDF. Save it and attach it to your message.') }
-    finally { setSending(false) }
-  }
   async function saveStatus(id, value) {
     setSaving(true); setError('')
     try { await changeStatus(id, value) } catch (failure) { setError(failure.message) }
@@ -157,12 +146,6 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   const currentPage = Math.min(page, pageCount)
   const pageRecords = visibleRecords.slice((currentPage - 1) * pageSize, currentPage * pageSize)
   const resetFilters = () => { setQuery(''); setStatus('All statuses'); setStart(''); setEnd(''); setPage(1) }
-  async function saveVerifiedPdf() {
-    setQrBusy(true); setPreviewError('')
-    try { const result = await verifiedPdf(preparedPreview.file, preview.reference); downloadFile(result.file, result.file.name) }
-    catch (failure) { setPreviewError(failure.message) }
-    finally { setQrBusy(false) }
-  }
   return (
     <section className="documents-panel document-registry">
       {(error || loadError) && <p role="alert">{error || loadError}</p>}
@@ -200,20 +183,21 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
         </form>
       </dialog>}
       {preview && <dialog ref={previewDialog} className="pdf-preview-dialog" aria-labelledby="pdf-preview-title" onCancel={closePreview} onClose={closePreview}>
-        <header><div><h2 id="pdf-preview-title">OFFICIAL PREVIEW</h2><p className="preview-reference">{preview.reference}</p></div><button type="button" className="secondary-action" autoFocus onClick={closePreview}>Close preview</button></header>
+        <header className="official-preview-header"><div className="official-preview-heading"><h2 id="pdf-preview-title">OFFICIAL PREVIEW</h2><p className="preview-reference">{preview.reference}</p></div>
+        <div className="preview-actions official-preview-actions">
+          <span className="pdf-preparation-status" role="status">{pdfError ? 'PDF preparation failed' : preparedPreview ? 'PDF ready' : 'Preparing PDF in the background...'}</span>
+          <button type="button" className="preview-send" disabled={!preparedPreview || !permissions.changeStatus || !['Approved', 'Out'].includes(preview.status)} title={!permissions.changeStatus ? 'Admin access required' : !['Approved', 'Out'].includes(preview.status) ? 'Approve this document before sending' : 'Send PDF by email'} onClick={() => setEmailRecord(preview)}><PreviewActionIcon kind="send" />Send</button>
+          {preparedPreview ? <a className="preview-save" href={preparedPreview.url} download={preparedPreview.file.name}><PreviewActionIcon kind="save" />Save as PDF</a> : <button type="button" className="preview-save" disabled><PreviewActionIcon kind="save" />Save as PDF</button>}
+          <button type="button" className="preview-close" aria-label="Close preview" title="Close preview" autoFocus onClick={closePreview}><PreviewActionIcon kind="close" /></button>
+        </div>
+        </header>
         <div className="preview-frame-wrap">
           {previewLoading && !pdfError && <div className="preview-loading" role="status" aria-live="polite"><span className="preview-spinner" /><span className="preview-loading-text">Loading document preview...</span></div>}
           {pageContent?.form && <DocumentPage form={pageContent.form} type={pageContent.type} reference={preview.reference} />}
           {pageContent && !pageContent.form && preparedPreview && <DocumentPages file={preparedPreview.file} onReady={() => setPreviewLoading(false)} onError={() => { setPreviewLoading(false); setPreviewError('Unable to display the document. You can still save it using Save as PDF.') }} />}
         </div>
         {(previewError || pdfError) && <div className="preview-message" role="alert"><p>{previewError || pdfError}</p><button type="button" className="secondary-action" onClick={() => openPreview({ ...preview })}>Retry preview</button></div>}
-        <footer className="preview-actions official-preview-actions">
-          <span className="pdf-preparation-status" role="status">{pdfError ? 'PDF preparation failed' : preparedPreview ? 'PDF ready' : 'Preparing PDF in the background...'}</span>
-          <button type="button" className="secondary-action" disabled={!preparedPreview || sending} onClick={sendPdf}>{sending ? 'Sharing...' : 'Share PDF'}</button>
-          {permissions.changeStatus && <button type="button" className="secondary-action" disabled={!preparedPreview || !['Approved', 'Out'].includes(preview.status)} title="Approve this document before emailing" onClick={() => setEmailRecord(preview)}>Email PDF</button>}
-          <button type="button" className="secondary-action" disabled={!preparedPreview || qrBusy} onClick={saveVerifiedPdf}>{qrBusy ? 'Preparing QR…' : 'Save PDF with QR'}</button>
-          {preparedPreview ? <a className="primary-action" href={preparedPreview.url} download={preparedPreview.file.name}>Save as PDF</a> : <button type="button" className="primary-action" disabled>Save as PDF</button>}
-        </footer>
+
       </dialog>}
       {emailRecord && <SendDocument record={emailRecord} onClose={() => setEmailRecord(null)} onSent={record => { setFiles(current => current.map(file => file.id === record.id ? record : file)); setPreview(current => current ? { ...current, status: record.status } : current) }} />}
       {editing && <CreateDocument key={editing.record.reference} isOpen initialForm={editing.form} onClose={() => setEditing(null)} onCreate={async form => { const record = await updateDocumentContent(editing.record.reference, form); setFiles(current => current.map(file => file.id === record.id ? record : file)); return record }} />}

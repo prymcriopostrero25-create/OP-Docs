@@ -399,7 +399,17 @@
 .pdf-preview-dialog header { order: 0; border-bottom: 1px solid #293345; }
 .pdf-preview-dialog h2 { letter-spacing: .08em; }
 .preview-reference { margin: 4px 0 0; color: #aeb8c8; font-size: 13px; overflow-wrap: anywhere; }
-.pdf-preview-dialog .official-preview-actions { order: 1; border: 0; border-bottom: 1px solid #293345; padding: 10px 20px; }
+.pdf-preview-dialog .official-preview-header { flex-shrink: 0; flex-wrap: wrap; }
+.official-preview-heading { min-width: 0; flex: 1; }
+.pdf-preview-dialog .official-preview-actions { align-items: center; flex-wrap: nowrap; margin-left: auto; border: 0; padding: 0; }
+.official-preview-actions .pdf-preparation-status { margin-right: 12px; }
+.official-preview-actions .preview-send, .official-preview-actions .preview-save, .official-preview-actions .preview-close { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; border: 0; border-radius: 8px; padding: 10px 18px; color: #fff; font-size: 12px; font-weight: 700; line-height: 20px; text-transform: uppercase; cursor: pointer; }
+.official-preview-actions .preview-send { background: #1d4ed8; }
+.official-preview-actions .preview-save { background: #00996b; }
+.official-preview-actions .preview-close { width: 40px; padding: 10px; background: #1e293b; }
+.official-preview-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.official-preview-actions a:hover, .official-preview-actions button:hover:not(:disabled) { filter: brightness(1.12); }
+.official-preview-actions a:focus-visible, .official-preview-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 .pdf-preview-dialog .preview-frame-wrap { order: 2; overflow: auto; }
 .pdf-preview-dialog .preview-message { order: 3; }
 .document-preview-pages { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 40px 20px; }
@@ -407,10 +417,12 @@
 .pdf-preview-dialog .primary-action { background: #00996b; color: white; }
 @media (max-width: 600px) {
   .document-preview-pages { padding: 20px 8px; gap: 16px; }
-  .pdf-preview-dialog .official-preview-actions { gap: 8px; padding: 8px; }
+  .pdf-preview-dialog .official-preview-header { padding: 16px; }
+  .pdf-preview-dialog .official-preview-actions { width: 100%; flex-wrap: wrap; gap: 8px; padding: 0; }
+  .official-preview-actions .pdf-preparation-status { flex-basis: 100%; margin-right: 0; }
 }
 .document-page-wrap { padding: 32px 16px; }
-.document-paper { box-sizing: border-box; width: min(816px, 100%); min-height: 1056px; margin: 0 auto; padding: 48px 64px; background: white; color: #202820; font: 16px/1.5 Arial, sans-serif; box-shadow: 0 8px 30px #0005; overflow-wrap: anywhere; }
+.document-paper { box-sizing: border-box; width: min(816px, 100%); min-height: 1056px; margin: 0 auto; padding: 48px 64px 16px; background: white; color: #202820; font: 16px/1.5 Arial, sans-serif; box-shadow: 0 8px 30px #0005; overflow-wrap: anywhere; }
 .document-letterhead { display: flex; align-items: center; gap: 18px; border-bottom: 3px solid #356442; padding-bottom: 14px; margin-bottom: 28px; }
 .document-letterhead img { width: 58px; height: auto; }
 .document-letterhead strong { display: block; color: #356442; font-size: 20px; }
@@ -424,5 +436,60 @@
 .document-signatory { margin: 48px 0 0 45%; white-space: pre-wrap; }
 .document-page-caption { text-align: center; color: #aeb8c8; font-size: 13px; }
 .pdf-preparation-status { margin-right: auto; align-self: center; font-size: 14px; }
-@media (max-width: 600px) { .document-paper { padding: 24px; min-height: 780px; } .document-paper dl { grid-template-columns: 100px 1fr; } .document-signatory { margin-left: 20%; } }
+@media (max-width: 600px) { .document-paper { padding: 24px 24px 16px; min-height: 780px; } .document-paper dl { grid-template-columns: 100px 1fr; } .document-signatory { margin-left: 20%; } }
 .pdf-preview-dialog button:disabled { opacity: .45; cursor: not-allowed; }
+/* Document composer */
+.create-document-modal { width: min(820px, 100%); background: #f8f6f5; }
+.create-document-modal header, .create-document-panel.create-document-modal header { align-items: center; flex-direction: row; padding: 28px 32px; background: #fff; }
+.create-document-modal header p { font-size: 10px; letter-spacing: 1.2px; }
+.create-document-modal header h2 { font-size: 26px; letter-spacing: -.6px; }
+.create-document-modal header span { max-width: 560px; font-size: 13px; line-height: 1.6; }
+.create-document-modal header button, .create-document-panel.create-document-modal header button { width: 40px; height: 40px; padding: 0; font-size: 24px; }
+.create-document-modal form, .create-document-panel.create-document-modal form { display: flex; flex-direction: column; gap: 20px; padding: 28px 32px; }
+.create-section, .create-signatory { min-width: 0; padding: 24px; border: 1px solid #e7dfe0; border-radius: 12px; background: #fff; }
+.create-section-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+.create-section-icon { display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 10px; color: #8b2035; background: #f8ecef; font-size: 12px; font-weight: 750; }
+.create-section-heading h3 { margin: 0; color: #39262b; font-size: 16px; font-weight: 750; }
+.create-section-heading p { margin: 4px 0 0; color: #85777b; font-size: 12px; line-height: 1.5; }
+.create-section-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.create-recipient-options { display: flex; gap: 8px; }
+.create-recipient-options button, .create-institution-row button { min-width: 46px; height: 46px; padding: 0 18px; border: 1px solid #ded5d7; border-radius: 8px; color: #594548; background: #fff; font: inherit; cursor: pointer; }
+.create-recipient-options button[aria-pressed=true] { color: #fff; border-color: #7b1023; background: #7b1023; }
+.create-institution-list { display: grid; gap: 10px; }
+.create-institution-row { display: flex; align-items: center; gap: 8px; }
+.create-institution-row input { min-width: 0; flex: 1; }
+.create-institution-row button { flex-shrink: 0; padding: 0; font-size: 22px; }
+.create-thru summary { cursor: pointer; color: #594548; font-size: 13px; font-weight: 750; }
+.create-thru summary small { margin-left: 8px; color: #8c7e82; font-size: 11px; font-weight: 500; }
+.create-thru[open] summary { margin-bottom: 16px; }
+.create-thru summary:focus-visible { outline: 2px solid #8b2035; outline-offset: 3px; }
+.create-document-modal .create-field label { align-items: center; font-size: 12px; margin-bottom: 8px; }
+.create-document-modal .create-field label small { color: #8c7e82; font-size: 11px; }
+.create-document-modal .create-field input, .create-document-modal .create-field select, .create-document-modal .create-field textarea { font-family: inherit; font-size: 13px; line-height: 1.6; background: #fff; border-color: #ded5d7; border-radius: 8px; }
+.create-document-modal .create-field input, .create-document-modal .create-field select { height: 46px; padding-inline: 13px; }
+.create-document-modal .create-field textarea { padding: 13px; }
+.create-document-modal .create-field [aria-invalid=true] { border-color: #b4233d; }
+.create-document-modal .create-field :disabled { background: #f5f2f3; color: #887b80; }
+.create-reference-note { display: flex; align-items: center; gap: 12px; margin-top: 18px; padding: 12px 16px; border-radius: 8px; background: #f8f6f5; color: #817278; }
+.create-reference-note > span { font-size: 22px; color: #a28c94; }
+.create-reference-note p { margin: 0; font-size: 12px; line-height: 1.6; }
+.create-reference-note strong { margin-right: 10px; color: #57444b; }
+.create-reference-note small { display: block; font-size: 11px; }
+.create-signatory summary { cursor: pointer; color: #49343c; font-size: 14px; font-weight: 700; }
+.create-signatory summary > span { display: inline-block; vertical-align: middle; margin-left: 8px; }
+.create-signatory summary small { display: block; margin-top: 5px; color: #8b7a81; font-size: 11px; font-weight: 400; }
+.create-signatory[open] .create-section-fields { margin-top: 22px; }
+.create-document-modal .create-form-actions { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 4px; }
+.create-form-actions p { flex: 1; margin: 0; color: #8b7a81; font-size: 12px; line-height: 1.5; }
+.create-document-modal .create-form-actions button { width: auto; min-height: 44px; padding-inline: 22px; font-size: 13px; }
+.create-document-modal button:focus-visible, .create-signatory summary:focus-visible { outline: 2px solid #8b2035; outline-offset: 3px; }
+@media (max-width: 600px) {
+  .create-document-modal header, .create-document-panel.create-document-modal header { padding: 22px 18px; }
+  .create-document-modal header h2, .create-document-panel.create-document-modal header h2 { font-size: 22px; }
+  .create-document-modal form, .create-document-panel.create-document-modal form { padding: 18px 12px; gap: 14px; }
+  .create-section, .create-signatory { padding: 18px 16px; }
+  .create-section-fields { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .create-form-actions p { flex-basis: 100%; }
+  .create-document-modal .create-form-actions button { flex: 1; }
+}
+

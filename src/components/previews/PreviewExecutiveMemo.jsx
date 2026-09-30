@@ -1,3 +1,6 @@
+import PreviewFooter from './PreviewFooter'
+import RichBodyPreview from '../RichBodyPreview'
+
 // Edit the on-screen memo layout and styling here. Saved Docs/PDFs use
 // their own renderer in Google Apps Script.
 function displayDate(value) {
@@ -14,7 +17,7 @@ export default function PreviewExecutiveMemo({ form, reference }) {
   const year = form.year || form.date?.slice(0, 4)
 
   return <div className="px-4 py-8">
-    <article className="box-border mx-auto min-h-[1056px] w-full max-w-[816px] bg-white px-[69px] pt-10 pb-12 font-[Arial,sans-serif] text-[16px] leading-[1.2] text-[#202820] shadow-[0_8px_30px_#0005] [overflow-wrap:anywhere] max-[600px]:min-h-[780px]" aria-label="Executive Memorandum preview">
+    <article style={form.bodyRich ? { paddingLeft: `${form.bodyRich.attrs?.marginLeft ?? 0.75}in`, paddingRight: `${form.bodyRich.attrs?.marginRight ?? 0.75}in` } : undefined} className="box-border mx-auto flex flex-col min-h-[1056px] w-full max-w-[816px] bg-white px-[69px] pt-10 pb-4 font-[Arial,sans-serif] text-[16px] leading-[1.2] text-[#202820] shadow-[0_8px_30px_#0005] [overflow-wrap:anywhere] max-[600px]:min-h-[780px]" aria-label="Executive Memorandum preview">
       <div className="mb-7 flex items-center justify-start gap-2 border-0 border-b-[3px] border-solid border-[#356442] pb-[14px]">
         <img src="/jhcsclogo.png" alt="College seal" className="h-auto w-[57px] shrink-0" />
         <div>
@@ -37,7 +40,7 @@ export default function PreviewExecutiveMemo({ form, reference }) {
       </dl>
 
       <div className="mt-6">
-        {(form.body || form.content || '').split(/\r?\n/).map((line, index) => <p key={index} className="m-0 mb-2 min-h-[1.2em] indent-[29px] whitespace-pre-wrap">{line || '\u00a0'}</p>)}
+        {form.bodyRich ? <RichBodyPreview value={form.bodyRich} /> : (form.body || form.content || '').split(/\r?\n/).map((line, index) => <p key={index} className="m-0 mb-2 min-h-[1.2em] indent-[29px] whitespace-pre-wrap">{line || '\u00a0'}</p>)}
       </div>
 
       <div className="mt-15 mr-0 mb-4 ml-[2%] whitespace-pre-wrap">
@@ -45,6 +48,7 @@ export default function PreviewExecutiveMemo({ form, reference }) {
         {form.signatoryPosition || form.position || 'SUC President II'}
       </div>
       {form.cc && <p className="text-[12px] whitespace-pre-wrap">cc:{'\n'}{form.cc}</p>}
+      <PreviewFooter />
     </article>
     <p className="text-center text-[13px] text-[#aeb8c8]">On-screen preview. Saved Google Docs and PDFs use separate formatting.</p>
   </div>

@@ -1,0 +1,34 @@
+.rich-editor { border: 1px solid #ded5d7; border-radius: 10px; overflow: hidden; background: #fff; }
+.rich-editor[aria-invalid=true] { border-color: #b4233d; }
+.rich-toolbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border-bottom: 1px solid #e0e5ed; background: #fbfcfe; }
+.rich-tool-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px; border: 1px solid #e0e5ed; border-radius: 9px; }
+.rich-toolbar button, .rich-link-form button { min-height: 34px; padding: 7px 11px; border: 1px solid #dce3ef; border-radius: 6px; background: #fff; color: #445571; font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1.4; cursor: pointer; }
+.rich-toolbar button[aria-pressed=true] { color: #fff; border-color: #172037; background: #172037; }
+.rich-toolbar button:disabled { opacity: .45; cursor: default; }
+.create-document-modal .rich-toolbar label { display: flex; align-items: center; justify-content: start; gap: 8px; margin: 0; color: #445571; font-size: 11px; }
+.create-document-modal .rich-toolbar select { width: auto; height: 34px; max-width: 170px; padding: 0 8px; font-size: 12px; }
+.create-document-modal .rich-toolbar input[type=color] { width: 30px; height: 30px; padding: 3px; cursor: pointer; }
+.rich-body-content { font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.15; color: #202820; overflow-wrap: anywhere; }
+.rich-body-content .tiptap { min-height: 340px; padding: 26px; outline: none; }
+.rich-editor-paper { overflow-x: auto; }
+.rich-editor-paper .tiptap { box-sizing: border-box; width: 8.5in; padding-left: var(--body-left-margin); padding-right: var(--body-right-margin); }
+.rich-body-content .tiptap:focus { box-shadow: inset 0 0 0 2px #a52a4040; }
+.rich-body-content p { margin: 0 0 6pt; white-space: pre-wrap; min-height: 1.15em; }
+.rich-body-content h1, .rich-body-content h2, .rich-body-content h3 { margin: 12pt 0 6pt; font-weight: bold; line-height: 1.15; }
+.rich-body-content h1 { font-size: 24pt; }.rich-body-content h2 { font-size: 18pt; }.rich-body-content h3 { font-size: 14pt; }
+.rich-body-content ul, .rich-body-content ol { margin: 6pt 0; padding-left: 24pt; }
+.rich-body-content ul { list-style: disc; }.rich-body-content ol { list-style: decimal; }
+.rich-body-content blockquote { margin: 0 0 0 30pt; font-style: italic; }
+.rich-body-content a { color: #1155cc; text-decoration: underline; }
+.rich-body-content img { display: block; max-width: 100%; height: auto; }
+.rich-body-content table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; margin: 8pt 0; }
+.rich-body-content table td, .rich-body-content table th { position: relative; height: auto; border: 1px solid #b7bec8; padding: 6pt; vertical-align: top; min-width: 40px; color: inherit; font-family: inherit; font-size: inherit; line-height: inherit; letter-spacing: normal; text-transform: none; white-space: normal; }
+.rich-body-content th { background: #f1f3f5; font-weight: bold; text-align: left; }
+.rich-body-content .selectedCell { background: #e7eefa; }
+.rich-body-content hr { border: 0; border-top: 1px solid #9ca3af; margin: 12pt 0; }
+.rich-page-break { break-after: page; border-top: 1px dashed #aab4c5; margin: 24px 0; text-align: center; }
+.rich-page-break::after { content: 'Page break'; display: inline-block; padding: 2px 8px; background: #f4f6fa; color: #68758a; font: 11px Arial, sans-serif; }
+.rich-link-form { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; padding: 12px; background: #f4f6fa; }
+.rich-link-form label { flex: 1; min-width: 200px; }.rich-editor-error { margin: 10px 14px; color: #b4233d; font-size: 12px; }
+@media(max-width:600px) { .rich-toolbar { padding: 6px; }.rich-tool-group { padding: 4px; } }
+@media print { .rich-page-break { border: 0; margin: 0; }.rich-page-break::after { display: none; } }

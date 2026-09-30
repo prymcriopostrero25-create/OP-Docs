@@ -1,3 +1,4 @@
+import PreviewFooter from './PreviewFooter'
 import { Fragment } from 'react'
 
 // Edit the on-screen special order layout and Tailwind classes here.
@@ -8,7 +9,7 @@ export default function PreviewSpecialOrder({ form, reference }) {
   const title = form.reference || reference || 'Special Order'
 
   return <div className="px-4 py-8">
-    <article className="box-border mx-auto min-h-[1056px] w-full max-w-[816px] bg-white px-16 py-12 font-[Arial,sans-serif] text-[16px] leading-[1.5] text-[#202820] shadow-[0_8px_30px_#0005] [overflow-wrap:anywhere] max-[600px]:min-h-[780px] max-[600px]:p-6" aria-label="Special Order preview">
+    <article className="box-border mx-auto flex min-h-[1056px] w-full max-w-[816px] flex-col bg-white px-16 pt-12 pb-4 font-[Arial,sans-serif] text-[16px] leading-[1.5] text-[#202820] shadow-[0_8px_30px_#0005] [overflow-wrap:anywhere] max-[600px]:min-h-[780px] max-[600px]:px-6 max-[600px]:pt-6" aria-label="Special Order preview">
       {/* Letterhead */}
       <div className="mb-7 flex items-center gap-[18px] border-0 border-b-[3px] border-solid border-[#356442] pb-[14px]">
         <img src="/jhcsclogo.png" alt="College seal" className="h-auto w-[58px]" />
@@ -35,6 +36,7 @@ export default function PreviewSpecialOrder({ form, reference }) {
         {form.signatoryPosition || form.position || 'SUC President II'}
       </div>
       {form.cc && <p className="my-[1em] whitespace-pre-wrap">cc: {form.cc}</p>}
+      <PreviewFooter />
     </article>
     <p className="my-[1em] text-center text-[13px] text-[#aeb8c8]">Page preview. Final pagination and formatting are applied in the PDF.</p>
   </div>

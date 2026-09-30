@@ -1,5 +1,15 @@
 # Role access setup
 
+## Executive Memorandum rich-text body
+
+Deploy the current `Code.gs` as a new version of the existing web app to enable the rich-text Body editor. The client checks `editorCapabilities` before creating or updating a formatted memorandum; older deployments are blocked before a write so formatting cannot silently become plain text.
+
+The editor saves structured content, including text styles, links, headings, alignment, paragraph spacing and indentation, left/right page margins, lists, simple tables, embedded PNG/JPEG/GIF images, horizontal lines, and explicit page breaks. Google Docs and PDF export render this structure. A `<document-id>.body.json` source file is kept in the document's filing folder for reopening and editing; keep it with the document. The spreadsheet continues to store a readable plain-text Body. Deleting a document also trashes its rich-text source.
+
+Images are limited to 1 MB each and the structured body to 3 MB / 50,000 text characters. Paste external images using Insert image instead. Tables support up to 100 rows and 12 columns; merged cells are rejected before saving. Google Docs determines final pagination and font availability, so its PDF remains the authoritative print preview.
+
+Verify after deployment: create a memorandum with mixed bold/plain text, a colored link, a numbered list, a table, an image and a page break; inspect the generated Google Doc/PDF; reopen Edit and confirm the formatting and image remain. Local coverage: `node --test tests/richBody.test.js`.
+
 In CREDENTIALS, keep A = EMAIL, B = NAME, C = PASSWORD and D = ROLE.
 Use `user`, `admin`, or `super admin`. Blank or unknown roles receive user access.
 

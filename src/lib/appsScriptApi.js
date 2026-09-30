@@ -121,19 +121,35 @@ export const verificationLink = async id => (await documentRequest({ action: 've
 export const verifyDocument = async code => (await documentRequest({ action: 'verify', code })).document
 export const sendDocument = async form => (await documentRequest({ ...form, action: 'sendDocument' })).document
 export const documentDetails = async id => (await documentRequest({ action: 'documentDetails', id })).form
-export const updateDocumentContent = async (id, form) => (await documentRequest({ ...form, id, action: 'updateDocumentContent' })).document
+export const updateDocumentContent = async (id, form) => {
+  await requireRichBodySupport(form)
+  return (await documentRequest({ ...form, id, action: 'updateDocumentContent' })).document
+}
+
+async function requireRichBodySupport(form) {
+  if (!form.bodyRich) return
+  try {
+    const result = await documentRequest({ action: 'editorCapabilities' })
+    if (result.richBodyVersion !== 1) throw new Error('Unsupported action.')
+  } catch (error) {
+    if (/Unsupported action/i.test(error.message)) throw new Error('Formatted documents need the updated Apps Script deployment. Ask the administrator to deploy the latest Code.gs, then retry. Your body is still here.', { cause: error })
+    throw error
+  }
+}
 
 export async function prepareDocumentPreview(id) {
   return documentRequest({ action: 'prepareDocumentPreview', id })
 }
 
 export async function createExecutiveMemorandum(form) {
+  await requireRichBodySupport(form)
   const result = await documentRequest({ ...form, action: 'createExecutiveMemorandum' })
   if (!result.document?.url || !result.document?.id) throw new Error('Document creation was not confirmed. Please retry.')
   return result.document
 }
 
 export async function createDocument(form) {
+  await requireRichBodySupport(form)
   const result = await documentRequest({ ...form, action: 'createDocument' })
   if (!result.document?.url || !result.document?.id) throw new Error('Document creation was not confirmed. Please retry.')
   return result.document

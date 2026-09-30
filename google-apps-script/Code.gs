@@ -265,7 +265,9 @@ function mutateDocument(request) {
     if (record.status === 'Out') throw new Error('OUT documents are locked.');
     if (record.deleted && request.action === 'editDocument') throw new Error('This document has been deleted.');
     if (request.action === 'deleteDocument') {
-      deleteDocumentFiles(record, sheet, index + 2);
+      let sourceId;
+      try { sourceId = JSON.parse(cell.getNote() || '{}').form?.bodyRichFileId; } catch (error) { /* Legacy records may not contain JSON notes. */ }
+      deleteDocumentFiles(record, sheet, index + 2, sourceId);
       appendActivityEvent({ activity: 'Deleted', id: record.id, date: new Date().toISOString(), subject: record.subject, url: record.url, type: record.type });
       SpreadsheetApp.flush();
       return jsonResponse({ success: true, deletedId: request.id, storageDeleted: true });
@@ -277,7 +279,7 @@ function mutateDocument(request) {
   } finally { lock.releaseLock(); }
 }
 
-function deleteDocumentFiles(record, mainSheet, mainRow) {
+function deleteDocumentFiles(record, mainSheet, mainRow, bodyRichFileId) {
   const match = /^https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)\/(view|preview)$/.exec(record.url);
   if (!match) throw new Error('The document has an invalid Drive link. Nothing was deleted.');
   // Resolve all sheets and the exact file before making any changes.
@@ -287,7 +289,9 @@ function deleteDocumentFiles(record, mainSheet, mainRow) {
     return { sheet: sheet, rows: rows.map((row, index) => row[0] === record.id ? index + 2 : 0).filter(Boolean).reverse() };
   });
   const file = DriveApp.getFileById(match[1]);
+  const bodySource = bodyRichFileId ? DriveApp.getFileById(bodyRichFileId) : null;
   if (!file.isTrashed()) file.setTrashed(true);
+  if (bodySource && !bodySource.isTrashed()) bodySource.setTrashed(true);
   // Keep MAIN Files until all category rows are removed, so failures can be retried.
   try {
     logs.forEach(log => log.rows.forEach(row => log.sheet.deleteRow(row)));
@@ -303,6 +307,10 @@ function doPost(e) {
   requestAccounts = new Map();
   try {
     const request = JSON.parse(e.postData.contents || '{}');
+    if (request.action === 'editorCapabilities') {
+      if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
+      return jsonResponse({ success: true, richBodyVersion: 1 });
+    }
     if (['currentUser', 'createUser', 'updateUser', 'deleteUser', 'verificationLink', 'verify', 'sendDocument', 'documentDetails', 'updateDocumentContent'].includes(request.action)) return workflowRequest(request);
     if (request.action === 'documentPage') return documentPage(request);
     if (request.action === 'prepareDocumentPreview') return prepareDocumentPreview(request);
@@ -403,7 +411,7 @@ function documentPage(request) {
   if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
   try {
     const entry = workflowDocument(request.id);
-    return jsonResponse({ success: true, form: entry.metadata.form || null, type: entry.record.type });
+    return jsonResponse({ success: true, form: loadRichBodyForm(entry.metadata.form), type: entry.record.type });
   } catch (error) { return jsonResponse({ success: false, message: error.message }); }
 }
 
@@ -848,12 +856,15 @@ function renderExecutiveMemorandum(doc, data, logo, heading) {
   body.clear();
   // Shared letterhead and layout for memoranda and special orders.
   const green = '#356442';
-  body.setPageWidth(612).setPageHeight(792).setMarginTop(30).setMarginBottom(36).setMarginLeft(52).setMarginRight(52);
+  const leftMargin = data.bodyRich ? data.bodyRich.attrs.marginLeft * 72 : 52;
+  const rightMargin = data.bodyRich ? data.bodyRich.attrs.marginRight * 72 : 52;
+  const contentWidth = 612 - leftMargin - rightMargin;
+  body.setPageWidth(612).setPageHeight(792).setMarginTop(30).setMarginBottom(36).setMarginLeft(leftMargin).setMarginRight(rightMargin);
   body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 10 });
   const header = doc.getHeader() || doc.addHeader();
   header.clear();
   const letterhead = header.appendTable([['', 'J.H. CERILLES STATE COLLEGE\nMati, San Miguel, Zamboanga del Sur  |  main@jhcsc.edu.ph  |  +63 915 2484 538\nOFFICE OF THE PRESIDENT']]);
-  letterhead.setBorderWidth(0).setColumnWidth(0, 54).setColumnWidth(1, 454);
+  letterhead.setBorderWidth(0).setColumnWidth(0, 54).setColumnWidth(1, contentWidth - 54);
   const image = letterhead.getCell(0, 0).getChild(0).asParagraph().appendInlineImage(logo);
   image.setHeight(Math.round(43 * image.getHeight() / image.getWidth())).setWidth(43);
   const brand = letterhead.getCell(0, 1);
@@ -863,13 +874,13 @@ function renderExecutiveMemorandum(doc, data, logo, heading) {
   }
   // A narrow filled table provides a consistent green rule in Google Docs/PDF.
   const rule = header.appendTable([['']]);
-  rule.setBorderWidth(0).setColumnWidth(0, 508);
+  rule.setBorderWidth(0).setColumnWidth(0, contentWidth);
   rule.getCell(0, 0).setBackgroundColor(green).setPaddingTop(0).setPaddingBottom(0)
     .getChild(0).asParagraph().setSpacingBefore(0).setSpacingAfter(0).editAsText().setFontSize(1);
   body.appendParagraph('').setSpacingAfter(12).editAsText().setFontSize(1);
   const title = heading || (data.number ? 'Executive Memorandum Order No. ' + data.number : data.reference);
   const banner = body.appendTable([[String(title).toUpperCase(), 'Series of ' + data.year]]);
-  banner.setBorderColor(green).setBorderWidth(0.5).setColumnWidth(0, 290).setColumnWidth(1, 218);
+  banner.setBorderColor(green).setBorderWidth(0.5).setColumnWidth(0, contentWidth * 290 / 508).setColumnWidth(1, contentWidth * 218 / 508);
   for (let col = 0; col < 2; col++) {
     banner.getCell(0, col).setBackgroundColor('#f4f6f5').setPaddingTop(0).setPaddingBottom(0).setPaddingLeft(0)
       .editAsText().setFontFamily('Arial').setFontSize(10).setBold(false);
@@ -880,7 +891,7 @@ function renderExecutiveMemorandum(doc, data, logo, heading) {
   if (data.thru) details.push(['THRU:', data.thru]);
   details.push(['SUBJECT:', String(data.subject || '').toUpperCase()], ['DATE:', executiveMemoDate(data.date).toUpperCase()]);
   const info = body.appendTable(details);
-  info.setBorderWidth(0).setColumnWidth(0, 140).setColumnWidth(1, 368);
+  info.setBorderWidth(0).setColumnWidth(0, contentWidth * 140 / 508).setColumnWidth(1, contentWidth * 368 / 508);
   for (let row = 0; row < details.length; row++) {
     for (let col = 0; col < 2; col++) {
       info.getCell(row, col).setPaddingTop(0).setPaddingBottom(2).setPaddingLeft(0).setPaddingRight(0)
@@ -889,10 +900,11 @@ function renderExecutiveMemorandum(doc, data, logo, heading) {
   }
   body.appendParagraph('').setSpacingAfter(6).editAsText().setFontSize(1);
   // Explicit sizing prevents content from inheriting the 1-point spacer style.
-  String(data.body || '').split(/\r?\n/).forEach(line => body.appendParagraph(line)
+  if (data.bodyRich) renderRichBody(body, data.bodyRich);
+  else String(data.body || '').split(/\r?\n/).forEach(line => body.appendParagraph(line)
     .setIndentFirstLine(21.6).setLineSpacing(1).setSpacingAfter(6).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false));
-  body.appendParagraph(data.signatory).setIndentStart(266).setSpacingBefore(24).setSpacingAfter(0).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false);
-  body.appendParagraph(data.position).setIndentStart(266).setSpacingAfter(12).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false);
+  body.appendParagraph(data.signatory).setIndentStart(contentWidth * 266 / 508).setSpacingBefore(24).setSpacingAfter(0).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false);
+  body.appendParagraph(data.position).setIndentStart(contentWidth * 266 / 508).setSpacingAfter(12).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false);
   if (data.cc) body.appendParagraph('cc:\n' + data.cc).editAsText().setFontSize(9).setBold(false);
   doc.saveAndClose();
 }
@@ -1014,10 +1026,186 @@ function travelOrderDisplayId(reference, createdDate) {
 }
 
 // Field definitions from SHEET NAME FORMAT(TEMPLATE).pdf. POSITION is the recipient's position.
+// Store the editor source outside spreadsheet notes, which cannot hold image data.
+// Only server-owned IDs from record metadata may be passed as existingId.
+function storeRichBodyForm(data, documentFile, existingId) {
+  if (!data.bodyRich) return data;
+  const source = JSON.stringify(data.bodyRich);
+  let file;
+  if (existingId) {
+    file = DriveApp.getFileById(existingId);
+    file.setContent(source);
+  } else {
+    const parents = documentFile.getParents();
+    if (!parents.hasNext()) throw new Error('The document folder is unavailable.');
+    const folder = parents.next();
+    const name = documentFile.getId() + '.body.json';
+    const matches = folder.getFilesByName(name);
+    file = matches.hasNext() ? matches.next() : folder.createFile(name, source, 'application/json');
+    file.setContent(source);
+  }
+  const stored = { ...data, bodyRichFileId: file.getId() };
+  delete stored.bodyRich;
+  return stored;
+}
+
+function loadRichBodyForm(form) {
+  if (!form || !form.bodyRichFileId) return form || null;
+  const source = DriveApp.getFileById(form.bodyRichFileId);
+  if (source.isTrashed()) throw new Error('The formatted body source is unavailable.');
+  return { ...form, bodyRich: validateRichBody(JSON.parse(source.getBlob().getDataAsString())) };
+}
+
+function richBodyPlainText(node) {
+  if (node.type === 'text') return node.text;
+  if (node.type === 'hardBreak') return '\n';
+  if (node.type === 'image') return '[Image]';
+  const separate = ['doc', 'bulletList', 'orderedList', 'listItem', 'blockquote', 'table', 'tableRow', 'tableCell', 'tableHeader'].includes(node.type);
+  return (node.content || []).map(richBodyPlainText).join(separate ? '\n' : '');
+}
+
+function validateRichBody(value) {
+  if (!value || value.type !== 'doc' || JSON.stringify(value).length > 3000000) throw new Error('The formatted body is invalid or too large (maximum 3 MB).');
+  const blocks = ['paragraph', 'heading', 'bulletList', 'orderedList', 'blockquote', 'horizontalRule', 'pageBreak', 'image', 'table'];
+  const allowed = { doc: blocks, paragraph: ['text', 'hardBreak'], heading: ['text', 'hardBreak'], bulletList: ['listItem'], orderedList: ['listItem'], listItem: ['paragraph', 'bulletList', 'orderedList'], blockquote: ['paragraph', 'heading', 'bulletList', 'orderedList'], table: ['tableRow'], tableRow: ['tableCell', 'tableHeader'], tableCell: ['paragraph', 'heading', 'bulletList', 'orderedList', 'image'], tableHeader: ['paragraph', 'heading', 'bulletList', 'orderedList', 'image'], text: [], hardBreak: [], horizontalRule: [], pageBreak: [], image: [] };
+  let count = 0;
+  const color = value => /^#[0-9a-f]{6}$/i.test(value || '') ? value : null;
+  function visit(node, depth) {
+    if (++count > 10000 || depth > 20 || !node || !Object.prototype.hasOwnProperty.call(allowed, node.type)) throw new Error('The body contains unsupported formatting.');
+    const clean = { type: node.type }, attrs = node.attrs || {};
+    if (node.type === 'doc') clean.attrs = { marginLeft: [0.5, 0.75, 1, 1.25, 1.5].includes(attrs.marginLeft) ? attrs.marginLeft : 0.75, marginRight: [0.5, 0.75, 1, 1.25, 1.5].includes(attrs.marginRight) ? attrs.marginRight : 0.75 };
+    if (node.type === 'text') {
+      if (typeof node.text !== 'string' || !node.text) throw new Error('Invalid body text.');
+      clean.text = node.text;
+      clean.marks = (node.marks || []).map(mark => {
+        if (['bold', 'italic', 'underline', 'strike'].includes(mark.type)) return { type: mark.type };
+        const a = mark.attrs || {};
+        if (mark.type === 'link' && /^(https?:\/\/|mailto:)/i.test(a.href || '') && a.href.length <= 2000) return { type: 'link', attrs: { href: a.href } };
+        if (mark.type === 'highlight' && color(a.color)) return { type: 'highlight', attrs: { color: color(a.color) } };
+        if (mark.type === 'textStyle') {
+          const style = {};
+          if (a.color) { if (!color(a.color)) throw new Error('Unsupported text color.'); style.color = a.color; }
+          if (a.fontFamily) { if (!['Arial', 'Times New Roman', 'Calibri', 'Georgia', 'Verdana'].includes(a.fontFamily)) throw new Error('Choose a font from the editor toolbar.'); style.fontFamily = a.fontFamily; }
+          if (a.fontSize) { if (!/^(8|9|10|11|12|14|16|18|24|30|36)pt$/.test(a.fontSize)) throw new Error('Choose a font size from the editor toolbar.'); style.fontSize = a.fontSize; }
+          return { type: 'textStyle', attrs: style };
+        }
+        throw new Error('The body contains an unsupported text style or link.');
+      });
+    }
+    if (['paragraph', 'heading'].includes(node.type)) {
+      clean.attrs = { textAlign: ['left', 'center', 'right', 'justify'].includes(attrs.textAlign) ? attrs.textAlign : 'left', indent: Math.max(0, Math.min(8, Number(attrs.indent) || 0)), lineSpacing: [1, 1.15, 1.5, 2].includes(Number(attrs.lineSpacing)) ? Number(attrs.lineSpacing) : 1.15 };
+      if (node.type === 'heading') clean.attrs.level = [1, 2, 3].includes(attrs.level) ? attrs.level : 1;
+    }
+    if (node.type === 'orderedList') clean.attrs = { start: Math.max(1, Math.min(9999, Number(attrs.start) || 1)) };
+    if (node.type === 'table' && (!node.content?.length || node.content.length > 100)) throw new Error('Tables must have between 1 and 100 rows.');
+    if (node.type === 'tableRow' && (!node.content?.length || node.content.length > 12)) throw new Error('Tables must have between 1 and 12 columns.');
+    if (['tableCell', 'tableHeader'].includes(node.type) && ((attrs.colspan || 1) !== 1 || (attrs.rowspan || 1) !== 1)) throw new Error('Merged table cells are not supported. Split the cells before saving.');
+    if (node.type === 'image') {
+      if (!/^data:image\/(png|jpeg|gif);base64,[A-Za-z0-9+/=]+$/.test(attrs.src || '') || attrs.src.length > 1400000) throw new Error('Insert a PNG, JPEG, or GIF image up to 1 MB using the image button.');
+      clean.attrs = { src: attrs.src, alt: String(attrs.alt || '').slice(0, 200), width: Math.max(24, Math.min(640, Number(attrs.width) || 480)) };
+    }
+    if (node.content) {
+      if (!Array.isArray(node.content) || node.content.some(child => !allowed[node.type].includes(child?.type))) throw new Error('The body structure is unsupported.');
+      clean.content = node.content.map(child => visit(child, depth + 1));
+    }
+    if (node.type === 'table' && clean.content.some(row => row.content.length !== clean.content[0].content.length)) throw new Error('Every table row must have the same number of cells.');
+    return clean;
+  }
+  const result = visit(value, 0);
+  if (!richBodyPlainText(result).trim()) throw new Error('Please enter body.');
+  if (richBodyPlainText(result).length > 50000) throw new Error('The body is too long.');
+  return result;
+}
+
+// Render structured content directly, never execute HTML supplied by the browser.
+function renderRichBody(body, source) {
+  const A = DocumentApp.Attribute;
+  const alignment = { left: DocumentApp.HorizontalAlignment.LEFT, center: DocumentApp.HorizontalAlignment.CENTER, right: DocumentApp.HorizontalAlignment.RIGHT, justify: DocumentApp.HorizontalAlignment.JUSTIFY };
+  function paragraph(parent, node, options) {
+    const attrs = node.attrs || {}, opts = options || {};
+    const prefix = opts.prefix || '';
+    const p = parent.appendParagraph(prefix + (node.content || []).map(child => child.type === 'hardBreak' ? '\n' : child.text).join(''));
+    const size = node.type === 'heading' ? ({ 1: 24, 2: 18, 3: 14 }[attrs.level] || 24) : 12;
+    p.setAlignment(alignment[attrs.textAlign] || alignment.left).setIndentStart((attrs.indent || 0) * 24 + (opts.indent || 0)).setIndentFirstLine((attrs.indent || 0) * 24 + (opts.indent || 0))
+      .setLineSpacing(attrs.lineSpacing || 1.15).setSpacingBefore(node.type === 'heading' ? 12 : 0).setSpacingAfter(6);
+    p.setAttributes({ [A.FONT_FAMILY]: 'Arial', [A.FONT_SIZE]: size, [A.BOLD]: node.type === 'heading' || !!opts.header, [A.ITALIC]: !!opts.quote, [A.UNDERLINE]: false, [A.STRIKETHROUGH]: false, [A.FOREGROUND_COLOR]: '#202820' });
+    const text = p.editAsText();
+    let offset = prefix.length;
+    (node.content || []).forEach(child => {
+      const length = child.type === 'hardBreak' ? 1 : child.text.length;
+      const start = offset, end = offset + length - 1;
+      offset += length;
+      // Reset each run so marks never leak to following unformatted text.
+      text.setAttributes(start, end, { [A.FONT_FAMILY]: 'Arial', [A.FONT_SIZE]: size, [A.BOLD]: node.type === 'heading' || !!opts.header, [A.ITALIC]: !!opts.quote, [A.UNDERLINE]: false, [A.STRIKETHROUGH]: false, [A.FOREGROUND_COLOR]: '#202820', [A.BACKGROUND_COLOR]: null, [A.LINK_URL]: null });
+      (child.marks || []).forEach(mark => {
+        const a = mark.attrs || {};
+        if (mark.type === 'bold') text.setBold(start, end, true);
+        if (mark.type === 'italic') text.setItalic(start, end, true);
+        if (mark.type === 'underline') text.setUnderline(start, end, true);
+        if (mark.type === 'strike') text.setStrikethrough(start, end, true);
+        if (mark.type === 'link') text.setLinkUrl(start, end, a.href).setForegroundColor(start, end, '#1155cc').setUnderline(start, end, true);
+        if (mark.type === 'highlight') text.setBackgroundColor(start, end, a.color);
+        if (mark.type === 'textStyle') {
+          if (a.color) text.setForegroundColor(start, end, a.color);
+          if (a.fontFamily) text.setFontFamily(start, end, a.fontFamily);
+          if (a.fontSize) text.setFontSize(start, end, parseInt(a.fontSize, 10));
+        }
+      });
+    });
+    return p;
+  }
+  function render(parent, nodes, options) {
+    const opts = options || {};
+    nodes.forEach(node => {
+      if (['paragraph', 'heading'].includes(node.type)) paragraph(parent, node, opts);
+      else if (node.type === 'pageBreak') parent.appendPageBreak();
+      else if (node.type === 'horizontalRule') parent.appendHorizontalRule();
+      else if (node.type === 'blockquote') render(parent, node.content || [], { ...opts, indent: (opts.indent || 0) + 30, quote: true });
+      else if (['bulletList', 'orderedList'].includes(node.type)) {
+        (node.content || []).forEach((item, index) => {
+          let first = true;
+          (item.content || []).forEach(child => {
+            const nested = { ...opts, indent: (opts.indent || 0) + 24 };
+            if (child.type === 'paragraph') {
+              // Explicit markers preserve numbering starts and independent lists.
+              paragraph(parent, child, { ...nested, prefix: first ? (node.type === 'orderedList' ? ((node.attrs?.start || 1) + index) + '. ' : '• ') : '' });
+              first = false;
+            } else render(parent, [child], nested);
+          });
+        });
+      } else if (node.type === 'image') {
+        const match = /^data:(image\/(?:png|jpeg|gif));base64,(.*)$/.exec(node.attrs.src);
+        const image = parent.appendParagraph('').setSpacingAfter(6).appendInlineImage(Utilities.newBlob(Utilities.base64Decode(match[2]), match[1], node.attrs.alt || 'body-image'));
+        const width = Math.min(node.attrs.width * 0.75, opts.width || 508);
+        const ratio = image.getHeight() / image.getWidth();
+        image.setWidth(Math.round(width)).setHeight(Math.round(width * ratio));
+      } else if (node.type === 'table') {
+        const columns = node.content[0].content.length;
+        const table = parent.appendTable(node.content.map(row => row.content.map(() => '')));
+        table.setBorderWidth(0.75).setBorderColor('#b7bec8');
+        for (let col = 0; col < columns; col++) table.setColumnWidth(col, (opts.width || 508) / columns);
+        node.content.forEach((row, r) => row.content.forEach((cell, c) => {
+          const target = table.getCell(r, c);
+          target.setPaddingTop(6).setPaddingBottom(6).setPaddingLeft(6).setPaddingRight(6);
+          if (cell.type === 'tableHeader') target.setBackgroundColor('#f1f3f5');
+          render(target, cell.content || [], { header: cell.type === 'tableHeader', width: (opts.width || 508) / columns - 12 });
+          // appendTable creates one empty paragraph per cell; remove it after filling.
+          if (target.getNumChildren() > 1) target.removeChild(target.getChild(0));
+        }));
+      }
+    });
+  }
+  render(body, source.content || [], { width: 612 - 72 * (source.attrs.marginLeft + source.attrs.marginRight) });
+}
+
 function validateTemplateDocument(request, type) {
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(type);
   const travel = type === 'Travel Order';
   const data = {};
+  if (type === 'Executive Memorandum' && request.bodyRich) {
+    data.bodyRich = validateRichBody(request.bodyRich);
+    request = { ...request, body: richBodyPlainText(data.bodyRich) };
+  }
   const fields = simple ? ['body'] : travel
     ? ['reference', 'recipientLabel', 'recipientName', 'recipientPosition', 'place', 'inclusiveDate', 'transportation', 'purpose', 'remarks']
     : ['Executive Memorandum', 'Special Order'].includes(type)
@@ -1232,7 +1420,9 @@ function createDocument(request) {
     const cell = sheet.getRange(row, 2);
     let metadata = {};
     try { metadata = JSON.parse(cell.getNote() || '{}') || {}; } catch (error) { /* Repair a partial registry write. */ }
-    const savedNote = JSON.stringify({ ...metadata, type: record.type, year: record.year, status: metadata.status || record.status, owner: owner, form: { ...data, travelFrom: request.travelFrom || '', travelUntil: request.travelUntil || '', templateVersion: request.templateVersion || 1, type: type, signatoryPosition: data.position || request.signatoryPosition || '' }, createdDocumentId: key });
+    const storedData = storeRichBodyForm(data, file, state.bodyRichFileId);
+    if (storedData.bodyRichFileId && state.bodyRichFileId !== storedData.bodyRichFileId) { state.bodyRichFileId = storedData.bodyRichFileId; saveState(); }
+    const savedNote = JSON.stringify({ ...metadata, type: record.type, year: record.year, status: metadata.status || record.status, owner: owner, form: { ...storedData, travelFrom: request.travelFrom || '', travelUntil: request.travelUntil || '', templateVersion: request.templateVersion || 1, type: type, signatoryPosition: data.position || request.signatoryPosition || '' }, createdDocumentId: key });
     cell.setNote(savedNote);
     if (!hasLogEvidence) writeTypeLog(logSheet, logSheet.getLastRow() + 1, { ...record, date: new Date().toISOString() });
     logCreatedDocument(creationSheet, { ...record, status: metadata.status || record.status }, data, key, creationSnapshot);
@@ -1283,7 +1473,7 @@ function workflowRequest(request) {
       if (!canChangeDocumentStatus(request.token)) throw new Error('Admin access is required.');
       const entry = workflowDocument(request.id);
       if (!entry.metadata.form) throw new Error('This record has no editable form. You can edit its registry title.');
-      return jsonResponse({ success: true, form: entry.metadata.form });
+      return jsonResponse({ success: true, form: loadRichBodyForm(entry.metadata.form) });
     }
     if (request.action === 'updateDocumentContent') return updateDocumentContent(request);
     if (request.action === 'sendDocument') return sendRegisteredDocument(request, user);
@@ -1395,7 +1585,8 @@ function updateDocumentContent(request) {
     const doc = DocumentApp.openById(file.getId());
     if (entry.record.type === 'Executive Memorandum') renderExecutiveMemorandum(doc, data, logo);
     else renderCreatedDocument(doc, data, entry.record.type, logo);
-    entry.metadata.form = { ...data, travelFrom: request.travelFrom || '', travelUntil: request.travelUntil || '', type: entry.record.type, templateVersion: 2, signatoryPosition: data.position || request.signatoryPosition || '' };
+    const storedData = storeRichBodyForm(data, file, entry.metadata.form.bodyRichFileId);
+    entry.metadata.form = { ...storedData, travelFrom: request.travelFrom || '', travelUntil: request.travelUntil || '', type: entry.record.type, templateVersion: 2, signatoryPosition: data.position || request.signatoryPosition || '' };
     entry.metadata.updated = new Date().toISOString();
     entry.cell.setNote(JSON.stringify(entry.metadata));
     entry.sheet.getRange(entry.row, 4).setRichTextValue(SpreadsheetApp.newRichTextValue().setText(data.subject).build());
