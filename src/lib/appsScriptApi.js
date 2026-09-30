@@ -1,3 +1,4 @@
+import { loadDocumentPage } from './documentPageLoader'
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL
 const requestTarget = () => import.meta.env.DEV ? '/apps-script' : APPS_SCRIPT_URL
 
@@ -173,3 +174,5 @@ export async function uploadPdf(file, uploadId, filing) {
   })
   return (await documentRequest({ action: 'uploadDocument', name: file.name, data, uploadId, type: filing.type, year: filing.year })).document
 }
+
+export const documentPage = id => loadDocumentPage(id, documentRequest)

@@ -3,9 +3,10 @@ import { documentTypeLabel } from '../../lib/documentTypes'
 import { filterRecords, recordsCsv, downloadFile } from '../../lib/recordTools'
 import { verifiedPdf } from '../../lib/verifiedPdf'
 import SendDocument from '../../components/SendDocument'
+import DocumentPage from '../../components/DocumentPage'
 import DocumentPages from '../../components/DocumentPages'
 import CreateDocument from '../../components/CreateDocument'
-import { prepareDocumentPreview, documentDetails, updateDocumentContent } from '../../lib/appsScriptApi'
+import { prepareDocumentPreview, documentPage, documentDetails, updateDocumentContent } from '../../lib/appsScriptApi'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 
@@ -35,6 +36,8 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   const [error, setError] = useState('')
   const [preview, setPreview] = useState(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [pageContent, setPageContent] = useState(null)
+  const [pdfError, setPdfError] = useState('')
   const [preparedPreview, setPreparedPreview] = useState(null)
   const [previewError, setPreviewError] = useState('')
   const [sending, setSending] = useState(false)
@@ -89,6 +92,14 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     previewDialog.current.showModal()
     let cancelled = false
     let objectUrl
+    documentPage(preview.reference).then(result => {
+      if (cancelled) return
+      setPageContent({ ...result, type: result.type || preview.type })
+      if (result.deploymentRequired) setPreviewError('Page preview needs the latest Apps Script deployment. Showing the registered PDF when ready. Update the existing web app to a new version, then retry.')
+      if (result.form) setPreviewLoading(false)
+    }).catch(failure => {
+      if (!cancelled) { setPageContent({ form: null }); setPreviewError('Unable to load the page. ' + failure.message + ' The registered PDF will display when ready.'); setPreviewLoading(false) }
+    })
     prepareDocumentPreview(preview.reference).then(result => {
       if (cancelled) return
       const bytes = Uint8Array.from(atob(result.data), character => character.charCodeAt(0))
@@ -97,8 +108,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
       setPreparedPreview({ file, url: objectUrl })
     }).catch(failure => {
       if (!cancelled) {
-        setPreviewError('Unable to prepare the PDF preview. ' + failure.message)
-        setPreviewLoading(false)
+        setPdfError('Unable to prepare the PDF. ' + failure.message)
       }
     })
     return () => {
@@ -111,6 +121,8 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
 
   function openPreview(record) {
     setPreparedPreview(null)
+    setPageContent(null)
+    setPdfError('')
     setPreviewError('')
     setPreview(record)
     setPreviewLoading(true)
@@ -190,13 +202,15 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
       {preview && <dialog ref={previewDialog} className="pdf-preview-dialog" aria-labelledby="pdf-preview-title" onCancel={closePreview} onClose={closePreview}>
         <header><div><h2 id="pdf-preview-title">OFFICIAL PREVIEW</h2><p className="preview-reference">{preview.reference}</p></div><button type="button" className="secondary-action" autoFocus onClick={closePreview}>Close preview</button></header>
         <div className="preview-frame-wrap">
-          {previewLoading && <div className="preview-loading" role="status" aria-live="polite"><span className="preview-spinner" /><span className="preview-loading-text">Loading document preview...</span></div>}
-          {preparedPreview && <DocumentPages file={preparedPreview.file} onReady={() => setPreviewLoading(false)} onError={() => { setPreviewLoading(false); setPreviewError('Unable to display the document. You can still save it using Save as PDF.') }} />}
+          {previewLoading && !pdfError && <div className="preview-loading" role="status" aria-live="polite"><span className="preview-spinner" /><span className="preview-loading-text">Loading document preview...</span></div>}
+          {pageContent?.form && <DocumentPage form={pageContent.form} type={pageContent.type} reference={preview.reference} />}
+          {pageContent && !pageContent.form && preparedPreview && <DocumentPages file={preparedPreview.file} onReady={() => setPreviewLoading(false)} onError={() => { setPreviewLoading(false); setPreviewError('Unable to display the document. You can still save it using Save as PDF.') }} />}
         </div>
-        {previewError && <div className="preview-message" role="alert"><p>{previewError}</p><button type="button" className="secondary-action" onClick={() => openPreview({ ...preview })}>Retry preview</button></div>}
+        {(previewError || pdfError) && <div className="preview-message" role="alert"><p>{previewError || pdfError}</p><button type="button" className="secondary-action" onClick={() => openPreview({ ...preview })}>Retry preview</button></div>}
         <footer className="preview-actions official-preview-actions">
+          <span className="pdf-preparation-status" role="status">{pdfError ? 'PDF preparation failed' : preparedPreview ? 'PDF ready' : 'Preparing PDF in the background...'}</span>
           <button type="button" className="secondary-action" disabled={!preparedPreview || sending} onClick={sendPdf}>{sending ? 'Sharing...' : 'Share PDF'}</button>
-          {permissions.changeStatus && <button type="button" className="secondary-action" disabled={!['Approved', 'Out'].includes(preview.status)} title="Approve this document before emailing" onClick={() => setEmailRecord(preview)}>Email PDF</button>}
+          {permissions.changeStatus && <button type="button" className="secondary-action" disabled={!preparedPreview || !['Approved', 'Out'].includes(preview.status)} title="Approve this document before emailing" onClick={() => setEmailRecord(preview)}>Email PDF</button>}
           <button type="button" className="secondary-action" disabled={!preparedPreview || qrBusy} onClick={saveVerifiedPdf}>{qrBusy ? 'Preparing QR…' : 'Save PDF with QR'}</button>
           {preparedPreview ? <a className="primary-action" href={preparedPreview.url} download={preparedPreview.file.name}>Save as PDF</a> : <button type="button" className="primary-action" disabled>Save as PDF</button>}
         </footer>

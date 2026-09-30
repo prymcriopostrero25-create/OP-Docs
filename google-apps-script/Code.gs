@@ -14,7 +14,7 @@ function checkLoginSetup() {
   if (sheet.getRange(1, 1, 1, 4).getDisplayValues()[0].join('|') !== 'EMAIL|NAME|PASSWORD|ROLE') {
     throw new Error('CREDENTIALS needs EMAIL, NAME, PASSWORD, ROLE in A1:D1.');
   }
-  const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues() : [];
+  const rows = sheetDataRows(sheet, 1, 4);
   const matches = rows.filter(row => String(row[0]).trim().toLowerCase() === 'admin@jhcsc.edu.ph');
   console.log('Spreadsheet: ' + spreadsheet.getName());
   console.log('Matching admin account rows: ' + matches.length);
@@ -132,15 +132,32 @@ function syncCreatedDocumentStatus(type, internalId, status) {
   if (index >= 0) sheet.getRange(index + 2, ['Executive Memorandum', 'Special Order'].includes(type) ? 11 : 10).setValue(status);
 }
 
-function canChangeDocumentStatus(token) {
-  if (typeof token !== 'string' || !token) return false;
+// Only doPost owns this cache; never reuse authorization between requests.
+let requestAccounts;
+function authenticatedAccount(token) {
+  if (typeof token !== 'string' || !token) return null;
+  if (requestAccounts && requestAccounts.has(token)) return requestAccounts.get(token);
   const email = CacheService.getScriptCache().get('session:' + token);
-  if (!email || sessionRevoked(email, token)) return false;
-  const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
-  if (!sheet || sheet.getLastRow() < 2) return false;
-  const account = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues()
-    .find((row) => String(row[0]).trim().toLowerCase() === email);
-  return !!account && ['admin', 'super admin'].includes(normalizeRole(account[3]));
+  let account = null;
+  if (email && !sessionRevoked(email, token)) {
+    const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
+    const rows = sheet ? sheetDataRows(sheet, 1, 4) : [];
+    const row = rows.find(item => String(item[0]).trim().toLowerCase() === email);
+    if (row) account = { email: email, name: row[1], role: normalizeRole(row[3]), token: token };
+  }
+  if (requestAccounts) requestAccounts.set(token, account);
+  return account;
+}
+
+// Read the row count once per snapshot, without caching mutable sheet contents.
+function sheetDataRows(sheet, column, width) {
+  const count = sheet.getLastRow() - 1;
+  return count > 0 ? sheet.getRange(2, column, count, width).getDisplayValues() : [];
+}
+
+function canChangeDocumentStatus(token) {
+  const account = authenticatedAccount(token);
+  return !!account && ['admin', 'super admin'].includes(account.role);
 }
 
 function updateDocumentStatus(request) {
@@ -150,7 +167,7 @@ function updateDocumentStatus(request) {
   lock.waitLock(30000);
   try {
     const sheet = mainFilesSheet();
-    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+    const rows = sheetDataRows(sheet, 1, 5);
     const index = rows.findIndex((row) => row[1] === request.id);
     if (index === -1) return jsonResponse({ success: false, message: 'Document was not found.' });
     const cell = sheet.getRange(index + 2, 2);
@@ -237,7 +254,7 @@ function mutateDocument(request) {
   lock.waitLock(30000);
   try {
     const sheet = mainFilesSheet();
-    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+    const rows = sheetDataRows(sheet, 1, 5);
     const index = rows.findIndex(row => row[1] === request.id);
     if (index < 0) {
       if (request.action === 'deleteDocument') return jsonResponse({ success: true, deletedId: request.id, storageDeleted: true });
@@ -266,7 +283,7 @@ function deleteDocumentFiles(record, mainSheet, mainRow) {
   // Resolve all sheets and the exact file before making any changes.
   const logs = FILING_TYPES.map(type => {
     const sheet = typeLogSheet(type);
-    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getDisplayValues() : [];
+    const rows = sheetDataRows(sheet, 2, 1);
     return { sheet: sheet, rows: rows.map((row, index) => row[0] === record.id ? index + 2 : 0).filter(Boolean).reverse() };
   });
   const file = DriveApp.getFileById(match[1]);
@@ -283,9 +300,11 @@ function deleteDocumentFiles(record, mainSheet, mainRow) {
 }
 
 function doPost(e) {
+  requestAccounts = new Map();
   try {
     const request = JSON.parse(e.postData.contents || '{}');
     if (['currentUser', 'createUser', 'updateUser', 'deleteUser', 'verificationLink', 'verify', 'sendDocument', 'documentDetails', 'updateDocumentContent'].includes(request.action)) return workflowRequest(request);
+    if (request.action === 'documentPage') return documentPage(request);
     if (request.action === 'prepareDocumentPreview') return prepareDocumentPreview(request);
     if (request.action === 'createExecutiveMemorandum') return createExecutiveMemorandum(request);
     if (request.action === 'createDocument') return createDocument(request);
@@ -374,7 +393,52 @@ function doPost(e) {
     });
   } catch (error) {
     return jsonResponse({ success: false, message: 'Unable to process the login request.' });
+  } finally {
+    requestAccounts = undefined;
   }
+}
+
+// Page content loads independently from the background PDF export.
+function documentPage(request) {
+  if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
+  try {
+    const entry = workflowDocument(request.id);
+    return jsonResponse({ success: true, form: entry.metadata.form || null, type: entry.record.type });
+  } catch (error) { return jsonResponse({ success: false, message: error.message }); }
+}
+
+// Server-owned PDF cache, keyed by Drive revision. Never accept attachment bytes
+// from the browser. Missing/evicted chunks safely fall back to a fresh export.
+function preparedDocumentPdf(file) {
+  const native = file.getMimeType() === 'application/vnd.google-apps.document';
+  if (!native) return file.getBlob();
+  let cache, key;
+  try {
+    cache = CacheService.getScriptCache();
+    key = 'pdf:' + file.getId() + ':' + file.getLastUpdated().getTime();
+    const count = Number(cache.get(key));
+    if (Number.isInteger(count) && count > 0 && count <= 300) {
+      const keys = Array.from({ length: count }, (_, i) => key + ':' + i);
+      const chunks = cache.getAll(keys);
+      if (keys.every(part => typeof chunks[part] === 'string')) {
+        return Utilities.newBlob(Utilities.base64Decode(keys.map(part => chunks[part]).join('')), 'application/pdf', file.getName() + '.pdf');
+      }
+    }
+  } catch (error) { /* Cache is optional; export remains available. */ }
+  const pdf = file.getAs('application/pdf');
+  try {
+    if (cache && key) {
+      const data = Utilities.base64Encode(pdf.getBytes());
+      const count = Math.ceil(data.length / 80000);
+      if (count > 0 && count <= 300) {
+        const chunks = {};
+        for (let i = 0; i < count; i++) chunks[key + ':' + i] = data.slice(i * 80000, (i + 1) * 80000);
+        cache.putAll(chunks, 600);
+        cache.put(key, String(count), 600);
+      }
+    }
+  } catch (error) { /* Cache failures must not block download or sending. */ }
+  return pdf;
 }
 
 // Export only the registered document, and only when its preview is opened.
@@ -382,7 +446,7 @@ function prepareDocumentPreview(request) {
   if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
   try {
     const sheet = mainFilesSheet();
-    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+    const rows = sheetDataRows(sheet, 1, 5);
     const index = rows.findIndex(row => row[1] === request.id);
     if (index < 0 || documentFromRow(rows[index], sheet.getRange(index + 2, 2).getNote()).deleted) throw new Error('Document was not found.');
     const match = /^https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)\/(view|preview)$/.exec(rows[index][4]);
@@ -391,7 +455,7 @@ function prepareDocumentPreview(request) {
     if (file.isTrashed()) throw new Error('Document is in Trash.');
     const native = file.getMimeType() === 'application/vnd.google-apps.document';
     if (!native && file.getMimeType() !== 'application/pdf') throw new Error('Unsupported document format.');
-    const pdf = native ? file.getAs('application/pdf') : file.getBlob();
+    const pdf = preparedDocumentPdf(file);
     return jsonResponse({ success: true, native: native, fileId: file.getId(), name: file.getName().replace(/\.pdf$/i, '') + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) });
   } catch (error) {
     return jsonResponse({ success: false, message: 'Unable to prepare the PDF. ' + error.message });
@@ -451,7 +515,6 @@ function getUserLogs() {
     return jsonResponse({ success: true, logs: [] });
   }
 
-  sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).setNumberFormat('m/d/yyyy h:mm AM/PM');
   const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getDisplayValues();
   const logs = rows.reverse().map((row) => ({
     timestamp: String(row[0]).trim(),
@@ -470,13 +533,14 @@ function getUsers() {
 
   // CREDENTIALS columns: A EMAIL, B NAME, C PASSWORD, D ROLE.
   const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues();
+  const settings = PropertiesService.getScriptProperties().getProperties();
   const users = rows
     .filter((row) => String(row[0]).trim() || String(row[1]).trim())
     .map((row) => ({
       email: String(row[0]).trim(),
       name: String(row[1]).trim(),
       role: normalizeRole(row[3]),
-      status: accountSettings(String(row[0]).trim().toLowerCase()).disabled ? 'Inactive' : 'Active',
+      status: JSON.parse(settings['account:' + String(row[0]).trim().toLowerCase()] || '{}').disabled ? 'Inactive' : 'Active',
     }));
 
   return jsonResponse({ success: true, users });
@@ -495,14 +559,8 @@ function normalizeRole(role) {
 }
 
 function isSuperAdminSession(token) {
-  if (typeof token !== 'string' || !token) return false;
-  const email = CacheService.getScriptCache().get('session:' + token);
-  if (!email || sessionRevoked(email, token)) return false;
-  const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
-  if (!sheet || sheet.getLastRow() < 2) return false;
-  const account = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues()
-    .find((row) => String(row[0]).trim().toLowerCase() === email);
-  return !!account && normalizeRole(account[3]) === 'super admin';
+  const account = authenticatedAccount(token);
+  return !!account && account.role === 'super admin';
 }
 
 // Run manually in the Apps Script editor under the deployment account.
@@ -549,12 +607,7 @@ function requestAuthorizationPopup() {
 
 // MAIN Files: ACTIVITY, ID, DATE, SUBJECT, FILE LINKS.
 function getDocumentSession(token) {
-  if (typeof token !== 'string' || !token) return false;
-  const email = CacheService.getScriptCache().get('session:' + token);
-  if (!email || sessionRevoked(email, token)) return false;
-  const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
-  return sheet && sheet.getLastRow() > 1 && sheet.getRange(2, 1, sheet.getLastRow() - 1, 1)
-    .getDisplayValues().some((row) => String(row[0]).trim().toLowerCase() === email);
+  return !!authenticatedAccount(token);
 }
 
 function mainFilesSheet() {
@@ -598,7 +651,7 @@ function activityFromRow(row) {
 
 function getActivityLogs() {
   const mainSheet = mainFilesSheet();
-  const mainRows = mainSheet.getLastRow() > 1 ? mainSheet.getRange(2, 1, mainSheet.getLastRow() - 1, 5).getDisplayValues() : [];
+  const mainRows = sheetDataRows(mainSheet, 1, 5);
   const notes = mainRows.length ? mainSheet.getRange(2, 2, mainRows.length, 1).getNotes() : [];
   const current = mainRows.map((row, index) => documentFromRow(row, notes[index][0])).filter(record => record.id && !record.deleted);
   let events = [];
@@ -609,7 +662,7 @@ function getActivityLogs() {
 
 function getDocuments() {
   const sheet = mainFilesSheet();
-  const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+  const rows = sheetDataRows(sheet, 1, 5);
   const notes = rows.length ? sheet.getRange(2, 2, rows.length, 1).getNotes() : [];
   return jsonResponse({ success: true, documents: rows.map((row, index) => documentFromRow(row, notes[index][0])).filter((record) => record.id && !record.deleted).reverse() });
 }
@@ -1072,7 +1125,7 @@ function createDocument(request) {
     state = JSON.parse(properties.getProperty(key) || 'null');
     const fingerprint = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(data)));
     const owner = CacheService.getScriptCache().get('session:' + request.token);
-    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+    const rows = sheetDataRows(sheet, 1, 5);
     const index = rows.findIndex(row => {
       const match = /^Executive Memorandum(?: Order)? No\.\s*0*(\d+),?\s*s\.\s*(\d{4})$/i.exec(row[1]);
       return String(row[1]).toUpperCase() === id.toUpperCase() || row[1] === key || (memo && match && Number(match[1]) === Number(data.number) && match[2] === data.year);
@@ -1214,11 +1267,9 @@ function sessionRevoked(email, token) {
 }
 
 function sessionAccount(token) {
-  if (!getDocumentSession(token)) throw new Error('Your session expired. Please sign in again.');
-  const email = CacheService.getScriptCache().get('session:' + token);
-  const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
-  const row = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues().find(row => String(row[0]).trim().toLowerCase() === email);
-  return { email: email, name: row[1], role: normalizeRole(row[3]), token: token };
+  const account = authenticatedAccount(token);
+  if (!account) throw new Error('Your session expired. Please sign in again.');
+  return account;
 }
 
 function workflowRequest(request) {
@@ -1248,7 +1299,7 @@ function manageAccount(request, user) {
   lock.waitLock(30000);
   try {
     const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
-    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues() : [];
+    const rows = sheetDataRows(sheet, 1, 4);
     const index = rows.findIndex(row => String(row[0]).trim().toLowerCase() === email);
     const creating = request.action === 'createUser';
     const deleting = request.action === 'deleteUser';
@@ -1285,7 +1336,7 @@ function manageAccount(request, user) {
 
 function workflowDocument(id) {
   const sheet = mainFilesSheet();
-  const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues() : [];
+  const rows = sheetDataRows(sheet, 1, 5);
   const index = rows.findIndex(row => row[1] === id);
   if (index < 0) throw new Error('Document was not found.');
   const cell = sheet.getRange(index + 2, 2);
@@ -1384,7 +1435,7 @@ function sendRegisteredDocument(request, user) {
     const match = /\/d\/([a-zA-Z0-9_-]+)/.exec(entry.record.url);
     const file = match && DriveApp.getFileById(match[1]);
     if (!file || file.isTrashed()) throw new Error('The registered file is unavailable.');
-    const pdf = file.getMimeType() === 'application/vnd.google-apps.document' ? file.getAs('application/pdf') : file.getBlob();
+    const pdf = preparedDocumentPdf(file);
     if (pdf.getBytes().length > 20 * 1024 * 1024) throw new Error('This PDF exceeds the 20 MB email attachment limit.');
     if (MailApp.getRemainingDailyQuota() < to.length + cc.length) throw new Error('The sender has insufficient daily email quota.');
     const state = { id: request.id, owner: user.email, state: 'pending', fingerprint: fingerprint };
