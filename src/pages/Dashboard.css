@@ -493,3 +493,19 @@
   .create-document-modal .create-form-actions button { flex: 1; }
 }
 
+
+.travel-order-paper { padding: 42px 68px 16px; color: #000; }
+.travel-order-paper .document-letterhead { gap: 14px; padding-bottom: 22px; margin-bottom: 36px; border-bottom: 2px solid #356442; line-height: 1.15; }
+.travel-order-paper .document-letterhead img { width: 58px; flex-shrink: 0; }
+.travel-order-paper .document-letterhead strong { font-size: 20px; }
+.travel-order-paper .document-letterhead small { font-size: 10px; color: #707875; }
+.travel-order-paper .document-letterhead b { font-size: 12px; }
+.travel-order-paper .travel-order-heading { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0; border: 0; border-top: 1px solid #356442; border-bottom: 1px solid #356442; background: #f4f6f5; padding: 1px 0; margin: 0 0 28px; text-transform: none; font-size: 14px; line-height: 1.2; }
+.travel-order-paper dl { grid-template-columns: 180px minmax(0, 1fr); gap: 5px 17px; margin: 0; font-size: 14px; line-height: 1.2; }
+.travel-order-paper dt { white-space: pre-line; }
+.travel-order-paper .document-paper-body { margin-top: 16px; }
+.travel-order-authorization { font-size: 14px; line-height: 1.2; white-space: normal; }
+.travel-order-authorization p { margin: 0 0 12px; }
+.travel-order-authorization p:first-child { text-indent: 30px; }
+.travel-order-paper .document-signatory { margin: 60px 0 16px 2%; font-size: 16px; line-height: 1.2; }
+@media (max-width: 600px) { .travel-order-paper { padding: 28px 24px 16px; } .travel-order-paper dl { grid-template-columns: 120px minmax(0, 1fr); gap: 5px 12px; } .travel-order-paper .travel-order-heading { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 12px; } .travel-order-paper .document-letterhead strong { font-size: 16px; } }

@@ -127,3 +127,12 @@ Validation includes all five PDF column mappings, recipient labels, optional fie
 ## Shared Special Order preview layout
 
 Special Orders now use the Executive Memorandum renderer with a Special Order heading, preserving the reference (including letter suffixes), recipient fields, optional THRU, body, and configurable signatory. Both forms send public/jhcsclogo.png for the shared letterhead. Deploy the updated Code.gs as a new version of the existing web app and deploy the rebuilt frontend together. The registry preview displays the saved Drive document, so this layout applies to newly created documents; existing saved documents are not reformatted.
+
+
+## Travel Order format
+
+Travel Orders use the native Google Docs master `1MyxhPT3pS4XL66VyJyUBPbFaIblELfVMFHNv4hXY6qU`, matching the supplied `140 - Travel Order.pdf`. Only the order number, series year, To/For label, recipient, position/office, destination, inclusive dates, transportation, purpose and remarks are filled. The authorization paragraphs and everything below them, including the signature and footer, are copied unchanged. The deployment account must have read access to this master. Retries restore the master before filling fields.
+
+Template copying preserves the mandatory final paragraph of each document section. Run `checkCreateDocumentSetup` as the deployment owner to check all creation and category headers plus access to the Travel Order master and its required table cells. This check does not create a document. Travel Order creation errors now include the failing stage and underlying error. `Trav_Ord` keeps its nine-column creation schema; the separate `Travel Order` category tab keeps TIMESTAMP, ID, YEAR, FILE LINKS.
+
+Deploy the updated `Code.gs` as a new version of the existing web app and deploy the rebuilt frontend. Existing saved documents retain their format until explicitly edited. Verify a newly generated Doc/PDF against the reference; local mocks cannot confirm Drive permissions or final Google Docs pagination.

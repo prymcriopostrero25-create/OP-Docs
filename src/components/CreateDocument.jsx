@@ -26,8 +26,8 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(form.type)
   const travel = form.type === 'Travel Order'
   const fields = simple ? [['body', 'Body']] : [
-    ...(initialForm ? [['reference', 'Reference number']] : []), ['recipientLabel', travel ? 'Recipient label (To or For)' : 'Recipient label'], ['recipientName', travel ? 'Name of the recipient' : 'Name of recipient'], ['recipientPosition', travel ? 'Position/Office' : 'Position / office'], ...(!travel ? [['institution', memo ? 'Name of institution or office' : 'Name of institution / office']] : []),
-    ...(travel ? [['place', 'Place'], ['travelFrom', 'Inclusive dates - From'], ['travelUntil', 'Inclusive dates - Until'], ['transportation', 'Mode of transportation'], ['purpose', 'Purpose'], ['remarks', 'Remarks']]
+    ...(initialForm ? [['reference', 'Reference number']] : []), ['recipientLabel', travel ? 'To / For' : 'Recipient label'], ['recipientName', travel ? 'Name/s of traveler/s' : 'Name of recipient'], ['recipientPosition', travel ? 'Position/Office' : 'Position / office'], ...(!travel ? [['institution', memo ? 'Name of institution or office' : 'Name of institution / office']] : []),
+    ...(travel ? [['place', 'Destination'], ['travelFrom', 'Inclusive dates - From'], ['travelUntil', 'Inclusive dates - Until'], ['transportation', 'Mode of transportation'], ['purpose', 'Purpose'], ['remarks', 'Remarks']]
       : [['thru', 'Thru (Optional)'], ['subject', 'Subject'], ['date', 'Date'], ['body', 'Body'], ...(!memo ? [['additionalInstitution', 'Additional name of institution (Optional)']] : [])]),
   ]
 
@@ -40,7 +40,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
   function updateField(event) {
     const { name, value } = event.target
     if (name === 'type') {
-      setForm({ ...emptyForm(), type: value })
+      setForm({ ...emptyForm(), type: value, recipientLabel: value === 'Travel Order' ? 'To' : 'For' })
       setErrors({})
       return
     }
@@ -119,10 +119,10 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
       <label htmlFor="document-thru">Thru recipient</label>
       <textarea id="document-thru" name="thru" value={form.thru} onChange={updateField} disabled={busy} maxLength={2000} rows={2} />
     </details>
-    const multiline = ['body', 'institution', 'thru', 'additionalInstitution', 'purpose', 'remarks'].includes(name)
+    const multiline = ['body', 'institution', 'thru', 'additionalInstitution', 'purpose', 'remarks'].includes(name) || (travel && name === 'recipientName')
     const optional = ['thru', 'additionalInstitution'].includes(name)
     const Tag = name === 'recipientLabel' ? 'select' : multiline ? 'textarea' : 'input'
-    return <div key={name} className={`create-field${multiline || name === 'subject' || (memo && name === 'recipientName') ? ' full' : ''}`}>
+    return <div key={name} className={`create-field${multiline || name === 'subject' || (memo && name === 'recipientName') || (travel && !['travelFrom', 'travelUntil'].includes(name)) ? ' full' : ''}`}>
       <label htmlFor={`document-${name}`}>{label.replace(/ \(Optional\)/, '')}{optional && <small>Optional</small>}</label>
       <Tag id={`document-${name}`} name={name} value={form[name]} onChange={updateField} disabled={busy || (!!initialForm && name === 'reference')} required={!optional} aria-invalid={!!errors[name]} aria-describedby={errors[name] ? `error-${name}` : undefined}
         {...(name === 'recipientLabel' ? {} : { maxLength: name === 'body' ? 50000 : 2000, ...(multiline ? { rows: name === 'body' ? 9 : 2 } : { type: ['date', 'travelFrom', 'travelUntil'].includes(name) ? 'date' : 'text', ...(['travelFrom', 'travelUntil'].includes(name) ? { min: name === 'travelUntil' ? form.travelFrom || '1900-01-01' : '1900-01-01', max: '2099-12-31' } : {}) }) })}>
@@ -143,13 +143,13 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
             <div className="create-field"><label htmlFor="document-type">Document type</label><select id="document-type" name="type" value={form.type} onChange={updateField} disabled={busy || !!initialForm}>{types.map(type => <option key={type} value={type}>{documentTypeLabel(type)}</option>)}</select></div>
             {!initialForm && <div className="create-field"><label htmlFor="document-status">Status</label><select id="document-status" name="status" value={canChangeStatus ? form.status : 'Draft'} onChange={updateField} disabled={busy || !canChangeStatus}>{['Draft', 'For Review', 'For Signature', 'Approved', 'Out'].map(status => <option key={status}>{status}</option>)}</select></div>}
           </div>
-          <div className="create-reference-note"><span aria-hidden="true">#</span><p><strong>Reference number</strong>{initialForm ? form.reference : 'Assigned automatically when you save.'}{simple && <small>The creation date is recorded automatically.</small>}</p></div>
+          <div className="create-reference-note"><span aria-hidden="true">#</span><p><strong>{travel ? 'Travel Order No.' : 'Reference number'}</strong>{initialForm ? form.reference : 'Assigned automatically when you save.'}{(simple || travel) && <small>{travel ? 'The series year follows the recorded creation date.' : 'The creation date is recorded automatically.'}</small>}</p></div>
         </section>
         {sections.map((section, index) => <section className="create-section" key={section.title} aria-labelledby={`create-section-${index}`}>
           <div className="create-section-heading"><span className="create-section-icon" aria-hidden="true">{String(index + 2).padStart(2, '0')}</span><div><h3 id={`create-section-${index}`}>{section.title}</h3><p>{section.description}</p></div></div>
           <div className="create-section-fields">{section.fields.map(([name, label]) => field(name, label))}</div>
         </section>)}
-        {(memo || specialOrder || travel) && <details className="create-signatory"><summary><span>Signing authority<small>{form.signatory || 'Set the document signatory'}</small></span></summary><div className="create-section-fields">{field('signatory', 'Signatory name')}{field('signatoryPosition', 'Signatory position')}</div></details>}
+        {(memo || specialOrder || form.type === 'Travel Order') && <details className="create-signatory"><summary><span>Signing authority<small>{form.signatory || 'Set the document signatory'}</small></span></summary><div className="create-section-fields">{field('signatory', 'Signatory name')}{field('signatoryPosition', 'Signatory position')}</div></details>}
         {error && <p className="create-field-error create-field full" role="alert">{error}</p>}
         <div className="create-form-actions"><p>{initialForm ? 'Review your changes before saving.' : 'Your reference number will be assigned on save.'}</p><button type="button" onClick={close} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Saving document…' : initialForm ? 'Save changes' : 'Create document'}</button></div>
       </form>}

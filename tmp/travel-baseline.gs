@@ -679,7 +679,7 @@ function uploadDocument(request) {
   const type = String(request.type || '');
   const year = String(request.year || '');
   if (!FILING_TYPES.includes(type) || !/^(19|20)\d{2}$/.test(year)) {
-    return jsonResponse({ success: false, message: 'Select a document type and document year (1900â€“2099) before uploading.' });
+    return jsonResponse({ success: false, message: 'Select a document type and document year (1900–2099) before uploading.' });
   }
   const maxBytes = 25 * 1024 * 1024;
   const name = String(request.name || '').trim();
@@ -958,75 +958,61 @@ function renderCreatedDocument(doc, data, type, logo) {
   doc.saveAndClose();
 }
 
-// Native Travel Order master retains the fixed authorization, signature and footer.
-const TRAVEL_ORDER_TEMPLATE_ID = '1MyxhPT3pS4XL66VyJyUBPbFaIblELfVMFHNv4hXY6qU';
-
-function renderOrderTemplate(doc, data) {
-  if (doc.getId() === TRAVEL_ORDER_TEMPLATE_ID) throw new Error('Cannot modify the Travel Order master.');
-  const master = DocumentApp.openById(TRAVEL_ORDER_TEMPLATE_ID);
-  function copySection(source, target) {
-    target.setAttributes(source.getAttributes());
-    target.clear();
-    for (let i = 0; i < source.getNumChildren(); i++) {
-      const child = source.getChild(i);
-      const kind = child.getType();
-      if (kind === DocumentApp.ElementType.PARAGRAPH) target.insertParagraph(i, child.asParagraph().copy());
-      else if (kind === DocumentApp.ElementType.TABLE) target.insertTable(i, child.asTable().copy());
-      else if (kind === DocumentApp.ElementType.LIST_ITEM) target.insertListItem(i, child.asListItem().copy());
-      else throw new Error('Unsupported element in Travel Order template.');
-    }
-    // Google Docs forbids removing the final paragraph of a section. Remove the
-    // placeholder before the copied final paragraph, keeping that paragraph last.
-    const last = source.getNumChildren() - 1;
-    if (last >= 0 && source.getChild(last).getType() === DocumentApp.ElementType.PARAGRAPH &&
-        target.getNumChildren() > source.getNumChildren()) {
-      const finalParagraph = target.getChild(last);
-      const copiedFinal = finalParagraph.asParagraph().copy();
-      target.insertParagraph(target.getNumChildren(), copiedFinal);
-      target.removeChild(finalParagraph);
-      while (target.getNumChildren() > source.getNumChildren()) {
-        target.removeChild(target.getChild(target.getNumChildren() - 2));
-      }
-    }
-  }
-  const sourceBody = master.getBody();
-  const sourceTables = sourceBody.getTables();
-  if (sourceTables.length < 2) throw new Error('Travel Order template is missing its heading or details table.');
-  copySection(sourceBody, doc.getBody());
-  if (master.getHeader()) copySection(master.getHeader(), doc.getHeader() || doc.addHeader());
-  if (master.getFooter()) copySection(master.getFooter(), doc.getFooter() || doc.addFooter());
-  const tables = doc.getBody().getTables();
-  function fill(table, row, col, value) {
-    const text = table.getCell(row, col).getChild(0).asParagraph().editAsText();
-    const attributes = text.getAttributes();
-    text.setText(String(value || ''));
-    text.setAttributes(attributes);
-  }
-  const number = String(data.reference || '').match(/\d+/);
-  fill(tables[0], 0, 0, 'TRAVEL ORDER NO. ' + (number ? String(Number(number[0])).padStart(3, '0') : data.reference));
-  fill(tables[0], 0, 1, 'Series of ' + data.year);
-  fill(tables[1], 0, 0, String(data.recipientLabel || 'For').toUpperCase() + ':');
-  const values = [data.recipientName || data.recipient, data.recipientPosition, data.place || data.destination,
-    data.inclusiveDate || data.travelDates, data.transportation, data.purpose, data.remarks];
-  values.forEach((value, row) => fill(tables[1], row, 1, value));
-  // Replace the master's signature block with the memorandum's paragraph format.
+function renderOrderTemplate(doc, data, type, logo) {
   const body = doc.getBody();
-  const signatureName = 'EDGARDO H. ROSALES, JD, Ed.D.';
-  const signaturePosition = 'SUC President II';
-  for (let i = body.getNumChildren() - 1; i >= 0; i--) {
-    const child = body.getChild(i);
-    const text = child.getText ? child.getText().trim() : '';
-    const signatureOnly = text.replace(signatureName, '').replace(signaturePosition, '').trim() === '';
-    if (text && signatureOnly && (text.includes(signatureName) || text === signaturePosition)) {
-      // Keep a final paragraph in the section while removing the old signature.
-      if (i === body.getNumChildren() - 1) body.appendParagraph('');
-      body.removeChild(child);
+  const header = doc.getHeader ? doc.getHeader() : null;
+  if (header && typeof header.clear === 'function') header.clear();
+  if (body && typeof body.clear === 'function') body.clear();
+  if (body && typeof body.setPageWidth === 'function') body.setPageWidth(612).setPageHeight(792);
+
+  if (header && typeof header.appendParagraph === 'function') {
+    header.appendParagraph('J.H. CERILLES STATE COLLEGE').editAsText().setBold(true);
+    header.appendParagraph('OFFICE OF THE PRESIDENT').editAsText().setBold(false);
+    header.appendParagraph(String(data.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.')).editAsText().setBold(true);
+  }
+
+  if (body && typeof body.appendParagraph === 'function') {
+    body.appendParagraph(type === 'Travel Order' ? 'TRAVEL ORDER' : 'ORDER').setSpacingBefore(12).setSpacingAfter(4).editAsText().setBold(true);
+    if (data.reference) body.appendParagraph(data.reference).setSpacingAfter(2).editAsText().setBold(false);
+    if (data.subject && data.subject !== type) body.appendParagraph(data.subject).setSpacingAfter(12).editAsText().setBold(true);
+  }
+
+  const label = String(data.recipientLabel || 'For').toUpperCase();
+  const rows = type === 'Travel Order'
+    ? [
+      ['RECIPIENT LABEL', label],
+      ['RECIPIENT', data.recipientName || data.recipient || ''],
+      ['POSITION/OFFICE', data.recipientPosition || ''],
+      ['DESTINATION', data.place || data.destination || ''],
+      ['INCLUSIVE DATES', data.inclusiveDate || data.travelDates || ''],
+      ['MODE OF TRANSPORTATION', data.transportation || ''],
+      ['PURPOSE', data.purpose || ''],
+      ['REMARKS', data.remarks || '']
+    ]
+    : [
+      ['RECIPIENT LABEL', label],
+      ['RECIPIENT', data.recipientName || data.recipient || ''],
+      ['POSITION/OFFICE', data.recipientPosition || ''],
+      ['DESTINATION', data.place || data.destination || ''],
+      ['INCLUSIVE DATES', data.inclusiveDate || data.travelDates || ''],
+      ['MODE OF TRANSPORTATION', data.transportation || ''],
+      ['PURPOSE', data.purpose || ''],
+      ['REMARKS', data.remarks || '']
+    ];
+
+  if (body && typeof body.appendTable === 'function') {
+    const table = body.appendTable(rows);
+    if (table && typeof table.getCell === 'function') {
+      // Keep the template usable for both previews and saved Google Docs.
     }
   }
-  const contentWidth = body.getPageWidth() - body.getMarginLeft() - body.getMarginRight();
-  body.appendParagraph(data.signatory || signatureName).setIndentStart(contentWidth * 266 / 508).setSpacingBefore(24).setSpacingAfter(0).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false);
-  body.appendParagraph(data.position || signaturePosition).setIndentStart(contentWidth * 266 / 508).setSpacingAfter(12).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false);
-  doc.saveAndClose();
+
+  if (body && typeof body.appendParagraph === 'function') {
+    const lines = String(data.body || data.content || '').split(/\r?\n/);
+    lines.forEach(line => body.appendParagraph(line).setSpacingAfter(6).editAsText().setBold(false));
+  }
+
+  if (typeof doc.saveAndClose === 'function') doc.saveAndClose();
 }
 
 function travelOrderDisplayId(reference, createdDate) {
@@ -1182,7 +1168,7 @@ function renderRichBody(body, source) {
             const nested = { ...opts, indent: (opts.indent || 0) + 24 };
             if (child.type === 'paragraph') {
               // Explicit markers preserve numbering starts and independent lists.
-              paragraph(parent, child, { ...nested, prefix: first ? (node.type === 'orderedList' ? ((node.attrs?.start || 1) + index) + '. ' : 'â€¢ ') : '' });
+              paragraph(parent, child, { ...nested, prefix: first ? (node.type === 'orderedList' ? ((node.attrs?.start || 1) + index) + '. ' : '• ') : '' });
               first = false;
             } else render(parent, [child], nested);
           });
@@ -1250,7 +1236,7 @@ function validateTemplateDocument(request, type) {
       }
     }
   }
-  if (['Executive Memorandum', 'Special Order', 'Travel Order'].includes(type)) {
+  if (['Executive Memorandum', 'Special Order'].includes(type)) {
     data.signatory = String(request.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.').trim();
     data.position = String(request.signatoryPosition || 'SUC President II').trim();
   }
@@ -1309,13 +1295,9 @@ function createDocument(request) {
   try {
     lock.waitLock(30000);
     locked = true;
-    stage = 'checking MAIN Files first-row headers';
     const sheet = mainFilesSheet();
-    stage = 'checking ' + TYPE_LOG_SHEETS[type] + ' first-row headers';
     const logSheet = typeLogSheet(type);
-    stage = 'checking ' + CREATED_DOCUMENT_SHEETS[type] + ' first-row headers';
     const creationSheet = createdDocumentSheet(type);
-    stage = 'prepare';
     if (autoReference) {
       const reserved = reserveDocumentReference(request, data, automaticDate, logSheet);
       data.reference = reserved.reference;
@@ -1339,11 +1321,7 @@ function createDocument(request) {
     const creationSnapshot = createdDocumentLogSnapshot(creationSheet);
     const creationRows = creationSnapshot.rows;
     const hasLogEvidence = existingTypeLogRow(logSheet, id);
-    const hasCreationEvidence = creationRows.some((row, i) => {
-      if (row[0] === key) return true;
-      try { return JSON.parse(creationSnapshot.notes[i][0] || '{}').createdDocumentId === key; }
-      catch (error) { return false; }
-    });
+    const hasCreationEvidence = creationRows.some(row => row[0] === key);
     const hasMainRowEvidence = index >= 0;
     const hasRecoveryEvidence = Boolean(state && (state.fileId || state.allocationName));
     // An orphaned property record with no related MAIN Files row, type log row, or
@@ -1454,8 +1432,6 @@ function createDocument(request) {
     return jsonResponse({ success: true, document: documentFromRow([record.activity, id, record.date, record.subject, record.url], savedNote) });
   } catch (error) {
     console.error('Document creation failed during ' + stage + ': ' + String(error && error.message || error));
-    if (stage.startsWith('checking ')) return jsonResponse({ success: false, message: 'Creation failed while ' + stage + '. ' + String(error && error.message || error) });
-    if (type === 'Travel Order' && stage !== 'registry') return jsonResponse({ success: false, message: 'Unable to create Travel Order during ' + stage + ': ' + String(error && error.message || error) + ' Retry the same form after correcting this error.' });
     if (stage === 'allocate') return jsonResponse({ success: false, message: 'Google Docs creation could not finish. The deployment owner should run checkCreateDocumentSetup in Apps Script and authorize access, then update the web app deployment. Retry the same fields afterward; the reserved number can be recovered automatically.' });
     return jsonResponse({ success: false, message: stage === 'registry' ? 'Document was created, but MAIN Files or the ' + CREATED_DOCUMENT_SHEETS[type] + ' / category log could not be updated. Retry with the same fields to finish logging without creating another document.' : 'Unable to create ' + type + '. Please retry with the same fields. If this persists, ask the administrator to check document access and sheet configuration.' });
   } finally { if (locked) lock.releaseLock(); }
@@ -1464,16 +1440,8 @@ function createDocument(request) {
 // Run as the deployment owner to request the document service's required scopes.
 function checkCreateDocumentSetup() {
   checkUploadSetup();
-  Object.keys(CREATED_DOCUMENT_SHEETS).forEach(type => {
-    createdDocumentSheet(type);
-    typeLogSheet(type);
-  });
-  const master = DocumentApp.openById(TRAVEL_ORDER_TEMPLATE_ID);
-  const tables = master.getBody().getTables();
-  if (tables.length < 2) throw new Error('Travel Order template is missing its heading or details table.');
-  tables[0].getCell(0, 1);
-  for (let row = 0; row < 7; row++) tables[1].getCell(row, 1);
-  console.log('Travel Order template access and required cells OK.');
+  Object.keys(CREATED_DOCUMENT_SHEETS).forEach(type => createdDocumentSheet(type));
+  DocumentApp.getActiveDocument();
   console.log('Creation configuration checked. Update the web app deployment after authorizing access.');
 }
 
@@ -1663,7 +1631,7 @@ function sendRegisteredDocument(request, user) {
     if (MailApp.getRemainingDailyQuota() < to.length + cc.length) throw new Error('The sender has insufficient daily email quota.');
     const state = { id: request.id, owner: user.email, state: 'pending', fingerprint: fingerprint };
     props.setProperty(key, JSON.stringify(state));
-    MailApp.sendEmail({ to: to.join(','), cc: cc.join(','), subject: subject, body: message, replyTo: user.email, name: user.name + ' â€” Office of the President', attachments: [pdf.setName(file.getName().replace(/\.pdf$/i, '') + '.pdf')] });
+    MailApp.sendEmail({ to: to.join(','), cc: cc.join(','), subject: subject, body: message, replyTo: user.email, name: user.name + ' — Office of the President', attachments: [pdf.setName(file.getName().replace(/\.pdf$/i, '') + '.pdf')] });
     state.state = 'sent';
     props.setProperty(key, JSON.stringify(state));
     return finishDocumentSend(entry, request, to, cc);
