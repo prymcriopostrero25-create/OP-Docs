@@ -92,7 +92,6 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     document.body.style.overflow = 'hidden'
     previewDialog.current.showModal()
     let cancelled = false
-    let objectUrl
     documentPage(preview.reference).then(result => {
       if (cancelled) return
       setPageContent({ ...result, type: result.type || preview.type })
@@ -101,7 +100,19 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     }).catch(failure => {
       if (!cancelled) { setPageContent({ form: null }); setPreviewError('Unable to load the page. ' + failure.message + ' The registered PDF will display when ready.'); setPreviewLoading(false) }
     })
-    prepareDocumentPreview(preview.reference, preview.type).then(result => {
+    return () => {
+      cancelled = true
+      document.body.style.overflow = previousOverflow
+      trigger?.focus()
+    }
+  }, [preview])
+
+  useEffect(() => {
+    if (!preview || !pageContent) return
+    let cancelled = false
+    let objectUrl
+    let frame
+    const preparePdf = () => prepareDocumentPreview(preview.reference, preview.type).then(result => {
       if (cancelled) return
       const bytes = Uint8Array.from(atob(result.data), character => character.charCodeAt(0))
       const file = new File([bytes], result.name, { type: 'application/pdf' })
@@ -112,13 +123,21 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
         setPdfError('Unable to prepare the PDF. ' + failure.message)
       }
     })
+    // Let the saved page preview paint before starting the PDF request.
+    // Uploaded documents need the PDF itself to render their preview.
+    if (pageContent.form) {
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => { if (!cancelled) preparePdf() })
+      })
+    } else {
+      preparePdf()
+    }
     return () => {
       cancelled = true
+      cancelAnimationFrame(frame)
       if (objectUrl) URL.revokeObjectURL(objectUrl)
-      document.body.style.overflow = previousOverflow
-      trigger?.focus()
     }
-  }, [preview])
+  }, [preview, pageContent])
 
   function openPreview(record) {
     setPreparedPreview(null)
@@ -185,7 +204,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
       {preview && <dialog ref={previewDialog} className="pdf-preview-dialog" aria-labelledby="pdf-preview-title" onCancel={closePreview} onClose={closePreview}>
         <header className="official-preview-header"><div className="official-preview-heading"><h2 id="pdf-preview-title">OFFICIAL PREVIEW</h2><p className="preview-reference">{preview.reference}</p></div>
         <div className="preview-actions official-preview-actions">
-          <span className="pdf-preparation-status" role="status">{pdfError ? 'PDF preparation failed' : preparedPreview ? 'PDF ready' : 'Preparing PDF in the background...'}</span>
+          <span className="pdf-preparation-status" role="status">{pdfError ? 'PDF preparation failed' : preparedPreview ? 'PDF ready' : !pageContent ? 'Loading preview...' : 'Preparing PDF in the background...'}</span>
           <button type="button" className="preview-send" disabled={!preparedPreview || !permissions.changeStatus || !['Approved', 'Out'].includes(preview.status)} title={!permissions.changeStatus ? 'Admin access required' : !['Approved', 'Out'].includes(preview.status) ? 'Approve this document before sending' : 'Send PDF by email'} onClick={() => setEmailRecord(preview)}><PreviewActionIcon kind="send" />Send</button>
           {preparedPreview ? <a className="preview-save" href={preparedPreview.url} download={preparedPreview.file.name}><PreviewActionIcon kind="save" />Save as PDF</a> : <button type="button" className="preview-save" disabled><PreviewActionIcon kind="save" />Save as PDF</button>}
           <button type="button" className="preview-close" aria-label="Close preview" title="Close preview" autoFocus onClick={closePreview}><PreviewActionIcon kind="close" /></button>
