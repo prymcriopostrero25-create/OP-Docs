@@ -45,7 +45,7 @@ test('PDF renderer includes authority tables, letterhead, body, signature and fo
   assert.ok(closed)
   assert.ok(signatureWidths.some(([column, value]) => column === 0 && value === 491.94 * 0.49))
   assert.ok(signatureLines.includes('APPROVED:'))
-  assert.equal(data.authorityLayoutVersion, 1)
+  assert.equal(data.authorityLayoutVersion, 2)
 })
 
 
@@ -89,4 +89,29 @@ test('authority accepts the screenshot headers and extends only an empty legacy 
   headers[5] = 'Wrong column'
   assert.throws(() => context.createdDocumentSheet('Authority to Travel Abroad'), /headers/)
   assert.equal(writes, 1)
+})
+
+test('existing authority wording is corrected before PDF export and only once', () => {
+  let metadata = { type: 'Authority to Travel Abroad', form: { authorityStructured: true, authorityLayoutVersion: 1, body: 'This is to CERTIFY that, where applicable to personal travel', place: 'Thailand', inclusiveDate: 'November 16, 2026', issueDate: '2026-10-05' } }
+  const events = []
+  const cell = { getNote: () => JSON.stringify(metadata), setNote: value => { metadata = JSON.parse(value) } }
+  const context = vm.createContext({
+    DriveApp: { getFileById: () => ({ isTrashed: () => false, getMimeType: () => 'application/vnd.google-apps.document', getId: () => 'doc', getName: () => 'Authority' }) },
+    DocumentApp: { openById: () => ({ getBody: () => ({ replaceText(from, to) { events.push('replace'); assert.ok(from.includes('CERTIFY')); assert.ok(to.includes('AUTHORIZED')) } }), saveAndClose() { events.push('save') } }) },
+    Utilities: { base64Encode: () => 'AQI=' },
+    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    SpreadsheetApp: { flush() {} },
+  })
+  vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  context.getDocumentSession = () => true
+  context.jsonResponse = value => value
+  context.mainFilesSheet = () => ({ getLastRow: () => 2, getRange: (row, col, count, width) => width === 5 ? { getDisplayValues: () => [['Created', 'ATA-1', '', '', 'https://drive.google.com/file/d/doc/view']] } : cell })
+  context.preparedDocumentPdf = () => { events.push('export'); return { getBytes: () => [] } }
+  const result = context.prepareDocumentPreview({ id: 'ATA-1', token: 'session' })
+  assert.equal(result.success, true)
+  assert.equal(result.authorityLayoutVersion, 2)
+  assert.ok(metadata.form.body.includes('AUTHORIZED'))
+  assert.deepEqual(events, ['replace', 'save', 'export'])
+  context.prepareDocumentPreview({ id: 'ATA-1', token: 'session' })
+  assert.deepEqual(events, ['replace', 'save', 'export', 'export'])
 })

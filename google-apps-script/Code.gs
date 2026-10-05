@@ -476,9 +476,27 @@ function prepareDocumentPreview(request) {
     if (file.isTrashed()) throw new Error('Document is in Trash.');
     const native = file.getMimeType() === 'application/vnd.google-apps.document';
     if (!native && file.getMimeType() !== 'application/pdf') throw new Error('Unsupported document format.');
-    let certificateLayoutVersion;
+    let certificateLayoutVersion, authorityLayoutVersion;
     if (native) {
       const metadata = JSON.parse(sheet.getRange(index + 2, 2).getNote() || '{}');
+      if (metadata.type === 'Authority to Travel Abroad' && metadata.form) {
+        const lock = LockService.getScriptLock();
+        lock.waitLock(30000);
+        try {
+          const cell = sheet.getRange(index + 2, 2);
+          const current = JSON.parse(cell.getNote() || '{}');
+          if (current.form.authorityLayoutVersion !== 2) {
+            const doc = DocumentApp.openById(file.getId());
+            doc.getBody().replaceText('This is to CERTIFY that, where applicable to personal travel', 'This is to AUTHORIZED that, where applicable to personal travel');
+            doc.saveAndClose();
+            current.form.body = current.form.authorityStructured ? travelAuthorityBody(current.form) : String(current.form.body || current.form.content || '').replace('This is to CERTIFY that, where applicable to personal travel', 'This is to AUTHORIZED that, where applicable to personal travel');
+            current.form.authorityLayoutVersion = 2;
+            cell.setNote(JSON.stringify(current));
+            SpreadsheetApp.flush();
+          }
+          authorityLayoutVersion = current.form.authorityLayoutVersion;
+        } finally { lock.releaseLock(); }
+      }
       if (metadata.type === 'Certificate of Travel' && metadata.form) {
         const lock = LockService.getScriptLock();
         lock.waitLock(30000);
@@ -497,7 +515,7 @@ function prepareDocumentPreview(request) {
       }
     }
     const pdf = preparedDocumentPdf(file);
-    return jsonResponse({ success: true, certificateLayoutVersion: certificateLayoutVersion, native: native, fileId: file.getId(), name: file.getName().replace(/\.pdf$/i, '') + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) });
+    return jsonResponse({ success: true, certificateLayoutVersion: certificateLayoutVersion, authorityLayoutVersion: authorityLayoutVersion, native: native, fileId: file.getId(), name: file.getName().replace(/\.pdf$/i, '') + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) });
   } catch (error) {
     return jsonResponse({ success: false, message: 'Unable to prepare the PDF. ' + error.message });
   }
@@ -1005,7 +1023,7 @@ function travelAuthorityBody(form) {
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
   return [
     `This refers to the proposed travel to ${form.place || '[DESTINATION]'} on ${(form.inclusiveDate || '[TRAVEL DATE/S]')}. Relative to the aforementioned travel, please be informed that the request is hereby APPROVED as ${form.travelClassification || '[PERSONAL LEAVE / OFFICIAL TRAVEL / OTHER CLASSIFICATION]'} for the period stated above only.`,
-    'This is to CERTIFY that, where applicable to personal travel, the personnel concerned shall not represent the institution and shall not utilize government funds for the approved travel.',
+    'This is to AUTHORIZED that, where applicable to personal travel, the personnel concerned shall not represent the institution and shall not utilize government funds for the approved travel.',
     `Issued this ${date ? date[2] : '[DAY]'} day of ${date ? months[date[1] - 1] : '[MONTH]'}, ${date ? date[0] : '[YEAR]'} at the JHCSC Main Campus, Mati, San Miguel, Zamboanga del Sur, for whatever legal purpose it may serve.`,
   ].join('\n\n')
 }
@@ -1075,7 +1093,7 @@ function renderTravelCertificate(doc, data, logo, authority) {
   footerTable.setBorderWidth(0.5).setBorderColor('#e1e6e3').setColumnWidth(0, width * 0.4).setColumnWidth(1, width * 0.6);
   for (let col = 0; col < 2; col++) style(footerTable.getCell(0, col).setPaddingLeft(0).setPaddingTop(6).getChild(0).asParagraph(), 8, false, '#707875');
   doc.saveAndClose();
-  if (authority) data.authorityLayoutVersion = 1;
+  if (authority) data.authorityLayoutVersion = 2;
   else data.certificateLayoutVersion = 3;
 }
 

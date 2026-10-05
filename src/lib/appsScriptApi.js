@@ -1,3 +1,5 @@
+import { fetchAppsScript } from './appsScriptFetch'
+import { readAppsScriptResponse } from './appsScriptResponse'
 import { loadDocumentPage } from './documentPageLoader'
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL
 const requestTarget = () => import.meta.env.DEV ? '/apps-script' : APPS_SCRIPT_URL
@@ -21,7 +23,7 @@ export async function authenticateUser(email, password) {
     throw new Error(`Apps Script request failed with status ${response.status}.`)
   }
 
-  const result = await response.json()
+  const result = await readAppsScriptResponse(response)
 
   if (!result.success) {
     throw new Error(result.message || 'Incorrect email or password.')
@@ -39,7 +41,7 @@ export async function logoutUser(token) {
     keepalive: true,
   })
   if (!response.ok) throw new Error('Unable to record logout.')
-  const result = await response.json()
+  const result = await readAppsScriptResponse(response)
   if (!result.success) throw new Error(result.message || 'Unable to record logout.')
 }
 
@@ -58,7 +60,7 @@ export async function fetchUserLogs() {
     throw new Error(`Apps Script request failed with status ${response.status}.`)
   }
 
-  const result = await response.json()
+  const result = await readAppsScriptResponse(response)
 
   if (!result.success) {
     throw new Error(result.message || 'Unable to load user logs.')
@@ -82,7 +84,7 @@ export async function fetchUsers() {
     throw new Error(`Apps Script request failed with status ${response.status}.`)
   }
 
-  const result = await response.json()
+  const result = await readAppsScriptResponse(response)
 
   if (!result.success) {
     throw new Error(result.message || 'Unable to load users.')
@@ -96,14 +98,14 @@ function getSessionToken() {
 
 async function documentRequest(payload) {
   if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
-  const response = await fetch(requestTarget(), {
+  const response = await fetchAppsScript(requestTarget(), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ ...payload, token: getSessionToken() }),
     signal: AbortSignal.timeout(90000),
-  })
+  }, payload.action)
   if (!response.ok) throw new Error(`Document request failed with status ${response.status}.`)
-  const result = await response.json()
+  const result = await readAppsScriptResponse(response)
   if (!result.success) throw new Error(result.message || 'Unable to process the document.')
   return result
 }
@@ -146,6 +148,9 @@ export async function prepareDocumentPreview(id, type) {
     logo = btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''))
   }
   const result = await documentRequest({ action: 'prepareDocumentPreview', id, logo })
+  if (type === 'Authority to Travel Abroad' && result.native && result.authorityLayoutVersion !== 2) {
+    throw new Error('Deploy the latest Code.gs as a new version of the existing Apps Script web app to download the updated AUTHORIZED wording. Then close and reopen this preview.')
+  }
   if (type === 'Certificate of Travel' && result.native && result.certificateLayoutVersion !== 3) {
     throw new Error('Deploy the latest Code.gs as a new version of the existing Apps Script web app to download the certificate in the preview format.')
   }
