@@ -1,4 +1,4 @@
-﻿const readActions = new Set(['documents', 'activityLogs', 'currentUser', 'documentPage', 'documentDetails', 'editorCapabilities', 'users', 'userLogs', 'verify'])
+const readActions = new Set(['overview', 'documents', 'activityLogs', 'currentUser', 'documentPage', 'documentDetails', 'editorCapabilities', 'users', 'userLogs', 'verify'])
 
 export async function fetchAppsScript(target, options, action, fetchRequest = fetch) {
   const attempts = readActions.has(action) ? 3 : 1

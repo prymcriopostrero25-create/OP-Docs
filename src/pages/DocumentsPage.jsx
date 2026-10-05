@@ -12,10 +12,10 @@ import { documentTypes as categories } from '../lib/documentTypes'
 const pages = { EM: ExecutiveMemo, TO: TravelOrder, CTA: Certification, TAA: TravelAuthority, SO: SpecialOrder }
 const documentTypes = [{ label: 'All documents', short: 'ALL', Page: AllDocument }, ...categories.map(type => ({ ...type, Page: pages[type.short] }))]
 
-export default function DocumentsPage({ onCreateDocument }) {
+export default function DocumentsPage({ onCreateDocument, initialType }) {
   const { records } = useContext(DocumentContext)
   const typeCounts = (label) => records.filter(record => label === 'All documents' || record.type === categories.find(type => type.label === label)?.value).length
-  const [selectedType, setSelectedType] = useState('All documents')
+  const [selectedType, setSelectedType] = useState(() => categories.find(type => type.value === initialType)?.label || 'All documents')
   const ActivePage = documentTypes.find((type) => type.label === selectedType).Page
   return <main className="dashboard-content documents-page">
     <DocumentUploads onCreateDocument={onCreateDocument} />

@@ -215,6 +215,20 @@ test('incompatible short-tab headers stop creation without overwriting the sheet
 
 const templateSample = { ...sample, templateVersion: 2, type: 'Executive Memorandum', reference: '203', recipientLabel: 'To', recipientName: 'Dr. Ana Santos', recipientPosition: 'Director', institution: 'JHCSC', thru: 'Vice President', additionalInstitution: 'Main Campus' }
 
+test('memo and special orders save without recipient position or institution', () => {
+  for (const type of ['Executive Memorandum', 'Special Order']) {
+    const f = fixture()
+    const request = { ...templateSample, type, thru: 'Office Director\nMain Campus' }
+    delete request.recipientPosition
+    delete request.institution
+    assert.equal(f.ctx.createDocument(request).success, true)
+    assert.equal(f.rendered.recipientPosition, '')
+    assert.equal(f.rendered.institution, '')
+    assert.equal(f.rendered.thru, request.thru)
+    assert.throws(() => f.ctx.validateTemplateDocument({ ...request, recipientName: '' }, type), /Please enter recipient name/)
+  }
+})
+
 test('PDF memo and special-order schemas log each field in the specified column', () => {
   for (const [type, tab] of [['Executive Memorandum', 'EX_Memo'], ['Special Order', 'Spe_Ord']]) {
     const f = fixture()

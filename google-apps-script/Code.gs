@@ -336,11 +336,12 @@ function doPost(e) {
     if (['editDocument', 'deleteDocument'].includes(request.action)) return mutateDocument(request);
     if (request.action === 'updateDocumentStatus') return updateDocumentStatus(request);
 
-    if (['uploadDocument', 'documents', 'activityLogs'].includes(request.action)) {
+    if (['uploadDocument', 'documents', 'activityLogs', 'overview'].includes(request.action)) {
       if (!getDocumentSession(request.token)) {
         return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
       }
       if (request.action === 'uploadDocument') return uploadDocument(request);
+      if (request.action === 'overview') return getOverview();
       return request.action === 'documents' ? getDocuments() : getActivityLogs();
     }
 
@@ -724,6 +725,28 @@ function getDocuments() {
   const rows = sheetDataRows(sheet, 1, 5);
   const notes = rows.length ? sheet.getRange(2, 2, rows.length, 1).getNotes() : [];
   return jsonResponse({ success: true, documents: rows.map((row, index) => documentFromRow(row, notes[index][0])).filter((record) => record.id && !record.deleted).reverse() });
+}
+
+// Return chart counts only. No activity history, document bodies or Drive reads.
+function getOverview() {
+  const sheet = mainFilesSheet();
+  const rows = sheetDataRows(sheet, 1, 3);
+  const notes = rows.length ? sheet.getRange(2, 2, rows.length, 1).getNotes() : [];
+  const summary = { total: 0, types: {}, statuses: {}, months: {} };
+  rows.forEach((row, index) => {
+    const record = documentFromRow(row, notes[index][0]);
+    if (!record.id || record.deleted || record.id === '1cb7ca84-b1d8-420a-a4ce-84dc89f79281') return;
+    summary.total++;
+    const type = record.type || 'Unclassified';
+    summary.types[type] = (summary.types[type] || 0) + 1;
+    summary.statuses[record.status] = (summary.statuses[record.status] || 0) + 1;
+    const date = new Date(record.updated);
+    if (!isNaN(date.getTime())) {
+      const month = Utilities.formatDate(date, 'Asia/Manila', 'yyyy-MM');
+      summary.months[month] = (summary.months[month] || 0) + 1;
+    }
+  });
+  return jsonResponse({ success: true, summary: summary });
 }
 
 function uploadDocument(request) {
@@ -1359,7 +1382,7 @@ function validateTemplateDocument(request, type) {
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(type);
   const travel = type === 'Travel Order';
   const data = {};
-  if (type === 'Executive Memorandum' && request.bodyRich) {
+  if (['Executive Memorandum', 'Special Order'].includes(type) && request.bodyRich) {
     data.bodyRich = validateRichBody(request.bodyRich);
     request = { ...request, body: richBodyPlainText(data.bodyRich) };
   }
@@ -1370,7 +1393,7 @@ function validateTemplateDocument(request, type) {
     : ['Executive Memorandum', 'Special Order'].includes(type)
       ? ['reference', 'recipientLabel', 'recipientName', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution']
       : ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution'];
-  const optional = ['thru', 'additionalInstitution', 'cc'];
+  const optional = ['thru', 'additionalInstitution', 'cc', ...(['Executive Memorandum', 'Special Order'].includes(type) ? ['recipientPosition', 'institution'] : [])];
   fields.forEach(key => {
     data[key] = String(request[key] || '').trim();
     if (!optional.includes(key) && !data[key]) throw new Error('Please enter ' + key.replace(/([A-Z])/g, ' $1').toLowerCase() + '.');

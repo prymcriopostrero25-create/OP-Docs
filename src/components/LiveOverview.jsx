@@ -28,10 +28,11 @@ function OverviewLoading() {
 }
 
 export default function LiveOverview({ user, onDocuments, onCreate }) {
-  const { records, loading, loadError, refreshRecords } = useContext(DocumentContext)
-  const total = records.length
-  const statuses = [...knownStatuses, 'Other'].map((label, index) => ({ label, color: statusColors[index], count: records.filter(record => label === 'Other' ? !knownStatuses.includes(record.status) : record.status === label).length }))
-  const types = [...filingTypes, ...new Set(records.map(record => record.type || 'Unclassified').filter(type => !filingTypes.includes(type)))].map(label => ({ label, count: records.filter(record => (record.type || 'Unclassified') === label).length }))
+  const { summary, loading, loadError, refreshRecords } = useContext(DocumentContext)
+  const total = summary?.total || 0
+  const statusCounts = summary?.statuses || {}
+  const statuses = [...knownStatuses, 'Other'].map((label, index) => ({ label, color: statusColors[index], count: label === 'Other' ? Object.entries(statusCounts).reduce((sum, [status, count]) => sum + (knownStatuses.includes(status) ? 0 : count), 0) : statusCounts[label] || 0 }))
+  const types = [...filingTypes, ...Object.keys(summary?.types || {}).filter(type => !filingTypes.includes(type))].map(label => ({ label, count: summary?.types[label] || 0 }))
   const typeMax = Math.max(1, ...types.map(type => type.count))
   let offset = 0
   const segments = statuses.map(status => {
@@ -39,13 +40,11 @@ export default function LiveOverview({ user, onDocuments, onCreate }) {
     offset += total ? status.count / total * 100 : 0
     return `${status.color} ${start}% ${offset}%`
   }).join(', ')
-  const today = new Date()
+  const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
   const months = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(today.getFullYear(), today.getMonth() - 5 + index, 1)
-    return { label: date.toLocaleDateString('en', { month: 'short' }), full: date.toLocaleDateString('en', { month: 'long', year: 'numeric' }), count: records.filter(record => {
-      const updated = new Date(record.updated)
-      return updated.getFullYear() === date.getFullYear() && updated.getMonth() === date.getMonth()
-    }).length }
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    return { label: date.toLocaleDateString('en', { month: 'short' }), full: date.toLocaleDateString('en', { month: 'long', year: 'numeric' }), count: summary?.months[key] || 0 }
   })
   const activityMax = Math.max(1, ...months.map(month => month.count))
   const countStatus = label => statuses.find(status => status.label === label)?.count || 0

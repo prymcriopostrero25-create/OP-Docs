@@ -31,9 +31,11 @@ test('validated rich content keeps formatting and derives the spreadsheet plain 
   assert.equal(clean.content[1].attrs.textAlign, 'center')
   assert.equal(clean.content[1].content[0].marks[0].type, 'bold')
   assert.equal(ctx.richBodyPlainText(clean), richBodyText(sample))
-  const data = ctx.validateTemplateDocument({ reference: '001', recipientLabel: 'For', recipientName: 'Recipient', recipientPosition: 'Director', institution: 'College', subject: 'Subject', date: '2026-09-30', body: 'STALE', bodyRich: sample }, 'Executive Memorandum')
-  assert.equal(data.body, richBodyText(sample))
-  assert.ok(data.bodyRich)
+  for (const type of ['Executive Memorandum', 'Special Order']) {
+    const data = ctx.validateTemplateDocument({ reference: '001', recipientLabel: 'For', recipientName: 'Recipient', subject: 'Subject', date: '2026-09-30', body: 'STALE', bodyRich: sample }, type)
+    assert.equal(data.body, richBodyText(sample))
+    assert.ok(data.bodyRich)
+  }
 })
 
 test('rejects unsafe links, external images, oversized input, merged cells and invalid structures', () => {

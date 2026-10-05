@@ -63,3 +63,37 @@ test('reading login logs requires no sheet writes', () => {
   assert.equal(f.context.getUserLogs().logs[0].timestamp, '9/30/2026 8:00 AM')
   assert.equal(f.counts.reads, 1)
 })
+
+test('overview returns counts without document details, activity history or Drive reads', () => {
+  const f = fixture()
+  const rows = [
+    ['Created', 'EM-1', '2026-10-01'],
+    ['Uploaded', 'SO-2', '2026-09-01'],
+    ['Created', 'deleted', '2026-10-01'],
+    ['Uploaded', '1cb7ca84-b1d8-420a-a4ce-84dc89f79281', '2026-10-01'],
+  ]
+  const notes = [
+    { type: 'Executive Memorandum', status: 'Approved', updated: '2026-09-30T16:30:00Z', form: { body: 'Private body' } },
+    { type: 'Special Order', status: 'Draft' },
+    { deleted: true },
+    {},
+  ].map(value => [JSON.stringify(value)])
+  const reads = []
+  f.context.mainFilesSheet = () => ({ getLastRow: () => rows.length + 1, getRange(row, column, count, width) {
+    reads.push([row, column, count, width])
+    return { getDisplayValues: () => rows, getNotes: () => notes }
+  } })
+  f.context.Utilities = { formatDate: date => new Date(date.getTime() + 8 * 3600000).toISOString().slice(0, 7) }
+  f.context.getActivityLogs = () => { throw Error('Overview must not read activity history') }
+  assert.equal(f.post('overview').success, true)
+  const result = f.context.getOverview()
+  assert.equal(result.summary.total, 2)
+  assert.equal(result.summary.types['Executive Memorandum'], 1)
+  assert.equal(result.summary.statuses.Approved, 1)
+  assert.equal(result.summary.months['2026-10'], 1)
+  assert.equal(result.summary.months['2026-09'], 1)
+  assert.equal(JSON.stringify(result).includes('Private body'), false)
+  assert.deepEqual(reads.slice(0, 2), [[2, 1, 4, 3], [2, 2, 4, 1]])
+  f.context.getDocumentSession = () => false
+  assert.equal(f.post('overview').success, false)
+})

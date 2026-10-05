@@ -1,4 +1,5 @@
 import PreviewFooter from './PreviewFooter'
+import RichBodyPreview from '../RichBodyPreview'
 import { Fragment } from 'react'
 
 // Edit the on-screen special order layout and Tailwind classes here.
@@ -11,7 +12,7 @@ export default function PreviewSpecialOrder({ form, reference }) {
   const year = form.year || form.date?.slice(0, 4) || fullReference.match(/s\.\s*(\d{4})\s*$/i)?.[1]
 
   return <div className="px-4 py-8">
-    <article className="box-border mx-auto flex min-h-[1056px] w-full max-w-[816px] flex-col bg-white px-16 pt-12 pb-4 font-[Arial,sans-serif] text-[16px] leading-[1.5] text-[#202820] shadow-[0_8px_30px_#0005] [overflow-wrap:anywhere] max-[600px]:min-h-[780px] max-[600px]:px-6 max-[600px]:pt-6" aria-label="Special Order preview">
+    <article style={form.bodyRich ? { paddingLeft: `${form.bodyRich.attrs?.marginLeft ?? 0.75}in`, paddingRight: `${form.bodyRich.attrs?.marginRight ?? 0.75}in` } : undefined} className="box-border mx-auto flex min-h-[1056px] w-full max-w-[816px] flex-col bg-white px-16 pt-12 pb-4 font-[Arial,sans-serif] text-[16px] leading-[1.5] text-[#202820] shadow-[0_8px_30px_#0005] [overflow-wrap:anywhere] max-[600px]:min-h-[780px] max-[600px]:px-6 max-[600px]:pt-6" aria-label="Special Order preview">
       {/* Letterhead */}
       <div className="mb-7 flex items-center gap-[18px] border-0 border-b-[3px] border-solid border-[#356442] pb-[14px]">
         <img src="/jhcsclogo.png" alt="College seal" className="h-auto w-[58px]" />
@@ -35,7 +36,7 @@ export default function PreviewSpecialOrder({ form, reference }) {
       </dl>
 
       {/* Body and signature */}
-      <div className="mt-7 whitespace-pre-wrap">{form.body || form.content || ''}</div>
+      <div className="mt-7">{form.bodyRich ? <RichBodyPreview value={form.bodyRich} /> : <div className="whitespace-pre-wrap">{form.body || form.content || ''}</div>}</div>
       <div className="mt-12 mr-0 mb-0 ml-[0%] whitespace-pre-wrap max-[600px]:ml-[20%]">
         {form.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.'}<br />
         {form.signatoryPosition || form.position || 'SUC President II'}

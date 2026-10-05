@@ -2,37 +2,42 @@ import { fetchDocuments, fetchActivityLogs, updateDocumentStatus, editDocument, 
 import LiveOverview from '../components/LiveOverview'
 import { canAccessPage, permissionsFor } from '../lib/permissions'
 import { DocumentContext } from '../lib/documentContext'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { fetchOverview } from '../lib/appsScriptApi'
+import { usePageData } from '../lib/usePageData'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
-import CreateDocument from '../components/CreateDocument'
-import DocumentsPage from './DocumentsPage'
-import ArchivePage from './ArchivePage'
-import ActivityLogPage from './ActivityLogPage'
-import UserManagementPage from './UserManagementPage'
-import UserLogsPage from './UserLogsPage'
-import SettingsPage from './SettingsPage'
 import './Dashboard.css'
+
+const CreateDocument = lazy(() => import('../components/CreateDocument'))
+const DocumentsPage = lazy(() => import('./DocumentsPage'))
+const ArchivePage = lazy(() => import('./ArchivePage'))
+const ActivityLogPage = lazy(() => import('./ActivityLogPage'))
+const UserManagementPage = lazy(() => import('./UserManagementPage'))
+const UserLogsPage = lazy(() => import('./UserLogsPage'))
+const SettingsPage = lazy(() => import('./SettingsPage'))
 
 export default function Dashboard({ user, onLogout }) {
   const [selectedPage, setActive] = useState('Overview')
+  const [documentType, setDocumentType] = useState(null)
   const active = selectedPage === 'Create document' || canAccessPage(user, selectedPage) ? selectedPage : 'Overview'
   const permissions = permissionsFor(user)
-  const [files, setFiles] = useState([])
-  const [activityLogs, setActivityLogs] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
   const [loadAttempt, setLoadAttempt] = useState(0)
+  const [summaryAttempt, setSummaryAttempt] = useState(0)
   const [drafts, setDrafts] = useState([])
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    setLoadError('')
-    Promise.all([fetchDocuments(), permissions.fullAccess ? fetchActivityLogs() : Promise.resolve([])]).then(([documents, activities]) => { if (active) { setFiles(documents); setActivityLogs(activities) } })
-      .catch(error => { if (active) setLoadError(error.message) })
-      .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
-  }, [permissions.fullAccess, loadAttempt])
+  const documents = usePageData(['Documents', 'Archive'].includes(active), fetchDocuments, loadAttempt)
+  const activities = usePageData(active === 'Activity log' && permissions.fullAccess, fetchActivityLogs, loadAttempt + summaryAttempt)
+  const overview = usePageData(active === 'Overview', fetchOverview, loadAttempt + summaryAttempt)
+  const files = documents.data || []
+  const activityLogs = permissions.fullAccess ? activities.data || [] : []
+  const pageData = active === 'Overview' ? overview : active === 'Activity log' ? activities : documents
+  const loading = pageData.loading
+  const loadError = pageData.error
+  function setFiles(update) {
+    documents.setData(update)
+    setSummaryAttempt(attempt => attempt + 1)
+  }
+  const setActivityLogs = activities.setData
   const records = [...drafts, ...files.map(file => ({ ...file, title: file.subject, reference: file.id, owner: file.owner || '', updated: file.updated || file.date, status: file.status || 'For Review' }))]
 
   async function changeStatus(reference, status) {
@@ -98,7 +103,7 @@ export default function Dashboard({ user, onLogout }) {
 
 
   return (
-    <DocumentContext.Provider value={{ records, files, setFiles, activityLogs, loading, loadError, changeStatus, editRecord, deleteRecord, permissions, refreshRecords: () => setLoadAttempt(attempt => attempt + 1) }}>
+    <DocumentContext.Provider value={{ records, files, setFiles, summary: overview.data, activityLogs, loading, loadError, changeStatus, editRecord, deleteRecord, permissions, refreshRecords: () => setLoadAttempt(attempt => attempt + 1) }}>
     <div className="dashboard-shell">
       <Sidebar
         active={active === 'Create document' ? 'Documents' : active}
@@ -115,14 +120,16 @@ export default function Dashboard({ user, onLogout }) {
       <div className="dashboard-main" inert={menuOpen}>
         <Navbar isMenuOpen={menuOpen} onToggleMenu={() => setMenuOpen((isOpen) => !isOpen)} />
 
-        {active === 'Create document' ? <main className="dashboard-content create-document-page"><CreateDocument isOpen page onClose={() => setActive('Documents')} onCreate={createDocument} canChangeStatus={permissions.changeStatus} /></main>
-          : active === 'Documents' ? <DocumentsPage onCreateDocument={() => { setMenuOpen(false); setActive('Create document') }} />
+        <Suspense fallback={<main className="dashboard-content" role="status">Loading page…</main>}>
+        {active === 'Create document' ? <main className="dashboard-content create-document-page"><CreateDocument isOpen page onClose={() => setActive('Documents')} onCreate={createDocument} onViewCreated={record => { setDocumentType(record.type); setActive('Documents') }} canChangeStatus={permissions.changeStatus} /></main>
+          : active === 'Documents' ? <DocumentsPage initialType={documentType} onCreateDocument={() => { setMenuOpen(false); setActive('Create document') }} />
           : active === 'Archive' ? <ArchivePage />
           : active === 'Activity log' ? <ActivityLogPage />
           : active === 'User management' ? <UserManagementPage />
           : active === 'User logs' ? <UserLogsPage />
           : active === 'Settings' ? <SettingsPage />
           : <LiveOverview user={user} onDocuments={() => setActive('Documents')} onCreate={() => { setMenuOpen(false); setActive('Create document') }} />}
+        </Suspense>
       </div>
       {menuOpen && <button className="menu-backdrop" onClick={() => setMenuOpen(false)} aria-label="Close menu" />}
     </div>
