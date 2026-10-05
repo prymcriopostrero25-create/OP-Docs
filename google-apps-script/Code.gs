@@ -423,7 +423,7 @@ function doPost(e) {
 function documentPage(request) {
   if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
   try {
-    const entry = workflowDocument(request.id);
+    const entry = workflowDocument(request.id, true);
     return jsonResponse({ success: true, form: loadRichBodyForm(entry.metadata.form), type: entry.record.type });
   } catch (error) { return jsonResponse({ success: false, message: error.message }); }
 }
@@ -466,24 +466,24 @@ function preparedDocumentPdf(file) {
 function prepareDocumentPreview(request) {
   if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
   try {
-    const sheet = mainFilesSheet();
-    const rows = sheetDataRows(sheet, 1, 5);
-    const index = rows.findIndex(row => row[1] === request.id);
-    if (index < 0 || documentFromRow(rows[index], sheet.getRange(index + 2, 2).getNote()).deleted) throw new Error('Document was not found.');
-    const match = /^https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)\/(view|preview)$/.exec(rows[index][4]);
+    const entry = workflowDocument(request.id, true);
+    const match = /^https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)\/(view|preview)$/.exec(entry.record.url);
     if (!match) throw new Error('Invalid document link.');
     const file = DriveApp.getFileById(match[1]);
     if (file.isTrashed()) throw new Error('Document is in Trash.');
-    const native = file.getMimeType() === 'application/vnd.google-apps.document';
-    if (!native && file.getMimeType() !== 'application/pdf') throw new Error('Unsupported document format.');
+    const mimeType = file.getMimeType();
+    const native = mimeType === 'application/vnd.google-apps.document';
+    if (!native && mimeType !== 'application/pdf') throw new Error('Unsupported document format.');
     let certificateLayoutVersion, authorityLayoutVersion;
     if (native) {
-      const metadata = JSON.parse(sheet.getRange(index + 2, 2).getNote() || '{}');
-      if (metadata.type === 'Authority to Travel Abroad' && metadata.form) {
+      const metadata = entry.metadata;
+      authorityLayoutVersion = metadata.form && metadata.form.authorityLayoutVersion;
+      certificateLayoutVersion = metadata.form && metadata.form.certificateLayoutVersion;
+      if (metadata.type === 'Authority to Travel Abroad' && metadata.form && authorityLayoutVersion !== 2) {
         const lock = LockService.getScriptLock();
         lock.waitLock(30000);
         try {
-          const cell = sheet.getRange(index + 2, 2);
+          const cell = workflowDocument(request.id, true).cell;
           const current = JSON.parse(cell.getNote() || '{}');
           if (current.form.authorityLayoutVersion !== 2) {
             const doc = DocumentApp.openById(file.getId());
@@ -497,11 +497,11 @@ function prepareDocumentPreview(request) {
           authorityLayoutVersion = current.form.authorityLayoutVersion;
         } finally { lock.releaseLock(); }
       }
-      if (metadata.type === 'Certificate of Travel' && metadata.form) {
+      if (metadata.type === 'Certificate of Travel' && metadata.form && certificateLayoutVersion !== 3) {
         const lock = LockService.getScriptLock();
         lock.waitLock(30000);
         try {
-          const cell = sheet.getRange(index + 2, 2);
+          const cell = workflowDocument(request.id, true).cell;
           const current = JSON.parse(cell.getNote() || '{}');
           if (current.form.certificateLayoutVersion !== 3) {
             if (!request.logo || typeof request.logo !== 'string' || request.logo.length > 1500000) throw new Error('The college logo is required to update the certificate PDF. Refresh the app and retry.');
@@ -1709,16 +1709,38 @@ function manageAccount(request, user) {
   } finally { lock.releaseLock(); }
 }
 
-function workflowDocument(id) {
+// Preview reads transfer one row rather than the entire growing register.
+// Resolve again under the migration lock: deletes can shift row positions.
+function workflowDocument(id, targeted) {
   const sheet = mainFilesSheet();
-  const rows = sheetDataRows(sheet, 1, 5);
-  const index = rows.findIndex(row => row[1] === id);
-  if (index < 0) throw new Error('Document was not found.');
-  const cell = sheet.getRange(index + 2, 2);
-  const metadata = JSON.parse(cell.getNote() || '{}');
-  const record = documentFromRow(rows[index], cell.getNote());
+  let row, values;
+  if (targeted) {
+    const lastRow = sheet.getLastRow();
+    if (typeof id !== 'string' || !id || lastRow < 2) throw new Error('Document was not found.');
+    const match = sheet.getRange(2, 2, lastRow - 1, 1).createTextFinder(id)
+      .matchEntireCell(true).matchCase(true).useRegularExpression(false).findNext();
+    if (!match) throw new Error('Document was not found.');
+    row = match.getRow();
+    values = sheet.getRange(row, 1, 1, 5).getDisplayValues()[0];
+    if (values[1] !== id) throw new Error('Document was not found. Please retry.');
+  } else {
+    const rows = sheetDataRows(sheet, 1, 5);
+    const index = rows.findIndex(value => value[1] === id);
+    if (index < 0) throw new Error('Document was not found.');
+    row = index + 2;
+    values = rows[index];
+  }
+  const cell = sheet.getRange(row, 2);
+  const note = cell.getNote();
+  let metadata;
+  try { metadata = JSON.parse(note || '{}'); } catch (error) {
+    if (!targeted) throw error;
+    metadata = {}; // Uploaded legacy PDFs may have non-JSON filing notes.
+  }
+  if (targeted && (!metadata || typeof metadata !== 'object' || Array.isArray(metadata))) metadata = {};
+  const record = documentFromRow(values, note);
   if (record.deleted) throw new Error('Document was not found.');
-  return { sheet: sheet, row: index + 2, cell: cell, metadata: metadata, record: record };
+  return { sheet: sheet, row: row, cell: cell, metadata: metadata, record: record };
 }
 
 function documentVerificationLink(request) {

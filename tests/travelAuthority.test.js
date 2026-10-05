@@ -99,19 +99,20 @@ test('existing authority wording is corrected before PDF export and only once', 
     DriveApp: { getFileById: () => ({ isTrashed: () => false, getMimeType: () => 'application/vnd.google-apps.document', getId: () => 'doc', getName: () => 'Authority' }) },
     DocumentApp: { openById: () => ({ getBody: () => ({ replaceText(from, to) { events.push('replace'); assert.ok(from.includes('CERTIFY')); assert.ok(to.includes('AUTHORIZED')) } }), saveAndClose() { events.push('save') } }) },
     Utilities: { base64Encode: () => 'AQI=' },
-    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    LockService: { getScriptLock: () => ({ waitLock() { events.push('lock') }, releaseLock() {} }) },
     SpreadsheetApp: { flush() {} },
   })
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
   context.getDocumentSession = () => true
   context.jsonResponse = value => value
+  cell.createTextFinder = () => ({ matchEntireCell() { return this }, matchCase() { return this }, useRegularExpression() { return this }, findNext: () => ({ getRow: () => 2 }) })
   context.mainFilesSheet = () => ({ getLastRow: () => 2, getRange: (row, col, count, width) => width === 5 ? { getDisplayValues: () => [['Created', 'ATA-1', '', '', 'https://drive.google.com/file/d/doc/view']] } : cell })
   context.preparedDocumentPdf = () => { events.push('export'); return { getBytes: () => [] } }
   const result = context.prepareDocumentPreview({ id: 'ATA-1', token: 'session' })
   assert.equal(result.success, true)
   assert.equal(result.authorityLayoutVersion, 2)
   assert.ok(metadata.form.body.includes('AUTHORIZED'))
-  assert.deepEqual(events, ['replace', 'save', 'export'])
+  assert.deepEqual(events, ['lock', 'replace', 'save', 'export'])
   context.prepareDocumentPreview({ id: 'ATA-1', token: 'session' })
-  assert.deepEqual(events, ['replace', 'save', 'export', 'export'])
+  assert.deepEqual(events, ['lock', 'replace', 'save', 'export', 'export'])
 })

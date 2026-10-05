@@ -79,19 +79,20 @@ test('download upgrades an older saved certificate before exporting it', () => {
     DriveApp: { getFileById: () => ({ isTrashed: () => false, getMimeType: () => 'application/vnd.google-apps.document', getId: () => 'doc', getName: () => 'Certificate' }) },
     DocumentApp: { openById: () => ({}) },
     Utilities: { base64Decode: () => [], newBlob: () => 'logo', base64Encode: () => 'AQI=' },
-    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    LockService: { getScriptLock: () => ({ waitLock() { events.push('lock') }, releaseLock() {} }) },
     SpreadsheetApp: { flush() {} },
   })
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
   context.getDocumentSession = () => true
   context.jsonResponse = value => value
+  cell.createTextFinder = () => ({ matchEntireCell() { return this }, matchCase() { return this }, useRegularExpression() { return this }, findNext: () => ({ getRow: () => 2 }) })
   context.mainFilesSheet = () => ({ getLastRow: () => 2, getRange: (row, col, count, width) => width === 5 ? { getDisplayValues: () => [['Created', 'CTA-1', '', '', 'https://drive.google.com/file/d/doc/view']] } : cell })
   context.renderTravelCertificate = (doc, form) => { events.push('render'); assert.equal(form.recipientName, 'Maria Santos'); form.certificateLayoutVersion = 3 }
   context.preparedDocumentPdf = () => { events.push('export'); return { getBytes: () => [] } }
   const result = context.prepareDocumentPreview({ id: 'CTA-1', token: 'session', logo: 'base64' })
   assert.equal(result.success, true)
   assert.equal(result.certificateLayoutVersion, 3)
-  assert.deepEqual(events, ['render', 'export'])
+  assert.deepEqual(events, ['lock', 'render', 'export'])
   context.prepareDocumentPreview({ id: 'CTA-1', token: 'session', logo: 'base64' })
-  assert.deepEqual(events, ['render', 'export', 'export'])
+  assert.deepEqual(events, ['lock', 'render', 'export', 'export'])
 })

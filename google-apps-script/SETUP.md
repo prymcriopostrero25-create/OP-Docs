@@ -124,6 +124,14 @@ The live sheet structure is already updated. Deploy the updated Code.gs and rebu
 Validation includes all five PDF column mappings, recipient labels, optional fields, automatic-date retries, matching status-cell updates, duplicate prevention and existing upload/RBAC regression tests. Sheet header values and wrap formatting were verified through the connector; live Google Doc rendering requires the deployed Apps Script account.
 
 
+## Preview loading performance
+
+Preview page content and PDF preparation use an exact, case-sensitive ID lookup in MAIN Files column B and read only the matched row. Current travel authority and certificate layouts bypass the global write lock; legacy layouts still upgrade under the lock, with the document row resolved again after acquiring it. Session checks, deleted-record checks, background PDF preparation, and revision-based PDF cache invalidation remain in place. No new environment variables or sheet changes are required.
+
+Copy the updated Code.gs into the existing Apps Script project, then select Deploy > Manage deployments > Edit > New version > Deploy. Keep the existing web-app URL and execution/access settings. This performance change is backend-only and works with the existing frontend.
+
+After deployment, open an existing document of each type and an uploaded PDF, close and reopen each preview, and confirm the page and downloadable PDF still agree. Check one older authority/certificate to confirm its one-time upgrade still succeeds. Edit an eligible document and reopen it to verify fresh content. Measure cold and repeat loading in the deployed app: local tests validate service calls and behavior, but cannot measure Apps Script startup or Google Drive export latency.
+
 ## Shared Special Order preview layout
 
 Special Orders now use the Executive Memorandum renderer with a Special Order heading, preserving the reference (including letter suffixes), recipient fields, optional THRU, body, and configurable signatory. Both forms send public/jhcsclogo.png for the shared letterhead. Deploy the updated Code.gs as a new version of the existing web app and deploy the rebuilt frontend together. The registry preview displays the saved Drive document, so this layout applies to newly created documents; existing saved documents are not reformatted.
