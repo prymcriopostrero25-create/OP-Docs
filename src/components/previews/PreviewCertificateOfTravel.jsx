@@ -19,9 +19,8 @@ export default function PreviewCertificateOfTravel({ form }) {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 border-0 border-t-[3px] border-solid border-[#356442]">
+      <div className="mb-6 border-0 border-t-[3px] border-solid border-[#356442]">
         <h3 className="m-0 py-2 text-[19px] font-bold">TRAVEL CERTIFICATE</h3>
-        <span className="flex items-center justify-center bg-[#eaf0ec] p-2 text-[11px] font-bold text-[#356442]">CERTIFICATION</span>
       </div>
 
       <dl className="m-0 mb-7 grid grid-cols-2 text-[13px]">

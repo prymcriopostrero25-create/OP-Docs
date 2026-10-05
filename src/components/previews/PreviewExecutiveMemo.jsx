@@ -13,7 +13,7 @@ function displayDate(value) {
 export default function PreviewExecutiveMemo({ form, reference }) {
   const recipient = [form.recipientName || form.recipient, form.recipientPosition, form.institution, form.additionalInstitution].filter(Boolean).join('\n')
   const fields = [[form.recipientLabel || 'For', recipient], ['Thru', form.thru], ['Subject', form.subject?.toUpperCase()], ['Date', displayDate(form.date).toUpperCase()]]
-  const title = form.reference || reference || (form.number ? `Executive Memorandum Order No. ${form.number}` : 'Executive Memorandum')
+  const title = (form.reference || reference || (form.number ? `Executive Memorandum Order No. ${form.number}` : 'Executive Memorandum')).replace(/,?\s*s\.\s*\d{4}\s*$/i, '')
   const year = form.year || form.date?.slice(0, 4)
 
   return <div className="px-4 py-8">

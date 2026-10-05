@@ -479,18 +479,18 @@ function prepareDocumentPreview(request) {
       const metadata = entry.metadata;
       authorityLayoutVersion = metadata.form && metadata.form.authorityLayoutVersion;
       certificateLayoutVersion = metadata.form && metadata.form.certificateLayoutVersion;
-      if (metadata.type === 'Authority to Travel Abroad' && metadata.form && authorityLayoutVersion !== 2) {
+      if (metadata.type === 'Authority to Travel Abroad' && metadata.form && authorityLayoutVersion !== 3) {
         const lock = LockService.getScriptLock();
         lock.waitLock(30000);
         try {
           const cell = workflowDocument(request.id, true).cell;
           const current = JSON.parse(cell.getNote() || '{}');
-          if (current.form.authorityLayoutVersion !== 2) {
+          if (current.form.authorityLayoutVersion !== 3) {
             const doc = DocumentApp.openById(file.getId());
-            doc.getBody().replaceText('This is to CERTIFY that, where applicable to personal travel', 'This is to AUTHORIZED that, where applicable to personal travel');
+            doc.getBody().replaceText('This is to AUTHORIZED that, where applicable to personal travel', 'This is to CERTIFY that, where applicable to personal travel');
             doc.saveAndClose();
-            current.form.body = current.form.authorityStructured ? travelAuthorityBody(current.form) : String(current.form.body || current.form.content || '').replace('This is to CERTIFY that, where applicable to personal travel', 'This is to AUTHORIZED that, where applicable to personal travel');
-            current.form.authorityLayoutVersion = 2;
+            current.form.body = current.form.authorityStructured ? travelAuthorityBody(current.form) : String(current.form.body || current.form.content || '').replace('This is to AUTHORIZED that, where applicable to personal travel', 'This is to CERTIFY that, where applicable to personal travel');
+            current.form.authorityLayoutVersion = 3;
             cell.setNote(JSON.stringify(current));
             SpreadsheetApp.flush();
           }
@@ -929,7 +929,7 @@ function renderExecutiveMemorandum(doc, data, logo, heading) {
   rule.getCell(0, 0).setBackgroundColor(green).setPaddingTop(0).setPaddingBottom(0)
     .getChild(0).asParagraph().setSpacingBefore(0).setSpacingAfter(0).editAsText().setFontSize(1);
   body.appendParagraph('').setSpacingAfter(12).editAsText().setFontSize(1);
-  const title = heading || (data.number ? 'Executive Memorandum Order No. ' + data.number : data.reference);
+  const title = heading || String(data.number ? 'Executive Memorandum Order No. ' + data.number : data.reference).replace(/,?\s*s\.\s*\d{4}\s*$/i, '');
   const banner = body.appendTable([[String(title).toUpperCase(), 'Series of ' + data.year]]);
   banner.setBorderColor(green).setBorderWidth(0.5).setColumnWidth(0, contentWidth * 290 / 508).setColumnWidth(1, contentWidth * 218 / 508);
   for (let col = 0; col < 2; col++) {
@@ -1023,7 +1023,7 @@ function travelAuthorityBody(form) {
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
   return [
     `This refers to the proposed travel to ${form.place || '[DESTINATION]'} on ${(form.inclusiveDate || '[TRAVEL DATE/S]')}. Relative to the aforementioned travel, please be informed that the request is hereby APPROVED as ${form.travelClassification || '[PERSONAL LEAVE / OFFICIAL TRAVEL / OTHER CLASSIFICATION]'} for the period stated above only.`,
-    'This is to AUTHORIZED that, where applicable to personal travel, the personnel concerned shall not represent the institution and shall not utilize government funds for the approved travel.',
+    'This is to CERTIFY that, where applicable to personal travel, the personnel concerned shall not represent the institution and shall not utilize government funds for the approved travel.',
     `Issued this ${date ? date[2] : '[DAY]'} day of ${date ? months[date[1] - 1] : '[MONTH]'}, ${date ? date[0] : '[YEAR]'} at the JHCSC Main Campus, Mati, San Miguel, Zamboanga del Sur, for whatever legal purpose it may serve.`,
   ].join('\n\n')
 }
@@ -1057,13 +1057,10 @@ function renderTravelCertificate(doc, data, logo, authority) {
   rule.setBorderWidth(0).setColumnWidth(0, width);
   rule.getCell(0, 0).setBackgroundColor('#356442').setPaddingTop(0).setPaddingBottom(0);
   style(rule.getCell(0, 0).getChild(0).asParagraph(), 1, false);
-  const banner = body.appendTable([[authority ? 'AUTHORITY TO TRAVEL ABROAD' : 'TRAVEL CERTIFICATE', authority ? 'AUTHORIZATION' : 'CERTIFICATION']]);
-  banner.setBorderWidth(0).setColumnWidth(0, width / 2).setColumnWidth(1, width / 2);
-  for (let col = 0; col < 2; col++) {
-    const cell = banner.getCell(0, col).setPaddingLeft(0).setPaddingTop(6).setPaddingBottom(6);
-    style(cell.getChild(0).asParagraph(), col === 0 ? 14 : 8.5, true, col === 0 ? '#202820' : '#356442');
-    if (col === 1) { cell.setBackgroundColor('#eaf0ec'); cell.getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.CENTER); }
-  }
+  const banner = body.appendTable([[authority ? 'AUTHORITY TO TRAVEL ABROAD' : 'TRAVEL CERTIFICATE']]);
+  banner.setBorderWidth(0).setColumnWidth(0, width);
+  const titleCell = banner.getCell(0, 0).setPaddingLeft(0).setPaddingTop(6).setPaddingBottom(6);
+  style(titleCell.getChild(0).asParagraph(), 14, true);
   spacer(18);
   const details = body.appendTable(authority ? [["EMPLOYEE'S NAME", data.recipientName || '[FULL NAME]'], ['POSITION', data.recipientPosition || '[POSITION / DESIGNATION]'], ['SALARY GRADE', data.salaryGrade || '[SG]'], ['STATUS', data.employmentStatus || '[PERMANENT / TEMPORARY / COS / OTHER]'], ['TRAVEL DATE/S', data.inclusiveDate || '[TRAVEL DATE/S]'], ['PURPOSE', data.purpose || '[PERSONAL LEAVE / OFFICIAL PURPOSE]'], ['DESTINATION', data.place || '[COUNTRY / DESTINATION]']] : [['EMPLOYEE', data.recipientName || data.recipient || '[FULL NAME OF EMPLOYEE]'], ['DESTINATION', data.place || '[COUNTRY / DESTINATION]'], ['TRAVEL DATE/S', data.inclusiveDate || '[TRAVEL DATE/S]']]);
   details.setBorderWidth(0.5).setBorderColor('#e1e6e3').setColumnWidth(0, width / 2).setColumnWidth(1, width / 2);
@@ -1093,7 +1090,7 @@ function renderTravelCertificate(doc, data, logo, authority) {
   footerTable.setBorderWidth(0.5).setBorderColor('#e1e6e3').setColumnWidth(0, width * 0.4).setColumnWidth(1, width * 0.6);
   for (let col = 0; col < 2; col++) style(footerTable.getCell(0, col).setPaddingLeft(0).setPaddingTop(6).getChild(0).asParagraph(), 8, false, '#707875');
   doc.saveAndClose();
-  if (authority) data.authorityLayoutVersion = 2;
+  if (authority) data.authorityLayoutVersion = 3;
   else data.certificateLayoutVersion = 3;
 }
 
@@ -1163,6 +1160,13 @@ function renderOrderTemplate(doc, data) {
     }
   }
   const contentWidth = body.getPageWidth() - body.getMarginLeft() - body.getMarginRight();
+  const banner = tables[0];
+  banner.setBorderColor('#356442').setBorderWidth(0.5).setColumnWidth(0, contentWidth * 290 / 508).setColumnWidth(1, contentWidth * 218 / 508);
+  for (let col = 0; col < 2; col++) {
+    const cell = banner.getCell(0, col).setBackgroundColor('#f4f6f5').setPaddingTop(0).setPaddingBottom(0).setPaddingLeft(0);
+    cell.editAsText().setFontFamily('Arial').setFontSize(10).setBold(false);
+  }
+  banner.getCell(0, 1).getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
   body.appendParagraph(data.signatory || signatureName).setIndentStart(contentWidth * 266 / 508).setSpacingBefore(24).setSpacingAfter(0).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false);
   body.appendParagraph(data.position || signaturePosition).setIndentStart(contentWidth * 266 / 508).setSpacingAfter(12).editAsText().setFontFamily('Arial').setFontSize(12).setBold(false);
   doc.saveAndClose();

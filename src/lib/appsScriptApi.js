@@ -148,8 +148,8 @@ export async function prepareDocumentPreview(id, type) {
     logo = btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''))
   }
   const result = await documentRequest({ action: 'prepareDocumentPreview', id, logo })
-  if (type === 'Authority to Travel Abroad' && result.native && result.authorityLayoutVersion !== 2) {
-    throw new Error('Deploy the latest Code.gs as a new version of the existing Apps Script web app to download the updated AUTHORIZED wording. Then close and reopen this preview.')
+  if (type === 'Authority to Travel Abroad' && result.native && result.authorityLayoutVersion !== 3) {
+    throw new Error('Deploy the latest Code.gs as a new version of the existing Apps Script web app to download the restored CERTIFY wording. Then close and reopen this preview.')
   }
   if (type === 'Certificate of Travel' && result.native && result.certificateLayoutVersion !== 3) {
     throw new Error('Deploy the latest Code.gs as a new version of the existing Apps Script web app to download the certificate in the preview format.')

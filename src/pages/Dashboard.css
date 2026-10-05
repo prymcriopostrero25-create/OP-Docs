@@ -500,7 +500,7 @@
 .travel-order-paper .document-letterhead strong { font-size: 20px; }
 .travel-order-paper .document-letterhead small { font-size: 10px; color: #707875; }
 .travel-order-paper .document-letterhead b { font-size: 12px; }
-.travel-order-paper .travel-order-heading { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0; border: 0; border-top: 1px solid #356442; border-bottom: 1px solid #356442; background: #f4f6f5; padding: 1px 0; margin: 0 0 28px; text-transform: none; font-size: 14px; line-height: 1.2; }
+.travel-order-paper .travel-order-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; border: 1px solid #356442; background: #f4f6f5; padding: 4px; margin: 0 0 24px; text-transform: none; font-size: 13px; font-weight: normal; line-height: 1.2; }
 .travel-order-paper dl { grid-template-columns: 180px minmax(0, 1fr); gap: 5px 17px; margin: 0; font-size: 14px; line-height: 1.2; }
 .travel-order-paper dt { white-space: pre-line; }
 .travel-order-paper .document-paper-body { margin-top: 16px; }
