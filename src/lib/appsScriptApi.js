@@ -137,8 +137,19 @@ async function requireRichBodySupport(form) {
   }
 }
 
-export async function prepareDocumentPreview(id) {
-  return documentRequest({ action: 'prepareDocumentPreview', id })
+export async function prepareDocumentPreview(id, type) {
+  let logo
+  if (type === 'Certificate of Travel') {
+    const response = await fetch('/jhcsclogo.png')
+    if (!response.ok) throw new Error('Unable to load the college logo.')
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    logo = btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''))
+  }
+  const result = await documentRequest({ action: 'prepareDocumentPreview', id, logo })
+  if (type === 'Certificate of Travel' && result.native && result.certificateLayoutVersion !== 3) {
+    throw new Error('Deploy the latest Code.gs as a new version of the existing Apps Script web app to download the certificate in the preview format.')
+  }
+  return result
 }
 
 export async function createExecutiveMemorandum(form) {

@@ -1,15 +1,18 @@
-﻿import { documentTypes, documentTypeLabel } from '../lib/documentTypes'
+import { authorityBody } from '../lib/travelAuthority'
+import { certificateBody, certificateTravelDates } from '../lib/travelCertificate'
+import { documentTypes, documentTypeLabel } from '../lib/documentTypes'
 import { lazy, Suspense, useState } from 'react'
 
 const RichTextEditor = lazy(() => import('./RichTextEditor'))
 
 const types = documentTypes.map(type => type.value)
 const sheetNames = { 'Executive Memorandum': 'EX_Memo', 'Travel Order': 'Trav_Ord', 'Special Order': 'Spe_Ord', 'Authority to Travel Abroad': 'Auth_Travel', 'Certificate of Travel': 'Cert_Travel' }
-const emptyForm = () => ({ templateVersion: 2, type: types[0], reference: '', recipientLabel: 'For', recipientName: '', recipientPosition: '', institution: '', thru: '', subject: '', date: '', body: '', status: 'Draft', additionalInstitution: '', place: '', inclusiveDate: '', travelFrom: '', travelUntil: '', transportation: '', purpose: '', remarks: '', signatory: 'EDGARDO H. ROSALES, JD, Ed.D.', signatoryPosition: 'SUC President II', requestId: crypto.randomUUID() })
+const emptyForm = () => ({ templateVersion: 2, type: types[0], reference: '', recipientLabel: 'For', recipientName: '', recipientPosition: '', institution: '', thru: '', subject: '', date: '', body: '', status: 'Draft', additionalInstitution: '', place: '', inclusiveDate: '', travelFrom: '', travelUntil: '', transportation: '', purpose: '', remarks: '', salaryGrade: '', employmentStatus: '', travelClassification: '', cc: '', certificateStructured: false, signatory: 'EDGARDO H. ROSALES, JD, Ed.D.', signatoryPosition: 'SUC President II', requestId: crypto.randomUUID() })
 
 export default function CreateDocument({ isOpen, onClose, onCreate, canChangeStatus = false, initialForm = null, page = false }) {
   const [form, setForm] = useState(() => {
     const values = initialForm ? { ...emptyForm(), ...initialForm } : emptyForm()
+    if (['Certificate of Travel', 'Authority to Travel Abroad'].includes(values.type) && values.issueDate) values.date = values.issueDate
     if (values.type === 'Executive Memorandum') {
       values.institution = [values.institution, values.additionalInstitution].filter(Boolean).join('\n')
       values.additionalInstitution = ''
@@ -23,16 +26,22 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
   if (!isOpen) return null
   const memo = form.type === 'Executive Memorandum'
   const specialOrder = form.type === 'Special Order'
+  const certificate = form.type === 'Certificate of Travel'
+  const authority = form.type === 'Authority to Travel Abroad'
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(form.type)
   const travel = form.type === 'Travel Order'
-  const fields = simple ? [['body', 'Body']] : [
+  const fields = authority ? [['recipientName', 'Employee name'], ['recipientPosition', 'Position / designation'], ['salaryGrade', 'Salary grade'], ['employmentStatus', 'Employment status'], ['travelFrom', 'Travel dates - From'], ['travelUntil', 'Travel dates - Until'], ['purpose', 'Purpose'], ['place', 'Country / destination'], ['travelClassification', 'Approved travel classification'], ['date', 'Date issued'], ['signatory', 'Approving authority'], ['signatoryPosition', 'Authority position'], ['cc', 'Copy furnished (Optional)']] : certificate ? [['recipientName', 'Full name of employee'], ['salaryGrade', 'Salary grade'], ['employmentStatus', 'Employment status'], ['place', 'Country / destination'], ['travelFrom', 'Travel dates - From'], ['travelUntil', 'Travel dates - Until'], ['travelClassification', 'Personal leave / other approved classification'], ['date', 'Date issued'], ['signatory', 'Name of certifying authority'], ['signatoryPosition', 'Position'], ['cc', 'Copy furnished (Optional)']] : simple ? [['body', 'Body']] : [
     ...(initialForm ? [['reference', 'Reference number']] : []), ['recipientLabel', travel ? 'To / For' : 'Recipient label'], ['recipientName', travel ? 'Name/s of traveler/s' : 'Name of recipient'], ['recipientPosition', travel ? 'Position/Office' : 'Position / office'], ...(!travel ? [['institution', memo ? 'Name of institution or office' : 'Name of institution / office']] : []),
     ...(travel ? [['place', 'Destination'], ['travelFrom', 'Inclusive dates - From'], ['travelUntil', 'Inclusive dates - Until'], ['transportation', 'Mode of transportation'], ['purpose', 'Purpose'], ['remarks', 'Remarks']]
       : [['thru', 'Thru (Optional)'], ['subject', 'Subject'], ['date', 'Date'], ['body', 'Body'], ...(!memo ? [['additionalInstitution', 'Additional name of institution (Optional)']] : [])]),
   ]
 
   const recipientFields = ['recipientLabel', 'recipientName', 'recipientPosition', 'institution', 'thru', 'additionalInstitution']
-  const sections = [
+  const sections = certificate ? [
+    { title: 'Employee details', description: 'Identify the employee requesting travel abroad.', fields: fields.filter(([name]) => ['recipientName', 'salaryGrade', 'employmentStatus'].includes(name)) },
+    { title: 'Travel details', description: 'Enter the destination, travel dates, and approved classification.', fields: fields.filter(([name]) => ['place', 'travelFrom', 'travelUntil', 'travelClassification'].includes(name)) },
+    { title: 'Certification details', description: 'Set the issue date, certifying authority, and offices receiving a copy. The certificate wording is generated from these details.', fields: fields.filter(([name]) => ['date', 'signatory', 'signatoryPosition', 'cc'].includes(name)) },
+  ] : [
     { title: 'Recipient details', description: 'Who is this document addressed to?', fields: fields.filter(([name]) => recipientFields.includes(name)) },
     { title: travel ? 'Travel details' : 'Document content', description: travel ? 'Add the destination, schedule, and purpose of the trip.' : 'Write the details that will appear in the official document.', fields: fields.filter(([name]) => !recipientFields.includes(name)) },
   ].filter(section => section.fields.length)
@@ -52,9 +61,9 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
     event.preventDefault()
     if (busy) return
     const validation = {}
-    fields.forEach(([name, label]) => { if (!['thru', 'additionalInstitution'].includes(name) && !form[name].trim()) validation[name] = `Please enter ${label.toLowerCase()}.` })
-    if (!simple && !travel && form.date && (!/^\d{4}-\d{2}-\d{2}$/.test(form.date) || isNaN(Date.parse(form.date)) || new Date(form.date).toISOString().slice(0, 10) !== form.date)) validation.date = 'Choose a valid date.'
-    if (travel) {
+    fields.forEach(([name, label]) => { if (!['thru', 'additionalInstitution', 'cc'].includes(name) && !String(form[name] || '').trim()) validation[name] = `Please enter ${label.toLowerCase()}.` })
+    if ((!simple || certificate || authority) && !travel && form.date && (!/^\d{4}-\d{2}-\d{2}$/.test(form.date) || isNaN(Date.parse(form.date)) || new Date(form.date).toISOString().slice(0, 10) !== form.date)) validation.date = 'Choose a valid date.'
+    if (travel || certificate || authority) {
       for (const name of ['travelFrom', 'travelUntil']) {
         const value = form[name]
         if (!/^(19|20)\d{2}-\d{2}-\d{2}$/.test(value) || isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) validation[name] = 'Choose a valid date from 1900 to 2099.'
@@ -67,7 +76,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
     setError('')
     try {
       let logo
-      if (memo || specialOrder) {
+      if (memo || specialOrder || certificate || authority) {
         const response = await fetch('/jhcsclogo.png')
         if (!response.ok) throw new Error('Unable to load the college logo. Please try again.')
         const blob = await response.blob()
@@ -79,8 +88,8 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
         })
       }
       const dateLabel = value => new Date(value + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
-      const inclusiveDate = travel ? (form.travelFrom === form.travelUntil ? dateLabel(form.travelFrom) : `${dateLabel(form.travelFrom)} to ${dateLabel(form.travelUntil)}`) : form.inclusiveDate
-      const result = await onCreate({ ...form, autoReference: !initialForm, inclusiveDate, logo, status: canChangeStatus ? form.status : 'Draft' })
+      const inclusiveDate = certificate || authority ? certificateTravelDates(form) : travel ? (form.travelFrom === form.travelUntil ? dateLabel(form.travelFrom) : `${dateLabel(form.travelFrom)} to ${dateLabel(form.travelUntil)}`) : form.inclusiveDate
+      const result = await onCreate({ ...form, ...(authority ? { authorityStructured: true, issueDate: form.date, body: authorityBody(form) } : {}), ...(certificate ? { certificateStructured: true, issueDate: form.date, body: certificateBody(form) } : {}), autoReference: !initialForm, inclusiveDate, logo, status: canChangeStatus ? form.status : 'Draft' })
       setForm(emptyForm())
       setCreated(result)
     } catch (failure) {
@@ -119,8 +128,8 @@ export default function CreateDocument({ isOpen, onClose, onCreate, canChangeSta
       <label htmlFor="document-thru">Thru recipient</label>
       <textarea id="document-thru" name="thru" value={form.thru} onChange={updateField} disabled={busy} maxLength={2000} rows={2} />
     </details>
-    const multiline = ['body', 'institution', 'thru', 'additionalInstitution', 'purpose', 'remarks'].includes(name) || (travel && name === 'recipientName')
-    const optional = ['thru', 'additionalInstitution'].includes(name)
+    const multiline = ['body', 'institution', 'thru', 'additionalInstitution', 'purpose', 'remarks', 'cc'].includes(name) || (travel && name === 'recipientName')
+    const optional = ['thru', 'additionalInstitution', 'cc'].includes(name)
     const Tag = name === 'recipientLabel' ? 'select' : multiline ? 'textarea' : 'input'
     return <div key={name} className={`create-field${multiline || name === 'subject' || (memo && name === 'recipientName') || (travel && !['travelFrom', 'travelUntil'].includes(name)) ? ' full' : ''}`}>
       <label htmlFor={`document-${name}`}>{label.replace(/ \(Optional\)/, '')}{optional && <small>Optional</small>}</label>

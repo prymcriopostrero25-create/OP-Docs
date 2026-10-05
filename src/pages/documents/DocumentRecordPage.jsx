@@ -101,7 +101,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     }).catch(failure => {
       if (!cancelled) { setPageContent({ form: null }); setPreviewError('Unable to load the page. ' + failure.message + ' The registered PDF will display when ready.'); setPreviewLoading(false) }
     })
-    prepareDocumentPreview(preview.reference).then(result => {
+    prepareDocumentPreview(preview.reference, preview.type).then(result => {
       if (cancelled) return
       const bytes = Uint8Array.from(atob(result.data), character => character.charCodeAt(0))
       const file = new File([bytes], result.name, { type: 'application/pdf' })

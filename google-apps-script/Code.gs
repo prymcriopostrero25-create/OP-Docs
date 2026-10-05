@@ -36,8 +36,8 @@ const CREATED_DOCUMENT_HEADERS = {
   EX_Memo: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF THE INSTITUTION OR OFFICE', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE'],
   Spe_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF INSTITUTION/OFFICE', 'THRU (Optional)', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF INSTITUTION (OPTIONAL)'],
   Trav_Ord: ['REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'PLACE', 'INCLUSIVE DATES', 'MODE OF TRANSPORTATION', 'PURPOSE', 'REMARKS'],
-  Auth_Travel: ['ID', 'DATE (date created)', 'BODY'],
-  Cert_Travel: ['ID', 'DATE (date created)', 'BODY'],
+  Auth_Travel: ['ID', 'DATE (date created)', 'BODY', 'DATE (issue)', 'EMPLOYEE NAME', 'POSITION / DESIGNATION', 'SALARY GRADE', 'EMPLOYMENT STATUS', 'TRAVEL DATE FROM', 'TRAVEL DATE UNTIL', 'PURPOSE', 'DESTINATION', 'TRAVEL CLASSIFICATION', 'APPROVING AUTHORITY', 'AUTHORITY POSITION', 'COPY FURNISHED'],
+  Cert_Travel: ['ID', 'DATE (date created)', 'BODY', 'DATE ISSUED', 'EMPLOYEE NAME', 'SALARY GRADE', 'EMPLOYMENT STATUS', 'TRAVEL DATE FROM', 'TRAVEL DATE UNTIL', 'DESTINATION', 'TRAVEL CLASSIFICATION', 'CERTIFYING AUTHORITY', 'AUTHORITY POSITION', 'COPY FURNISHED'],
 };
 const LEGACY_TRAVEL_ORDER_HEADERS = [
   ['REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'POSITION', 'NAME OF INSTITUTION', 'PLACE', 'INCLUSIVE DATE', 'TRANSPORTATION', 'PURPOSE', 'REMARKS'],
@@ -69,6 +69,19 @@ function createdDocumentSheet(type) {
 
   const headers = CREATED_DOCUMENT_HEADERS[name];
   if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  if (name === 'Auth_Travel') {
+    const authorityHeaders = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0];
+    const legacy = authorityHeaders.slice(0, 3).map(normalizeHeader).join('|') === headers.slice(0, 3).map(normalizeHeader).join('|') && authorityHeaders.slice(3).every(value => !value);
+    if (legacy) sheet.getRange(1, 4, 1, headers.length - 3).setValues([headers.slice(3)]);
+  }
+
+  if (name === 'Cert_Travel') {
+    const certificateHeaders = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0];
+    const legacy = certificateHeaders.slice(0, 3).map(normalizeHeader).join('|') === headers.slice(0, 3).map(normalizeHeader).join('|') && certificateHeaders.slice(3).every(value => !value);
+    if (legacy) sheet.getRange(1, 4, 1, headers.length - 3).setValues([headers.slice(3)]);
+    if (normalizeHeader(certificateHeaders[3]) === normalizeHeader('DATE (date issue)')) sheet.getRange(1, 4).setValue('DATE ISSUED');
+  }
 
   const actual = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0].map(normalizeHeader);
   const expected = headers.map(normalizeHeader);
@@ -104,8 +117,8 @@ function logCreatedDocument(sheet, record, data, internalId, snapshot) {
   });
   const row = existing >= 0 ? existing + 2 : lastRow + 1;
   const label = data.recipientLabel || (data.to ? 'To' : 'For');
-  const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(record.type);
-  const values = simple ? [internalId, record.date, data.body || data.content]
+  const values = record.type === 'Certificate of Travel' ? [internalId, record.date, data.body || data.content, data.issueDate, data.recipientName, data.salaryGrade, data.employmentStatus, data.travelFrom, data.travelUntil, data.place, data.travelClassification, data.signatory, data.position, data.cc]
+    : record.type === 'Authority to Travel Abroad' ? [internalId, record.date, data.body || data.content, data.issueDate, data.recipientName, data.recipientPosition, data.salaryGrade, data.employmentStatus, data.travelFrom, data.travelUntil, data.purpose, data.place, data.travelClassification, data.signatory, data.signatoryPosition || data.position, data.cc]
     : record.type === 'Travel Order'
       ? [record.id, label, data.recipientName || data.recipient, data.recipientPosition, data.place || data.destination, data.inclusiveDate || data.travelDates, data.transportation, data.purpose, data.remarks]
       : record.type === 'Executive Memorandum'
@@ -463,8 +476,28 @@ function prepareDocumentPreview(request) {
     if (file.isTrashed()) throw new Error('Document is in Trash.');
     const native = file.getMimeType() === 'application/vnd.google-apps.document';
     if (!native && file.getMimeType() !== 'application/pdf') throw new Error('Unsupported document format.');
+    let certificateLayoutVersion;
+    if (native) {
+      const metadata = JSON.parse(sheet.getRange(index + 2, 2).getNote() || '{}');
+      if (metadata.type === 'Certificate of Travel' && metadata.form) {
+        const lock = LockService.getScriptLock();
+        lock.waitLock(30000);
+        try {
+          const cell = sheet.getRange(index + 2, 2);
+          const current = JSON.parse(cell.getNote() || '{}');
+          if (current.form.certificateLayoutVersion !== 3) {
+            if (!request.logo || typeof request.logo !== 'string' || request.logo.length > 1500000) throw new Error('The college logo is required to update the certificate PDF. Refresh the app and retry.');
+            const logo = Utilities.newBlob(Utilities.base64Decode(request.logo), 'image/png', 'jhcsclogo.png');
+            renderTravelCertificate(DocumentApp.openById(file.getId()), current.form, logo);
+            cell.setNote(JSON.stringify(current));
+            SpreadsheetApp.flush();
+          }
+          certificateLayoutVersion = current.form.certificateLayoutVersion;
+        } finally { lock.releaseLock(); }
+      }
+    }
     const pdf = preparedDocumentPdf(file);
-    return jsonResponse({ success: true, native: native, fileId: file.getId(), name: file.getName().replace(/\.pdf$/i, '') + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) });
+    return jsonResponse({ success: true, certificateLayoutVersion: certificateLayoutVersion, native: native, fileId: file.getId(), name: file.getName().replace(/\.pdf$/i, '') + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) });
   } catch (error) {
     return jsonResponse({ success: false, message: 'Unable to prepare the PDF. ' + error.message });
   }
@@ -941,6 +974,8 @@ function renderSpecialOrder(doc, data, logo) {
 }
 
 function renderCreatedDocument(doc, data, type, logo) {
+  if (type === 'Authority to Travel Abroad') return renderTravelAuthority(doc, data, logo);
+  if (type === 'Certificate of Travel') return renderTravelCertificate(doc, data, logo);
   if (type === 'Special Order') return renderSpecialOrder(doc, data, logo);
   if (type === 'Travel Order') return renderOrderTemplate(doc, data, type, data.logo || '');
   const body = doc.getBody();
@@ -956,6 +991,92 @@ function renderCreatedDocument(doc, data, type, logo) {
   body.appendParagraph('').setSpacingAfter(6);
   (data.body || data.content || '').split(/\r?\n/).forEach(line => body.appendParagraph(line).setSpacingAfter(6).editAsText().setBold(false));
   doc.saveAndClose();
+}
+
+function travelCertificateBody(data) {
+  const dates = data.inclusiveDate || '[TRAVEL DATE/S]';
+  return 'This is to certify that the requested travel abroad to ' + (data.place || '[DESTINATION]') + ', from ' + dates + ', by ' + (data.recipientName || data.recipient || '[EMPLOYEE NAME]') + ' (Salary Grade ' + (data.salaryGrade || '[SALARY GRADE]') + '), a ' + (data.employmentStatus || '[EMPLOYMENT STATUS]') + ' employee of J.H. Cerilles State College, is considered ' + (data.travelClassification || '[PERSONAL LEAVE / OTHER APPROVED CLASSIFICATION]') + ' only. The personnel concerned will not represent the institution and will not utilize government funds for the said personal travel.\n\n' +
+    'This certificate is issued on ' + (data.issueDate ? executiveMemoDate(data.issueDate) : '[DATE ISSUED]') + ', at the JHCSC Main Campus, Mati, San Miguel, Zamboanga del Sur, for whatever legal purpose it may serve.';
+}
+
+function travelAuthorityBody(form) {
+  const value = form.issueDate || form.date
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value.split('-').map(Number) : null
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  return [
+    `This refers to the proposed travel to ${form.place || '[DESTINATION]'} on ${(form.inclusiveDate || '[TRAVEL DATE/S]')}. Relative to the aforementioned travel, please be informed that the request is hereby APPROVED as ${form.travelClassification || '[PERSONAL LEAVE / OFFICIAL TRAVEL / OTHER CLASSIFICATION]'} for the period stated above only.`,
+    'This is to CERTIFY that, where applicable to personal travel, the personnel concerned shall not represent the institution and shall not utilize government funds for the approved travel.',
+    `Issued this ${date ? date[2] : '[DAY]'} day of ${date ? months[date[1] - 1] : '[MONTH]'}, ${date ? date[0] : '[YEAR]'} at the JHCSC Main Campus, Mati, San Miguel, Zamboanga del Sur, for whatever legal purpose it may serve.`,
+  ].join('\n\n')
+}
+
+function renderTravelAuthority(doc, data, logo) {
+  return renderTravelCertificate(doc, data, logo, true);
+}
+
+function renderTravelCertificate(doc, data, logo, authority) {
+  const body = doc.getBody();
+  body.clear();
+  if (doc.getHeader()) doc.getHeader().clear();
+  const width = 491.94;
+  body.setPageWidth(595.44).setPageHeight(841.68).setMarginLeft(51.75).setMarginRight(51.75).setMarginTop(30).setMarginBottom(36);
+  body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 10.5, [DocumentApp.Attribute.FOREGROUND_COLOR]: '#202820' });
+  function style(paragraph, size, bold, color) {
+    paragraph.setSpacingBefore(0).setSpacingAfter(0).setLineSpacing(1.2);
+    paragraph.editAsText().setFontFamily('Arial').setFontSize(size).setBold(bold).setForegroundColor(color || '#202820');
+    return paragraph;
+  }
+  function spacer(points) { style(body.appendParagraph(''), 1, false).setSpacingAfter(points); }
+  const letterhead = body.appendTable([['', 'J.H. CERILLES STATE COLLEGE\nMati, San Miguel, Zamboanga del Sur | main@jhcsc.edu.ph | +63 915 2484 538\nOFFICE OF THE PRESIDENT']]);
+  letterhead.setBorderWidth(0).setColumnWidth(0, 51).setColumnWidth(1, width - 51);
+  for (let col = 0; col < 2; col++) letterhead.getCell(0, col).setPaddingTop(0).setPaddingBottom(0).setPaddingLeft(0).setPaddingRight(0);
+  const image = letterhead.getCell(0, 0).getChild(0).asParagraph().appendInlineImage(logo);
+  image.setHeight(Math.round(45 * image.getHeight() / image.getWidth())).setWidth(45);
+  const brand = letterhead.getCell(0, 1);
+  for (let i = 0; i < brand.getNumChildren(); i++) style(brand.getChild(i).asParagraph(), i === 0 ? 16 : i === 1 ? 8 : 9, i !== 1, i === 0 ? '#356442' : i === 1 ? '#707875' : '#202820');
+  spacer(24);
+  const rule = body.appendTable([['']]);
+  rule.setBorderWidth(0).setColumnWidth(0, width);
+  rule.getCell(0, 0).setBackgroundColor('#356442').setPaddingTop(0).setPaddingBottom(0);
+  style(rule.getCell(0, 0).getChild(0).asParagraph(), 1, false);
+  const banner = body.appendTable([[authority ? 'AUTHORITY TO TRAVEL ABROAD' : 'TRAVEL CERTIFICATE', authority ? 'AUTHORIZATION' : 'CERTIFICATION']]);
+  banner.setBorderWidth(0).setColumnWidth(0, width / 2).setColumnWidth(1, width / 2);
+  for (let col = 0; col < 2; col++) {
+    const cell = banner.getCell(0, col).setPaddingLeft(0).setPaddingTop(6).setPaddingBottom(6);
+    style(cell.getChild(0).asParagraph(), col === 0 ? 14 : 8.5, true, col === 0 ? '#202820' : '#356442');
+    if (col === 1) { cell.setBackgroundColor('#eaf0ec'); cell.getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.CENTER); }
+  }
+  spacer(18);
+  const details = body.appendTable(authority ? [["EMPLOYEE'S NAME", data.recipientName || '[FULL NAME]'], ['POSITION', data.recipientPosition || '[POSITION / DESIGNATION]'], ['SALARY GRADE', data.salaryGrade || '[SG]'], ['STATUS', data.employmentStatus || '[PERMANENT / TEMPORARY / COS / OTHER]'], ['TRAVEL DATE/S', data.inclusiveDate || '[TRAVEL DATE/S]'], ['PURPOSE', data.purpose || '[PERSONAL LEAVE / OFFICIAL PURPOSE]'], ['DESTINATION', data.place || '[COUNTRY / DESTINATION]']] : [['EMPLOYEE', data.recipientName || data.recipient || '[FULL NAME OF EMPLOYEE]'], ['DESTINATION', data.place || '[COUNTRY / DESTINATION]'], ['TRAVEL DATE/S', data.inclusiveDate || '[TRAVEL DATE/S]']]);
+  details.setBorderWidth(0.5).setBorderColor('#e1e6e3').setColumnWidth(0, width / 2).setColumnWidth(1, width / 2);
+  for (let row = 0; row < (authority ? 7 : 3); row++) for (let col = 0; col < 2; col++) {
+    const cell = details.getCell(row, col).setPaddingLeft(3).setPaddingRight(3).setPaddingTop(4).setPaddingBottom(4);
+    if (col === 0) cell.setBackgroundColor('#f3f6f4');
+    style(cell.getChild(0).asParagraph(), col === 0 ? 8.5 : 10, col === 0, col === 0 ? '#356442' : '#202820');
+  }
+  spacer(21);
+  const content = authority ? (data.authorityStructured ? travelAuthorityBody(data) : data.body || data.content || travelAuthorityBody(data)) : data.certificateStructured ? travelCertificateBody(data) : data.body || data.content || travelCertificateBody(data);
+  content.split(/\r?\n/).forEach(line => style(body.appendParagraph(line), 10.5, false).setAlignment(DocumentApp.HorizontalAlignment.JUSTIFY).setIndentFirstLine(20.25).setSpacingAfter(9));
+  spacer(18);
+  // A fixed empty left column positions every signature line like the preview.
+  const signature = body.appendTable([['', '']]);
+  signature.setBorderWidth(0).setColumnWidth(0, width * 0.49).setColumnWidth(1, width * 0.51);
+  for (let col = 0; col < 2; col++) signature.getCell(0, col).setPaddingLeft(0).setPaddingRight(0).setPaddingTop(0).setPaddingBottom(0);
+  const signatureCell = signature.getCell(0, 1);
+  const certifiedBy = signatureCell.getChild(0).asParagraph();
+  certifiedBy.setText(authority ? 'APPROVED:' : 'CERTIFIED BY:');
+  style(certifiedBy, 9, true, '#707875').setAlignment(DocumentApp.HorizontalAlignment.LEFT).setIndentStart(0).setIndentFirstLine(0).setSpacingAfter(24);
+  style(signatureCell.appendParagraph(data.signatory || '[NAME OF CERTIFYING AUTHORITY]'), 10.5, true).setAlignment(DocumentApp.HorizontalAlignment.LEFT).setIndentStart(0).setIndentFirstLine(0);
+  style(signatureCell.appendParagraph(data.signatoryPosition || data.position || '[POSITION]'), 9, false, '#707875').setAlignment(DocumentApp.HorizontalAlignment.LEFT).setIndentStart(0).setIndentFirstLine(0);
+  style(body.appendParagraph('cc: ' + (data.cc || (authority ? 'HRMO | Records/File' : '[HRMO / Records / Other concerned office]'))), 8.5, false, '#707875').setSpacingBefore(21);
+  const footer = doc.getFooter() || doc.addFooter();
+  footer.clear();
+  const footerTable = footer.appendTable([['JHCSC | Office of the President', (authority ? 'Authority to Travel Abroad' : 'Travel Certificate') + ' | Page 1 of 1']]);
+  footerTable.setBorderWidth(0.5).setBorderColor('#e1e6e3').setColumnWidth(0, width * 0.4).setColumnWidth(1, width * 0.6);
+  for (let col = 0; col < 2; col++) style(footerTable.getCell(0, col).setPaddingLeft(0).setPaddingTop(6).getChild(0).asParagraph(), 8, false, '#707875');
+  doc.saveAndClose();
+  if (authority) data.authorityLayoutVersion = 1;
+  else data.certificateLayoutVersion = 3;
 }
 
 // Native Travel Order master retains the fixed authorization, signature and footer.
@@ -1220,12 +1341,14 @@ function validateTemplateDocument(request, type) {
     data.bodyRich = validateRichBody(request.bodyRich);
     request = { ...request, body: richBodyPlainText(data.bodyRich) };
   }
-  const fields = simple ? ['body'] : travel
+  const authority = type === 'Authority to Travel Abroad' && request.authorityStructured === true;
+  const certificate = type === 'Certificate of Travel' && request.certificateStructured === true;
+  const fields = authority ? ['body', 'recipientName', 'recipientPosition', 'salaryGrade', 'employmentStatus', 'travelFrom', 'travelUntil', 'purpose', 'place', 'travelClassification', 'signatory', 'signatoryPosition', 'cc'] : certificate ? ['body', 'recipientName', 'salaryGrade', 'employmentStatus', 'travelFrom', 'travelUntil', 'place', 'travelClassification', 'signatory', 'signatoryPosition', 'cc'] : simple ? ['body'] : travel
     ? ['reference', 'recipientLabel', 'recipientName', 'recipientPosition', 'place', 'inclusiveDate', 'transportation', 'purpose', 'remarks']
     : ['Executive Memorandum', 'Special Order'].includes(type)
       ? ['reference', 'recipientLabel', 'recipientName', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution']
       : ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution'];
-  const optional = ['thru', 'additionalInstitution'];
+  const optional = ['thru', 'additionalInstitution', 'cc'];
   fields.forEach(key => {
     data[key] = String(request[key] || '').trim();
     if (!optional.includes(key) && !data[key]) throw new Error('Please enter ' + key.replace(/([A-Z])/g, ' $1').toLowerCase() + '.');
@@ -1236,6 +1359,18 @@ function validateTemplateDocument(request, type) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date) || isNaN(Date.parse(data.date)) || new Date(data.date).toISOString().slice(0, 10) !== data.date) throw new Error('Choose a valid document date.');
     data.year = data.date.slice(0, 4);
     if (!/^(19|20)\d{2}$/.test(data.year)) throw new Error('Choose a date from 1900 to 2099.');
+  }
+  if (certificate || authority) {
+    if (authority) data.authorityStructured = true;
+    else data.certificateStructured = true;
+    data.issueDate = String(request.issueDate || request.date || '').trim();
+    for (const key of ['issueDate', 'travelFrom', 'travelUntil']) {
+      const value = data[key];
+      if (!/^(19|20)\d{2}-\d{2}-\d{2}$/.test(value) || isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) throw new Error('Choose a valid ' + key + '.');
+    }
+    if (data.travelUntil < data.travelFrom) throw new Error('Travel end date must be on or after the start date.');
+    data.inclusiveDate = data.travelFrom === data.travelUntil ? executiveMemoDate(data.travelFrom) : executiveMemoDate(data.travelFrom) + ' to ' + executiveMemoDate(data.travelUntil);
+    data.position = data.signatoryPosition;
   }
   data.subject = data.subject || type;
   if (type === 'Executive Memorandum') {
@@ -1415,7 +1550,7 @@ function createDocument(request) {
     if (state.allocationName) file.setName(name);
     if (!state.rendered) {
       stage = 'generate';
-      if (memo || type === 'Special Order') {
+      if (memo || type === 'Special Order' || type === 'Certificate of Travel' || type === 'Authority to Travel Abroad') {
         if (typeof request.logo !== 'string' || request.logo.length > 1500000) throw new Error('Logo unavailable');
         const logo = Utilities.newBlob(Utilities.base64Decode(request.logo), 'image/png', 'jhcsclogo.png');
         if (memo) renderExecutiveMemorandum(freshDocument || DocumentApp.openById(state.fileId), data, logo);
@@ -1610,7 +1745,7 @@ function updateDocumentContent(request) {
     const file = match && DriveApp.getFileById(match[1]);
     if (!file || file.isTrashed() || file.getMimeType() !== 'application/vnd.google-apps.document') throw new Error('The editable document is unavailable.');
     let logo;
-    if (['Executive Memorandum', 'Special Order'].includes(entry.record.type)) {
+    if (['Executive Memorandum', 'Special Order', 'Certificate of Travel', 'Authority to Travel Abroad'].includes(entry.record.type)) {
       if (!request.logo || request.logo.length > 1500000) throw new Error('The college logo is required.');
       logo = Utilities.newBlob(Utilities.base64Decode(request.logo), 'image/png', 'jhcsclogo.png');
     }

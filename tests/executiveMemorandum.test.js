@@ -186,7 +186,7 @@ test('all other creation types persist to their matching tab and type/year Drive
     assert.equal(f.shortRows[tab].length, 2)
     if (tab === 'Trav_Ord') assert.deepEqual(f.shortRows.Trav_Ord[1], [request.reference, 'To', request.recipient, '', request.destination, request.travelDates, request.transportation, request.purpose, request.remarks])
     else if (tab === 'Spe_Ord') assert.equal(f.shortRows[tab][1][7], request.title)
-    else assert.deepEqual(f.shortRows[tab][1].slice(1), ['September 9, 2026', request.content])
+    else assert.deepEqual(f.shortRows[tab][1].slice(1, 3), ['September 9, 2026', request.content])
     assert.equal(f.ctx.createDocument(request).success, true)
     assert.equal(f.allocations, 1)
     assert.equal(f.shortRows[tab].length, 2)
@@ -238,8 +238,9 @@ test('authority and certificate need only body and retain the server creation da
     assert.equal(f.ctx.createDocument(request).success, true)
     f.ctx.Utilities.formatDate = () => '2027-01-01'
     assert.equal(f.ctx.createDocument(request).success, true)
-    assert.deepEqual(f.shortRows[tab][0], ['ID', 'DATE (date created)', 'BODY'])
-    assert.deepEqual(f.shortRows[tab][1].slice(1), ['September 9, 2026', request.body])
+    assert.deepEqual(f.shortRows[tab][0].slice(0, 3), ['ID', 'DATE (date created)', 'BODY'])
+    assert.equal(f.shortRows[tab][0].length, tab === 'Cert_Travel' ? 14 : 3)
+    assert.deepEqual(f.shortRows[tab][1].slice(1, 3), ['September 9, 2026', request.body])
     assert.deepEqual(f.destinations, ['OP Systems/' + type + '/2026'])
     assert.equal(f.allocations, 1)
   }
