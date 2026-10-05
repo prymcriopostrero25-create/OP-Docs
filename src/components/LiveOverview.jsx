@@ -28,7 +28,7 @@ function OverviewLoading() {
 }
 
 export default function LiveOverview({ user, onDocuments, onCreate }) {
-  const { records, loading, loadError } = useContext(DocumentContext)
+  const { records, loading, loadError, refreshRecords } = useContext(DocumentContext)
   const total = records.length
   const statuses = [...knownStatuses, 'Other'].map((label, index) => ({ label, color: statusColors[index], count: records.filter(record => label === 'Other' ? !knownStatuses.includes(record.status) : record.status === label).length }))
   const types = [...filingTypes, ...new Set(records.map(record => record.type || 'Unclassified').filter(type => !filingTypes.includes(type)))].map(label => ({ label, count: records.filter(record => (record.type || 'Unclassified') === label).length }))
@@ -53,7 +53,8 @@ export default function LiveOverview({ user, onDocuments, onCreate }) {
   return <main className="dashboard-content overview-charts">
     <div className="overview-topline"><span>WORKSPACE / OVERVIEW</span><time dateTime={today.toLocaleDateString('en-CA')}>{today.toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</time></div>
     <div className="welcome-row overview-hero"><div><p className="eyebrow">Office of the President</p><h1>Welcome, {user.name}.</h1><p>Your documents, priorities, and workflow in one place.</p><div className="overview-hero-actions"><button className="overview-create" onClick={onCreate}><span aria-hidden="true">＋</span> Create document</button><button className="overview-browse" onClick={onDocuments}>Browse documents <span aria-hidden="true">↗</span></button></div></div><div className="overview-hero-aside"><span>DOCUMENT MANAGEMENT</span><strong>Clarity at every step.</strong><p>From initial review to final release.</p></div></div>
-    {loading && <OverviewLoading />}{loadError && <p role="alert">{loadError}</p>}
+    {loading && <OverviewLoading />}
+    {loadError && <div className="overview-load-error" role="alert"><p>{loadError}</p><button onClick={refreshRecords} disabled={loading}>Try again</button></div>}
     {!loading && !loadError && <>
       <div className="overview-metrics">
         {[{ label: 'Total documents', value: total, note: 'All available records', icon: '▤', tone: 'wine' }, { label: 'Awaiting action', value: pending, note: `${countStatus('For Review')} for review · ${countStatus('For Signature')} for signature`, icon: '◷', tone: 'amber' }, { label: 'Approved', value: countStatus('Approved'), note: 'Approved document records', icon: '✓', tone: 'green' }, { label: 'Released', value: countStatus('Out'), note: 'Documents marked Out', icon: '↗', tone: 'blue' }].map(metric => <article className={`overview-metric ${metric.tone}`} key={metric.label}><div><span>{metric.label}</span><i aria-hidden="true">{metric.icon}</i></div><strong>{metric.value.toLocaleString()}</strong><p>{metric.note}</p></article>)}

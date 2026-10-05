@@ -45,6 +45,9 @@
 @media(max-width:520px) { .overview-chart-card { padding:20px; } .overview-chart-card header { flex-wrap:wrap; } .overview-charts .welcome-row { align-items:flex-start; gap:18px; flex-direction:column; } .overview-columns { gap:12px; margin-inline:0; } .overview-column-fill { width:80%; } }
 
 /* Dashboard workspace redesign */
+.overview-load-error { margin-top:24px; padding:20px; border:1px solid #e9c9d1; border-radius:14px; background:#fff; color:#68172b; }
+.overview-load-error p { margin:0 0 12px; }
+.overview-load-error button { padding:10px 17px; border:1px solid #68172b; border-radius:8px; background:#68172b; color:#fff; cursor:pointer; }
 .overview-charts { max-width:1600px; padding-top:26px; }
 .overview-topline { display:flex; justify-content:space-between; gap:16px; margin-bottom:22px; color:#796c71; font-size:12px; line-height:1.6; }
 .overview-topline > span { font-size:11px; font-weight:700; letter-spacing:1.5px; }

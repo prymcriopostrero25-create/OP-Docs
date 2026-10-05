@@ -22,14 +22,17 @@ export default function Dashboard({ user, onLogout }) {
   const [activityLogs, setActivityLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [drafts, setDrafts] = useState([])
   useEffect(() => {
     let active = true
+    setLoading(true)
+    setLoadError('')
     Promise.all([fetchDocuments(), permissions.fullAccess ? fetchActivityLogs() : Promise.resolve([])]).then(([documents, activities]) => { if (active) { setFiles(documents); setActivityLogs(activities) } })
       .catch(error => { if (active) setLoadError(error.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [permissions.fullAccess])
+  }, [permissions.fullAccess, loadAttempt])
   const records = [...drafts, ...files.map(file => ({ ...file, title: file.subject, reference: file.id, owner: file.owner || '', updated: file.updated || file.date, status: file.status || 'For Review' }))]
 
   async function changeStatus(reference, status) {
@@ -95,7 +98,7 @@ export default function Dashboard({ user, onLogout }) {
 
 
   return (
-    <DocumentContext.Provider value={{ records, files, setFiles, activityLogs, loading, loadError, changeStatus, editRecord, deleteRecord, permissions, refreshRecords: async () => { setLoadError(''); try { const documents = await fetchDocuments(); setFiles(documents); if (permissions.fullAccess) setActivityLogs(await fetchActivityLogs()) } catch (error) { setLoadError(error.message) } } }}>
+    <DocumentContext.Provider value={{ records, files, setFiles, activityLogs, loading, loadError, changeStatus, editRecord, deleteRecord, permissions, refreshRecords: () => setLoadAttempt(attempt => attempt + 1) }}>
     <div className="dashboard-shell">
       <Sidebar
         active={active === 'Create document' ? 'Documents' : active}
