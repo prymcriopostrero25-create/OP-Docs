@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createServer as createHttpServer } from 'node:http'
 import { once } from 'node:events'
 import { createServer as createViteServer } from 'vite'
-import config from '../vite.config.js'
+import { appsScriptProxy } from '../dev/appsScriptProxy.js'
 
 test('Apps Script proxy resolves POST redirects without exposing them to the browser', async () => {
   const requests = []
@@ -22,16 +22,12 @@ test('Apps Script proxy resolves POST redirects without exposing them to the bro
   await once(upstream, 'listening')
   let vite
   try {
-    const options = config({ mode: 'development' }).server.proxy['/apps-script']
     vite = await createViteServer({
       configFile: false,
+      cacheDir: 'node_modules/.vite-proxy-tests',
+      plugins: [appsScriptProxy(`http://127.0.0.1:${upstream.address().port}/exec`)],
       server: {
         host: '127.0.0.1', port: 0,
-        proxy: { '/apps-script': {
-          ...options,
-          target: `http://127.0.0.1:${upstream.address().port}`,
-          rewrite: () => '/exec',
-        } },
       },
     })
     await vite.listen()
@@ -47,6 +43,33 @@ test('Apps Script proxy resolves POST redirects without exposing them to the bro
       { method: 'POST', url: '/exec', body: payload },
       { method: 'GET', url: '/content', body: '' },
     ])
+  } finally {
+    if (vite) await vite.close()
+    upstream.closeAllConnections()
+    await new Promise(resolve => upstream.close(resolve))
+  }
+})
+
+test('Apps Script proxy returns a usable error when the upstream stalls', async () => {
+  const upstream = createHttpServer(() => {})
+  upstream.listen(0, '127.0.0.1')
+  await once(upstream, 'listening')
+  let vite
+  try {
+    vite = await createViteServer({
+      configFile: false,
+      cacheDir: 'node_modules/.vite-proxy-tests',
+      plugins: [appsScriptProxy(`http://127.0.0.1:${upstream.address().port}/exec`, 50)],
+      server: { host: '127.0.0.1', port: 0 },
+    })
+    await vite.listen()
+    const response = await fetch(`http://127.0.0.1:${vite.httpServer.address().port}/apps-script`, {
+      method: 'POST', body: '{}', signal: AbortSignal.timeout(5000),
+    })
+    assert.equal(response.status, 504)
+    const result = await response.json()
+    assert.equal(result.success, false)
+    assert.match(result.message, /timed out/)
   } finally {
     if (vite) await vite.close()
     upstream.closeAllConnections()

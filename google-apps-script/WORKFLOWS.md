@@ -1,4 +1,4 @@
-# Workflow adaptation
+﻿# Workflow adaptation
 
 The OP portal keeps its existing burgundy interface, college letterhead, document renderers, spreadsheet columns, and Drive filing structure. The reference project was read from `C:\Users\Localuser\transmittal-system`; its files were not changed.
 
@@ -19,7 +19,7 @@ The five categories shown in navigation, creation, and uploads are Executive Mem
 ## Deployment
 
 1. Back up the current Apps Script project and spreadsheet, then replace the deployed project's `Code.gs` with this folder's version. Existing sheet schemas and IDs stay unchanged.
-2. As the deployment owner, run `checkCreateDocumentSetup` and `checkEmailSetup`. The latter requests MailApp access and reads quota; it does not send email.
+2. As the deployment owner, run `checkCreateDocumentSetup` and `checkEmailSetup`. Enable Gmail API v1 under Services with identifier Gmail. The latter checks the Gmail sender profile and requests authorization; it does not send email.
 3. Publish a new version of the existing web-app deployment. Keep the `/exec` URL in `VITE_APPS_SCRIPT_URL` pointed at that deployment.
 4. Build and deploy the frontend with `npm run build`. Generate QR PDFs from the production portal URL so the verification links point to the public site.
 5. Sign in with a super-admin account and verify account creation/deactivation, each document type, approvals, public verification, and a deliberate test email to an address you control.
@@ -32,6 +32,7 @@ No production deployment, spreadsheet mutation, or email send was performed duri
 
 Run `node --test tests/*.test.js`, `npm run lint`, and `npm run build`.
 
-The existing `executiveMemorandum.test.js` has five failures also reproduced against the original committed backend: copied Travel Order allocation recovery, unavailable Travel Order master reporting, populated-document recovery reporting, native Travel Order template filling, and sheet configuration error reporting. The current renderers were preserved rather than replaced with the native template expected by those tests.
+Creation tests cover blank allocation recovery, protected populated documents, native Travel Order formatting and signatories, and partial registry repair. Their fixtures follow the current allocation and renderer behavior. See [DEPLOYMENT.md](../DEPLOYMENT.md) for the full release and live acceptance checks.
 
 New workflow tests exercise email authorization, approval requirements, CC, quota, uncertain delivery, retry repair, public verification disclosure, session revocation, protected accounts, content editing, record filtering, and CSV escaping. Live Google services still require the deployment checks above.
+

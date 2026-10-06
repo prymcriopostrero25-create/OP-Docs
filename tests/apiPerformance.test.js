@@ -3,12 +3,14 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import vm from 'node:vm'
 import { createAccountLoader } from '../src/lib/accountLoader.js'
+import { createPdfPreviewCache } from '../src/lib/pdfPreviewCache.js'
 
 function fixture() {
   const calls = []
   let token = 'first'
   const context = vm.createContext({
     createAccountLoader,
+    createPdfPreviewCache,
     AbortSignal, Date,
     window: { localStorage: { getItem: () => JSON.stringify({ token }) } },
     fetchAppsScript: async (_, options) => {

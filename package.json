@@ -3,12 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": { "node": ">=22.13.0" },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
     "test": "node --test tests/*.test.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "npm test && npm run lint && npm run build"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

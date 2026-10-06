@@ -1,4 +1,5 @@
 import { lockBodyScroll } from '../../lib/scrollLock'
+import { preparedPdfFile } from '../../lib/pdfFile'
 import LoadingModal from '../../components/LoadingModal'
 import { DocumentContext } from '../../lib/documentContext'
 import { documentTypeLabel } from '../../lib/documentTypes'
@@ -46,6 +47,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   const [preparedPreview, setPreparedPreview] = useState(null)
   const [previewError, setPreviewError] = useState('')
   const previewDialog = useRef(null)
+  const refreshPreview = useRef(false)
   const [action, setAction] = useState(null)
   const [editedTitle, setEditedTitle] = useState('')
   const [actionError, setActionError] = useState('')
@@ -112,36 +114,27 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   }, [preview])
 
   useEffect(() => {
-    if (!preview || !pageContent) return
+    if (!preview) return
     let cancelled = false
     let objectUrl
-    let frame
-    const preparePdf = () => prepareDocumentPreview(preview.reference, preview.type).then(result => {
+    const refresh = refreshPreview.current
+    refreshPreview.current = false
+    prepareDocumentPreview(preview.reference, preview.type, preview.updated, refresh).then(result => {
       if (cancelled) return
-      const bytes = Uint8Array.from(atob(result.data), character => character.charCodeAt(0))
-      const file = new File([bytes], result.name, { type: 'application/pdf' })
+      const file = preparedPdfFile(result)
       objectUrl = URL.createObjectURL(file)
       setPreparedPreview({ file, url: objectUrl })
     }).catch(failure => {
       if (!cancelled) {
         setPdfError('Unable to prepare the PDF. ' + failure.message)
+        setPreviewLoading(false)
       }
     })
-    // Let the saved page preview paint before starting the PDF request.
-    // Uploaded documents need the PDF itself to render their preview.
-    if (pageContent.form) {
-      frame = requestAnimationFrame(() => {
-        frame = requestAnimationFrame(() => { if (!cancelled) preparePdf() })
-      })
-    } else {
-      preparePdf()
-    }
     return () => {
       cancelled = true
-      cancelAnimationFrame(frame)
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [preview, pageContent])
+  }, [preview])
 
   function openPreview(record) {
     setPreparedPreview(null)
@@ -218,11 +211,11 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
         </div>
         </header>
         <div className="preview-frame-wrap">
-          {previewLoading && !pdfError && <LoadingModal title="Loading document preview..." />}
+          {previewLoading && !pdfError && <div className="preview-loading" role="status"><span className="preview-spinner" aria-hidden="true" /><span>Loading document preview...</span></div>}
           {pageContent?.form && <DocumentPage form={pageContent.form} type={pageContent.type} reference={preview.reference} />}
           {pageContent && !pageContent.form && preparedPreview && <DocumentPages file={preparedPreview.file} onReady={() => setPreviewLoading(false)} onError={() => { setPreviewLoading(false); setPreviewError('Unable to display the document. You can still save it using Save as PDF.') }} />}
         </div>
-        {(previewError || pdfError) && <div className="preview-message" role="alert"><p>{previewError || pdfError}</p><button type="button" className="secondary-action" onClick={() => openPreview({ ...preview })}>Retry preview</button></div>}
+        {(previewError || pdfError) && <div className="preview-message" role="alert"><p>{[previewError, pdfError].filter(Boolean).join(' ')}</p><button type="button" className="secondary-action" onClick={() => { refreshPreview.current = true; openPreview({ ...preview }) }}>Retry preview</button></div>}
 
       </dialog>}
       {emailRecord && <SendDocument record={emailRecord} onClose={() => setEmailRecord(null)} onSent={record => { setFiles(current => current.map(file => file.id === record.id ? record : file)); setPreview(current => current ? { ...current, status: record.status } : current) }} />}

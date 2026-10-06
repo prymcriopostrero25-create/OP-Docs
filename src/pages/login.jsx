@@ -1,4 +1,3 @@
-import LoadingModal from '../components/LoadingModal'
 import { useState } from 'react'
 import '../App.css'
 import { authenticateUser } from '../lib/appsScriptApi'
@@ -14,6 +13,7 @@ export default function Login({ onLogin }) {
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (status === 'loading') return
     setMessage('')
 
     if (!email.trim() || !password) {
@@ -125,8 +125,8 @@ export default function Login({ onLogin }) {
 
               {message && <p id="form-message" className="form-message" role="alert">{message}</p>}
 
-              <button className="submit-button" type="submit" disabled={status === 'loading'}>
-                {status === 'loading' && <LoadingModal title="Verifying account..." />}
+              <button className="submit-button" type="submit" disabled={status === 'loading'} aria-busy={status === 'loading'}>
+                {status === 'loading' && <span className="spinner" aria-hidden="true" />}
                 {status === 'loading' ? 'Verifying account...' : 'Access document portal'}
                 {status !== 'loading' && <span className="button-arrow" aria-hidden="true">→</span>}
               </button>

@@ -85,6 +85,21 @@ test('page preview returns saved content without PDF conversion and requires a s
   assert.equal(context.documentPage({ id: 'known' }).success, false)
 })
 
+test('an edit during export prevents caching the PDF under the previous revision', () => {
+  const cache = new Map()
+  let revision = 1, exports = 0
+  const context = vm.createContext({
+    CacheService: { getScriptCache: () => ({ get: key => cache.get(key), putAll: values => Object.entries(values).forEach(([key, value]) => cache.set(key, value)), put: (key, value) => cache.set(key, value) }) },
+    Utilities: { base64Encode: () => 'AQI=' },
+  })
+  vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  const file = { getMimeType: () => 'application/vnd.google-apps.document', getId: () => 'doc', getLastUpdated: () => new Date(revision), getAs: () => { exports++; revision++; return { getBytes: () => [1, 2] } } }
+  context.preparedDocumentPdf(file)
+  assert.equal(cache.size, 0)
+  context.preparedDocumentPdf(file)
+  assert.equal(exports, 2)
+})
+
 test('targeted preview lookup reads one row in a large register and rejects shifted or deleted records', () => {
   let reads = 0, notes = 0, deleted = false, shifted = false
   const context = vm.createContext({})

@@ -14,10 +14,10 @@ function fixture() {
   const entry = { metadata, record, cell: { setNote(value) { Object.assign(metadata, JSON.parse(value)) } } }
   const blob = { getBytes: () => [1, 2], setName() { return this } }
   const context = vm.createContext({
-    Utilities: { DigestAlgorithm: { SHA_256: 'sha256' }, computeDigest: (algorithm, value) => createHash(algorithm).update(value).digest(), base64Encode: value => Buffer.from(value).toString('base64') },
+    Utilities: { DigestAlgorithm: { SHA_256: 'sha256' }, computeDigest: (algorithm, value) => createHash(algorithm).update(value).digest(), base64Encode: value => Buffer.from(value).toString('base64'), base64EncodeWebSafe: value => Buffer.from(value).toString('base64url'), newBlob: value => ({ getBytes: () => Buffer.from(value, 'utf8') }), getUuid: () => 'mime-boundary' },
     PropertiesService: { getScriptProperties: () => ({ getProperty: key => properties.get(key), setProperty: (key, value) => properties.set(key, value) }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
-    MailApp: { getRemainingDailyQuota: () => 100, sendEmail: message => sent.push(message) },
+    Gmail: { Users: { getProfile: () => ({ emailAddress: 'owner@jhcsc.edu.ph' }), Messages: { send: (message, mailbox) => { assert.equal(mailbox, 'me'); sent.push(message); return { id: 'gmail-sent-1' } } } } },
     DriveApp: { getFileById: () => ({ isTrashed: () => false, getMimeType: () => 'application/pdf', getBlob: () => blob, getName: () => 'Order.pdf' }) },
     CacheService: { getScriptCache: () => ({ get: key => key.startsWith('issued:') ? '100' : 'admin@jhcsc.edu.ph' }) },
   })
@@ -32,18 +32,71 @@ function fixture() {
 const user = { email: 'admin@jhcsc.edu.ph', name: 'Admin', role: 'admin' }
 const request = { id: 'TO-1', token: 'valid', requestId: '11111111-1111-1111-1111-111111111111', to: 'recipient@example.com', cc: 'copy@example.com', subject: 'Travel order', message: 'Please see attached.' }
 
+test('email attachment preparation warms the revision cache without sending or changing status', () => {
+  const f = fixture(), cache = new Map()
+  let exports = 0, revision = 1
+  f.context.CacheService = { getScriptCache: () => ({
+    get: key => cache.get(key), getAll: keys => Object.fromEntries(keys.map(key => [key, cache.get(key)])),
+    put: (key, value) => cache.set(key, value), putAll: values => Object.entries(values).forEach(([key, value]) => cache.set(key, value)),
+  }) }
+  f.context.Utilities.base64Decode = value => Buffer.from(value, 'base64')
+  f.context.DriveApp.getFileById = id => {
+    assert.equal(id, 'registered')
+    return { isTrashed: () => false, getMimeType: () => 'application/vnd.google-apps.document',
+      getId: () => id, getLastUpdated: () => new Date(revision), getName: () => 'Order',
+      getAs: () => { exports++; return { getBytes: () => [1, 2] } },
+    }
+  }
+  assert.equal(f.context.prepareEmailAttachment(request).name, 'Order.pdf')
+  assert.equal(exports, 1)
+  assert.equal(f.sent.length, 0)
+  assert.equal(f.entry.metadata.status, 'Approved')
+  f.context.sendRegisteredDocument(request, user)
+  assert.equal(exports, 1)
+  revision++
+  assert.equal(f.context.prepareEmailAttachment(request).success, true)
+  assert.equal(exports, 2)
+})
+
+test('email attachment preparation rejects unauthorized and unapproved documents', () => {
+  const f = fixture()
+  f.context.canChangeDocumentStatus = () => false
+  assert.match(f.context.prepareEmailAttachment(request).message, /Admin access/)
+  f.context.canChangeDocumentStatus = () => true
+  f.entry.record.status = 'Draft'
+  assert.match(f.context.prepareEmailAttachment(request).message, /Approve/)
+  assert.equal(f.sent.length, 0)
+})
+
+test('a changed Drive revision cannot send the PDF prepared for an earlier revision', () => {
+  const f = fixture()
+  f.context.DriveApp.getFileById = () => ({ isTrashed: () => false, getLastUpdated: () => new Date(200) })
+  assert.throws(() => f.context.sendRegisteredDocument({ ...request, attachmentRevision: '100' }, user), /changed after/)
+  assert.equal(f.sent.length, 0)
+  assert.equal(f.entry.metadata.status, 'Approved')
+})
+
 test('email uses registered PDF, preserves CC, locks OUT, and retries without resending', () => {
   const f = fixture()
   assert.equal(f.context.sendRegisteredDocument(request, user).document.status, 'Out')
   f.context.sendRegisteredDocument(request, user)
   assert.equal(f.sent.length, 1)
-  assert.equal(f.sent[0].cc, request.cc)
-  assert.equal(f.sent[0].replyTo, user.email)
+  const mime = Buffer.from(f.sent[0].raw, 'base64url').toString('utf8')
+  assert.ok(mime.includes('Cc: ' + request.cc))
+  assert.ok(mime.includes('Reply-To: ' + user.email))
+  assert.ok(mime.includes('<owner@jhcsc.edu.ph>'))
+  const from = mime.match(/From: ([\s\S]*?) <owner@/)[1]
+  assert.equal([...from.matchAll(/=\?UTF-8\?B\?([^?]*)\?=/g)].map(match => Buffer.from(match[1], 'base64').toString('utf8')).join(''), 'J.H. Cerilles State College Office of the President')
+  assert.ok(mime.includes('Content-Type: application/pdf'))
+  assert.ok(mime.includes('filename*=UTF-8\'\'Order.pdf'))
+  assert.ok(mime.includes(Buffer.from([1, 2]).toString('base64')))
+  assert.ok(mime.includes(Buffer.from(request.message).toString('base64')))
+  assert.equal(JSON.parse(f.properties.get('sent:' + request.requestId)).gmailMessageId, 'gmail-sent-1')
   assert.equal(f.activities.length, 1)
   assert.equal(f.entry.metadata.status, 'Out')
   assert.throws(() => f.context.sendRegisteredDocument({ ...request, to: 'different@example.com' }, user), /different recipients/)
 })
-test('sending enforces admin access, approved status, valid recipients, and mail quota', () => {
+test('sending enforces admin access, approved status, valid recipients, and Gmail access', () => {
   const f = fixture()
   f.context.canChangeDocumentStatus = () => false
   assert.throws(() => f.context.sendRegisteredDocument(request, user), /Admin access/)
@@ -52,15 +105,16 @@ test('sending enforces admin access, approved status, valid recipients, and mail
   assert.throws(() => f.context.sendRegisteredDocument(request, user), /Approve/)
   f.entry.record.status = 'Approved'
   assert.throws(() => f.context.sendRegisteredDocument({ ...request, cc: 'bad-address' }, user), /valid email/)
-  f.context.MailApp.getRemainingDailyQuota = () => 0
-  assert.throws(() => f.context.sendRegisteredDocument(request, user), /quota/)
+  f.context.Gmail.Users.getProfile = () => { throw new Error('Gmail authorization required') }
+  assert.throws(() => f.context.sendRegisteredDocument(request, user), /authorization/)
   assert.equal(f.sent.length, 0)
+  assert.equal(f.properties.size, 0)
 })
 test('uncertain mail result prevents an automatic resend', () => {
   const f = fixture()
-  f.context.MailApp.sendEmail = () => { throw new Error('Connection interrupted') }
+  f.context.Gmail.Users.Messages.send = () => { throw new Error('Connection interrupted') }
   assert.throws(() => f.context.sendRegisteredDocument(request, user), /interrupted/)
-  f.context.MailApp.sendEmail = () => f.sent.push('unexpected')
+  f.context.Gmail.Users.Messages.send = () => f.sent.push('unexpected')
   assert.throws(() => f.context.sendRegisteredDocument(request, user), /uncertain result/)
   assert.equal(f.sent.length, 0)
 })
@@ -71,6 +125,44 @@ test('a retry repairs status after email succeeds but registry synchronization f
   f.context.syncCreatedDocumentStatus = () => {}
   assert.equal(f.context.sendRegisteredDocument(request, user).document.status, 'Out')
   assert.equal(f.sent.length, 1)
+})
+
+test('Gmail MIME preserves Unicode and prevents injected email headers', () => {
+  const f = fixture()
+  const subject = 'Official résumé — ' + '旅行'.repeat(60) + '\r\nBcc: hidden@example.com'
+  const raw = f.context.gmailPdfMessage(user, 'owner@jhcsc.edu.ph', [request.to], [], subject, 'Good day, José.', { getBytes: () => [1, 2] }, 'Résumé "旅行"')
+  const mime = Buffer.from(raw, 'base64url').toString('utf8')
+  assert.ok(!mime.includes('\r\nBcc:'))
+  assert.ok(!mime.includes('\r\nCc:'))
+  assert.ok(mime.includes('filename*=UTF-8\'\'R%C3%A9sum%C3%A9%20%22%E6%97%85%E8%A1%8C%22.pdf'))
+  const encodedSubject = mime.match(/Subject: ([\s\S]*?)\r\nMIME-Version:/)[1]
+  const decoded = [...encodedSubject.matchAll(/=\?UTF-8\?B\?([^?]*)\?=/g)].map(match => {
+    assert.ok(match[0].length <= 75)
+    return Buffer.from(match[1], 'base64').toString('utf8')
+  }).join('')
+  assert.equal(decoded, subject.replace(/[\r\n]/g, ' '))
+  assert.ok(mime.includes(Buffer.from('Good day, José.').toString('base64')))
+  assert.throws(() => f.context.gmailPdfMessage(user, 'owner@jhcsc.edu.ph', ['ok@example.com\r\nBcc: bad@example.com'], [], 'Subject', 'Body', { getBytes: () => [1] }, 'Doc'), /Invalid/)
+})
+
+test('Gmail must confirm a message ID before the document becomes OUT', () => {
+  const f = fixture()
+  f.context.Gmail.Users.Messages.send = () => ({})
+  assert.throws(() => f.context.sendRegisteredDocument(request, user), /did not confirm/)
+  assert.equal(f.entry.metadata.status, 'Approved')
+  assert.equal(f.activities.length, 0)
+  assert.equal(JSON.parse(f.properties.get('sent:' + request.requestId)).state, 'pending')
+  assert.throws(() => f.context.sendRegisteredDocument(request, user), /uncertain result/)
+})
+
+test('send status recovers a successful Gmail send without sending again', () => {
+  const f = fixture()
+  assert.equal(f.context.documentSendStatus(request, user).confirmed, false)
+  f.context.sendRegisteredDocument(request, user)
+  assert.equal(f.context.documentSendStatus(request, user).document.status, 'Out')
+  assert.equal(f.sent.length, 1)
+  assert.equal(f.activities.length, 1)
+  assert.throws(() => f.context.documentSendStatus(request, { ...user, email: 'other@example.com' }), /does not match/)
 })
 test('verification exposes only registry facts and rejects missing or deleted entries', () => {
   const f = fixture(), code = 'a'.repeat(72)
@@ -122,7 +214,8 @@ test('content editing regenerates the existing template and saves its form and r
   f.context.renderCreatedDocument = (doc, data, type) => { f.rendered = { doc, data, type } }
   f.context.createdDocumentSheet = () => ({})
   f.context.logCreatedDocument = () => {}
-  const result = f.context.updateDocumentContent({ ...request, body: 'Updated certificate body' })
+  f.context.Utilities.base64Decode = value => value
+  const result = f.context.updateDocumentContent({ ...request, logo: 'logo', body: 'Updated certificate body' })
   assert.equal(result.success, true)
   assert.equal(f.rendered.doc.id, 'native')
   assert.equal(f.rendered.type, 'Certificate of Travel')

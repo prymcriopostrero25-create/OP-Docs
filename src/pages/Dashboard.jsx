@@ -8,6 +8,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { fetchOverview } from '../lib/appsScriptApi'
 import { usePageData } from '../lib/usePageData'
 import Sidebar from '../components/Sidebar'
+import PageLoadBoundary from '../components/PageLoadBoundary'
 import './Dashboard.css'
 
 const CreateDocument = lazy(() => import('../components/CreateDocument'))
@@ -122,7 +123,7 @@ export default function Dashboard({ user, onLogout }) {
       <div className="dashboard-main" inert={menuOpen}>
         <button type="button" className="dashboard-navigation-toggle" onClick={() => setMenuOpen(isOpen => !isOpen)} aria-controls="main-sidebar" aria-expanded={menuOpen} aria-label="Open navigation"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg><span>Menu</span></button>
 
-        <Suspense fallback={<LoadingModal title="Loading page..." />}>
+        <PageLoadBoundary key={active}><Suspense fallback={<LoadingModal title="Loading page..." />}>
         {active === 'Create document' ? <main className="dashboard-content create-document-page"><CreateDocument isOpen page onClose={() => setActive('Documents')} onCreate={createDocument} onViewCreated={record => { setDocumentType(record.type); setActive('Documents') }} canChangeStatus={permissions.changeStatus} /></main>
           : active === 'Documents' ? <DocumentsPage initialType={documentType} onCreateDocument={() => { setMenuOpen(false); setActive('Create document') }} />
           : active === 'Archive' ? <ArchivePage />
@@ -131,7 +132,7 @@ export default function Dashboard({ user, onLogout }) {
           : active === 'User logs' ? <UserLogsPage />
           : active === 'Settings' ? <SettingsPage />
           : <LiveOverview user={user} onDocuments={() => setActive('Documents')} onCreate={() => { setMenuOpen(false); setActive('Create document') }} />}
-        </Suspense>
+        </Suspense></PageLoadBoundary>
       </div>
       {menuOpen && <button className="menu-backdrop" onClick={() => setMenuOpen(false)} aria-label="Close menu" />}
     </div>

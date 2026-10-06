@@ -327,8 +327,9 @@ function doPost(e) {
       if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
       return jsonResponse({ success: true, richBodyVersion: 1 });
     }
-    if (['currentUser', 'createUser', 'updateUser', 'deleteUser', 'verificationLink', 'verify', 'sendDocument', 'documentDetails', 'updateDocumentContent'].includes(request.action)) return workflowRequest(request);
+    if (['currentUser', 'createUser', 'updateUser', 'deleteUser', 'verificationLink', 'verify', 'sendDocument', 'documentSendStatus', 'documentDetails', 'updateDocumentContent'].includes(request.action)) return workflowRequest(request);
     if (request.action === 'documentPage') return documentPage(request);
+    if (request.action === 'prepareEmailAttachment') return prepareEmailAttachment(request);
     if (request.action === 'prepareDocumentPreview') return prepareDocumentPreview(request);
     if (request.action === 'createExecutiveMemorandum') return createExecutiveMemorandum(request);
     if (request.action === 'createDocument') return createDocument(request);
@@ -453,7 +454,7 @@ function preparedDocumentPdf(file) {
   } catch (error) { /* Cache is optional; export remains available. */ }
   const pdf = file.getAs('application/pdf');
   try {
-    if (cache && key) {
+    if (cache && key && key === 'pdf:' + file.getId() + ':' + file.getLastUpdated().getTime()) {
       const data = Utilities.base64Encode(pdf.getBytes());
       const count = Math.ceil(data.length / 80000);
       if (count > 0 && count <= 300) {
@@ -1527,7 +1528,7 @@ function createDocument(request) {
     const hasLogEvidence = existingTypeLogRow(logSheet, id);
     const hasCreationEvidence = creationRows.some((row, i) => {
       if (row[0] === key) return true;
-      try { return JSON.parse(creationSnapshot.notes[i][0] || '{}').createdDocumentId === key; }
+      try { return Boolean(row[0]) && JSON.parse(creationSnapshot.notes[i][0] || '{}').createdDocumentId === key; }
       catch (error) { return false; }
     });
     const hasMainRowEvidence = index >= 0;
@@ -1541,7 +1542,7 @@ function createDocument(request) {
     }
     // A Drive file or reservation alone is not a completed creation. Legacy attempts
     // have no completion flag, so verify all three registry entries as well.
-    const completed = state && (state.completed === true || (hasMainRowEvidence &&
+    const completed = state && (state.completed === true || (state.completed === undefined && hasMainRowEvidence &&
       hasLogEvidence && hasCreationEvidence));
     const recoverReservation = state && !completed && state.owner === owner;
     if ((state || index >= 0) && (!state || (state.requestId !== request.requestId && !recoverReservation) || state.owner !== owner)) return jsonResponse({ success: false, message: id + ' already exists.' });
@@ -1695,6 +1696,7 @@ function workflowRequest(request) {
     }
     if (request.action === 'updateDocumentContent') return updateDocumentContent(request);
     if (request.action === 'sendDocument') return sendRegisteredDocument(request, user);
+    if (request.action === 'documentSendStatus') return documentSendStatus(request, user);
     throw new Error('Unsupported action.');
   } catch (error) { return jsonResponse({ success: false, message: error.message }); }
 }
@@ -1842,6 +1844,23 @@ function emailAddresses(value, required) {
   return addresses;
 }
 
+// Warm the revision-keyed server PDF cache while the sender fills in the email.
+// Return metadata only; attachment bytes always come from registered Drive files.
+function prepareEmailAttachment(request) {
+  if (!canChangeDocumentStatus(request.token)) return jsonResponse({ success: false, message: 'Admin access is required to send documents.' });
+  try {
+    const entry = workflowDocument(request.id, true);
+    if (!['Approved', 'Out'].includes(entry.record.status)) throw new Error('Approve the document before sending it.');
+    const match = /^https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)\/(view|preview)$/.exec(entry.record.url);
+    const file = match && DriveApp.getFileById(match[1]);
+    if (!file || file.isTrashed()) throw new Error('The registered file is unavailable.');
+    if (!['application/vnd.google-apps.document', 'application/pdf'].includes(file.getMimeType())) throw new Error('Unsupported document format.');
+    const pdf = preparedDocumentPdf(file);
+    if (pdf.getBytes().length > 20 * 1024 * 1024) throw new Error('This PDF exceeds the 20 MB email attachment limit.');
+    return jsonResponse({ success: true, name: file.getName().replace(/\.pdf$/i, '') + '.pdf', revision: file.getLastUpdated ? String(file.getLastUpdated().getTime()) : '' });
+  } catch (error) { return jsonResponse({ success: false, message: error.message }); }
+}
+
 function sendRegisteredDocument(request, user) {
   if (!canChangeDocumentStatus(request.token)) throw new Error('Admin access is required to send documents.');
   const to = emailAddresses(request.to, true), cc = emailAddresses(request.cc, false);
@@ -1866,15 +1885,37 @@ function sendRegisteredDocument(request, user) {
     const match = /\/d\/([a-zA-Z0-9_-]+)/.exec(entry.record.url);
     const file = match && DriveApp.getFileById(match[1]);
     if (!file || file.isTrashed()) throw new Error('The registered file is unavailable.');
+    if (request.attachmentRevision && String(file.getLastUpdated().getTime()) !== request.attachmentRevision) throw new Error('The document changed after its attachment was prepared. Close and reopen the email form to prepare the current PDF.');
     const pdf = preparedDocumentPdf(file);
     if (pdf.getBytes().length > 20 * 1024 * 1024) throw new Error('This PDF exceeds the 20 MB email attachment limit.');
-    if (MailApp.getRemainingDailyQuota() < to.length + cc.length) throw new Error('The sender has insufficient daily email quota.');
+    const profile = Gmail.Users.getProfile('me');
+    const raw = gmailPdfMessage(user, profile.emailAddress, to, cc, subject, message, pdf, file.getName());
     const state = { id: request.id, owner: user.email, state: 'pending', fingerprint: fingerprint };
     props.setProperty(key, JSON.stringify(state));
-    MailApp.sendEmail({ to: to.join(','), cc: cc.join(','), subject: subject, body: message, replyTo: user.email, name: user.name + ' — Office of the President', attachments: [pdf.setName(file.getName().replace(/\.pdf$/i, '') + '.pdf')] });
+    const sent = Gmail.Users.Messages.send({ raw: raw }, 'me');
+    if (!sent || !sent.id) throw new Error('Gmail did not confirm the send. Check the sender mailbox before starting another email.');
     state.state = 'sent';
+    state.gmailMessageId = sent.id;
     props.setProperty(key, JSON.stringify(state));
     return finishDocumentSend(entry, request, to, cc);
+  } finally { lock.releaseLock(); }
+}
+
+// Recover a lost HTTP response without issuing another Gmail send.
+function documentSendStatus(request, user) {
+  if (!canChangeDocumentStatus(request.token)) throw new Error('Admin access is required.');
+  if (!/^[a-zA-Z0-9-]{16,80}$/.test(String(request.requestId || ''))) throw new Error('Invalid send request.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const state = JSON.parse(PropertiesService.getScriptProperties().getProperty('sent:' + request.requestId) || 'null');
+    if (!state) return jsonResponse({ success: true, confirmed: false });
+    if (state.id !== request.id || state.owner !== user.email) throw new Error('Send request does not match.');
+    if (state.state !== 'sent') return jsonResponse({ success: true, confirmed: false });
+    const to = emailAddresses(request.to, true), cc = emailAddresses(request.cc, false);
+    const fingerprint = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([request.id, to, cc, String(request.subject || '').trim(), String(request.message || '').trim()])));
+    if (state.fingerprint !== fingerprint) throw new Error('Send request does not match.');
+    return finishDocumentSend(workflowDocument(request.id, true), request, to, cc);
   } finally { lock.releaseLock(); }
 }
 
@@ -1891,8 +1932,54 @@ function finishDocumentSend(entry, request, to, cc) {
   return jsonResponse({ success: true, document: { ...entry.record, status: 'Out', updated: entry.metadata.updated } });
 }
 
-// Run once as deployment owner to grant the mail scope without sending an email.
-function checkEmailSetup() { console.log('Remaining email recipient quota: ' + MailApp.getRemainingDailyQuota()); }
+// Gmail requires a base64url-encoded MIME message, including the PDF attachment.
+function gmailPdfMessage(user, sender, to, cc, subject, message, pdf, fileName) {
+  const encodedHeader = value => {
+    const bytes = Utilities.newBlob(String(value).replace(/[\r\n]/g, ' ')).getBytes();
+    // Each encoded word stays within RFC 2047's 75-character limit. Split by
+    // Unicode code point so multibyte characters survive long subjects/names.
+    const words = []; let chunk = '';
+    for (const char of String(value).replace(/[\r\n]/g, ' ')) {
+      if (Utilities.newBlob(chunk + char).getBytes().length > 42) {
+        words.push('=?UTF-8?B?' + Utilities.base64Encode(Utilities.newBlob(chunk).getBytes()) + '?='); chunk = '';
+      }
+      chunk += char;
+    }
+    if (chunk || !bytes.length) words.push('=?UTF-8?B?' + Utilities.base64Encode(Utilities.newBlob(chunk).getBytes()) + '?=');
+    return words.join('\r\n ');
+  };
+  const address = value => {
+    const text = String(value || '');
+    if (!/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(text)) throw new Error('Invalid sender or recipient email address.');
+    return text;
+  };
+  const lines = data => (Utilities.base64Encode(data).match(/.{1,76}/g) || []).join('\r\n');
+  const boundary = 'op_pdf_' + Utilities.getUuid();
+  const name = String(fileName || 'Document').replace(/\.pdf$/i, '') + '.pdf';
+  const headers = [
+    'From: ' + encodedHeader('J.H. Cerilles State College Office of the President') + ' <' + address(sender) + '>',
+    'To: ' + to.map(address).join(', '),
+    'Reply-To: ' + address(user.email),
+    'Subject: ' + encodedHeader(subject),
+    'MIME-Version: 1.0',
+    'Content-Type: multipart/mixed; boundary="' + boundary + '"',
+  ];
+  if (cc.length) headers.splice(2, 0, 'Cc: ' + cc.map(address).join(', '));
+  const mime = headers.concat([
+    '', '--' + boundary, 'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64', '', lines(Utilities.newBlob(message).getBytes()),
+    '--' + boundary, 'Content-Type: application/pdf',
+    'Content-Disposition: attachment; filename="document.pdf"; filename*=UTF-8\'\'' + encodeURIComponent(name).replace(/['()*]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase()),
+    'Content-Transfer-Encoding: base64', '', lines(pdf.getBytes()), '--' + boundary + '--', '',
+  ]).join('\r\n');
+  return Utilities.base64EncodeWebSafe(Utilities.newBlob(mime).getBytes()).replace(/=+$/, '');
+}
+
+// Run as deployment owner to authorize/check Gmail without sending an email.
+function checkEmailSetup() {
+  const profile = Gmail.Users.getProfile('me');
+  console.log('Gmail API ready. Sender account: ' + profile.emailAddress);
+}
 
 function hashPassword_(password) {
   const props = PropertiesService.getScriptProperties();

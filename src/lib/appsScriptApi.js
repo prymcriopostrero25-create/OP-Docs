@@ -2,6 +2,8 @@ import { createAccountLoader } from './accountLoader'
 import { fetchAppsScript } from './appsScriptFetch'
 import { readAppsScriptResponse } from './appsScriptResponse'
 import { loadDocumentPage } from './documentPageLoader'
+import { createPdfPreviewCache } from './pdfPreviewCache'
+import { sendWithConfirmation } from './documentSendConfirmation'
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL
 const requestTarget = () => import.meta.env.DEV ? '/apps-script' : APPS_SCRIPT_URL
 
@@ -18,6 +20,7 @@ export async function authenticateUser(email, password) {
       email,
       password,
     }),
+    signal: AbortSignal.timeout(30000),
   })
 
   if (!response.ok) {
@@ -34,12 +37,14 @@ export async function authenticateUser(email, password) {
 }
 
 export async function logoutUser(token) {
+  cachedPdfPreview.clear()
   if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
   const response = await fetch(requestTarget(), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: 'logout', token }),
     keepalive: true,
+    signal: AbortSignal.timeout(15000),
   })
   if (!response.ok) throw new Error('Unable to record logout.')
   const result = await readAppsScriptResponse(response)
@@ -55,6 +60,7 @@ export async function fetchUserLogs() {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: 'userLogs', token: getSessionToken() }),
+    signal: AbortSignal.timeout(30000),
   })
 
   if (!response.ok) {
@@ -77,7 +83,7 @@ function getSessionToken() {
 }
 
 const pendingReads = new Map()
-const sharedReadActions = new Set(['documents', 'overview', 'activityLogs', 'documentDetails', 'editorCapabilities'])
+const sharedReadActions = new Set(['documents', 'overview', 'activityLogs', 'documentPage', 'documentDetails', 'editorCapabilities', 'prepareEmailAttachment'])
 
 function documentRequest(payload) {
   const token = getSessionToken()
@@ -92,13 +98,22 @@ function documentRequest(payload) {
 
 async function sendDocumentRequest(payload, token) {
   if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
-  const response = await fetchAppsScript(requestTarget(), {
+  let response
+  try { response = await fetchAppsScript(requestTarget(), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ ...payload, token }),
-    signal: AbortSignal.timeout(90000),
-  }, payload.action)
-  if (!response.ok) throw new Error(`Document request failed with status ${response.status}.`)
+    signal: AbortSignal.timeout((sharedReadActions.has(payload.action) && payload.action !== 'prepareEmailAttachment') || payload.action === 'currentUser' ? 30000 : 90000),
+  }, payload.action) } catch (error) {
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      throw new Error('The document service took too long to respond. Check the Apps Script deployment and your connection, then retry.', { cause: error })
+    }
+    throw error
+  }
+  if (!response.ok) {
+    const result = await readAppsScriptResponse(response)
+    throw new Error(result.message || `Document request failed with status ${response.status}.`)
+  }
   const result = await readAppsScriptResponse(response)
   if (!result.success) throw new Error(result.message || 'Unable to process the document.')
   if (['createUser', 'updateUser', 'deleteUser'].includes(payload.action)) accountLoader.invalidate(token)
@@ -118,7 +133,10 @@ export const saveUser = (form, creating) => documentRequest({ ...form, action: c
 export const removeUser = email => documentRequest({ action: 'deleteUser', email })
 export const verificationLink = async id => (await documentRequest({ action: 'verificationLink', id })).code
 export const verifyDocument = async code => (await documentRequest({ action: 'verify', code })).document
-export const sendDocument = async form => (await documentRequest({ ...form, action: 'sendDocument' })).document
+export async function sendDocument(form) {
+  return sendWithConfirmation(form, documentRequest)
+}
+export const prepareEmailAttachment = id => documentRequest({ action: 'prepareEmailAttachment', id })
 export const documentDetails = async id => (await documentRequest({ action: 'documentDetails', id })).form
 export const updateDocumentContent = async (id, form) => {
   await requireRichBodySupport(form)
@@ -140,7 +158,13 @@ async function requireRichBodySupport(form) {
   }
 }
 
-export async function prepareDocumentPreview(id, type) {
+const cachedPdfPreview = createPdfPreviewCache(preparePdfPreview)
+export function prepareDocumentPreview(id, type, revision, refresh = false) {
+  if (refresh) cachedPdfPreview.clear()
+  return cachedPdfPreview(getSessionToken(), id, type, revision)
+}
+
+async function preparePdfPreview(id, type, token) {
   let logo
   if (type === 'Certificate of Travel') {
     const response = await fetch('/jhcsclogo.png')
@@ -148,7 +172,7 @@ export async function prepareDocumentPreview(id, type) {
     const bytes = new Uint8Array(await response.arrayBuffer())
     logo = btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''))
   }
-  const result = await documentRequest({ action: 'prepareDocumentPreview', id, logo })
+  const result = await sendDocumentRequest({ action: 'prepareDocumentPreview', id, logo }, token)
   if (type === 'Authority to Travel Abroad' && result.native && result.authorityLayoutVersion !== 3) {
     throw new Error('Deploy the latest Code.gs as a new version of the existing Apps Script web app to download the restored CERTIFY wording. Then close and reopen this preview.')
   }
