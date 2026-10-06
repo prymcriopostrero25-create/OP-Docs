@@ -5,6 +5,31 @@ import vm from 'node:vm'
 
 const source = fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8')
 
+test('typed previews read only their corresponding form sheet and skip MAIN Files', () => {
+  for (const [type, name] of Object.entries({ 'Executive Memorandum': 'EX_Memo', 'Travel Order': 'Trav_Ord', 'Special Order': 'Spe_Ord', 'Authority to Travel Abroad': 'Auth_Travel', 'Certificate of Travel': 'Cert_Travel' })) {
+    const context = vm.createContext({})
+    vm.runInContext(source, context)
+    const accessed = []
+    context.getDocumentSession = () => true
+    context.jsonResponse = value => value
+    context.mainFilesSheet = () => { throw new Error('MAIN Files must not be read') }
+    context.documentFromRow = () => ({ id: 'known', type, status: 'Draft' })
+    context.appSpreadsheet = () => ({ getSheetByName(sheetName) {
+      accessed.push(sheetName)
+      assert.equal(sheetName, name)
+      return { getLastRow: () => 2, getRange: () => ({
+        getDisplayValues: () => [['reference']],
+        getNotes: () => [[JSON.stringify({ registry: ['known'], form: { body: 'Preview content' } })]],
+      }) }
+    } })
+    const result = context.documentPage({ id: 'known', type, token: 'valid' })
+    assert.equal(result.success, true)
+    assert.equal(result.form.body, 'Preview content')
+    assert.deepEqual(accessed, [name])
+    assert.equal(context.documentPage({ id: 'unknown', type, token: 'valid' }).success, false)
+  }
+})
+
 test('status updates transfer one registry row even with 10,000 documents', () => {
   let reads = 0, noteReads = 0, released = false, saved
   const context = vm.createContext({

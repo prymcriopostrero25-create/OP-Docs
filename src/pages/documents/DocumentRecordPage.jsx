@@ -99,7 +99,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
 
     previewDialog.current.showModal()
     let cancelled = false
-    documentPage(preview.reference).then(result => {
+    documentPage(preview.reference, preview.type).then(result => {
       if (cancelled) return
       setPageContent({ ...result, type: result.type || preview.type })
       if (result.deploymentRequired) setPreviewError('Page preview needs the latest Apps Script deployment. Showing the registered PDF when ready. Update the existing web app to a new version, then retry.')

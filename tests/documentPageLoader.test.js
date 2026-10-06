@@ -2,6 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { loadDocumentPage } from '../src/lib/documentPageLoader.js'
 
+test('preview includes its document type in the page request', async () => {
+  let payload
+  await loadDocumentPage('memo-1', async request => { payload = request; return { form: {} } }, 'Executive Memorandum')
+  assert.deepEqual(payload, { action: 'documentPage', id: 'memo-1', type: 'Executive Memorandum' })
+})
+
 test('current deployment loads page directly', async () => {
   const calls = []
   const result = await loadDocumentPage('doc', async request => { calls.push(request); return { form: { body: 'Page' } } })

@@ -1,6 +1,6 @@
-export async function loadDocumentPage(id, request) {
+export async function loadDocumentPage(id, request, type) {
   try {
-    return await request({ action: 'documentPage', id })
+    return await request({ action: 'documentPage', id, ...(type ? { type } : {}) })
   } catch (error) {
     if (!/^Unsupported action\.?$/i.test(error.message || '')) throw error
     // Older deployments already expose saved forms to administrators.

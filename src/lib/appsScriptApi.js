@@ -236,4 +236,4 @@ export async function uploadPdf(file, uploadId, filing) {
   return (await documentRequest({ action: 'uploadDocument', name: file.name, data, uploadId, type: filing.type, year: filing.year })).document
 }
 
-export const documentPage = id => loadDocumentPage(id, documentRequest)
+export const documentPage = (id, type) => loadDocumentPage(id, documentRequest, type)

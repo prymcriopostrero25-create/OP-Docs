@@ -140,10 +140,11 @@ function logCreatedDocument(sheet, record, data, internalId, snapshot, metadata)
 }
 
 // Form-tab ID notes hold workflow metadata without adding visible columns.
-function createdRegistryEntries() {
+function createdRegistryEntries(documentType) {
   const entries = [];
   const spreadsheet = appSpreadsheet();
   Object.entries(CREATED_DOCUMENT_SHEETS).forEach(([type, name]) => {
+    if (documentType && type !== documentType) return;
     const sheet = spreadsheet.getSheetByName(name);
     if (!sheet || sheet.getLastRow() < 2) return;
     const count = sheet.getLastRow() - 1;
@@ -540,7 +541,9 @@ function doPost(e) {
 function documentPage(request) {
   if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
   try {
-    const entry = workflowDocument(request.id, true);
+    if (request.type && !Object.prototype.hasOwnProperty.call(CREATED_DOCUMENT_SHEETS, request.type)) throw new Error('Unsupported document type.');
+    const entry = workflowDocument(request.id, true, request.type);
+    if (request.type && entry.record.type !== request.type) throw new Error('Document was not found in this document type.');
     return jsonResponse({ success: true, form: entry.metadata.form ? { ...loadRichBodyForm(entry.metadata.form), status: entry.record.status, approvedAt: entry.record.approvedAt } : null, type: entry.record.type });
   } catch (error) { return jsonResponse({ success: false, message: error.message }); }
 }
@@ -1861,9 +1864,12 @@ function manageAccount(request, user) {
 
 // Preview reads transfer one row rather than the entire growing register.
 // Resolve again under the migration lock: deletes can shift row positions.
-function workflowDocument(id, targeted) {
+function workflowDocument(id, targeted, documentType) {
+  if (typeof id !== 'string' || !id) throw new Error('Document was not found.');
+  const typedEntry = documentType ? createdRegistryEntries(documentType).find(entry => entry.record.id === id) : null;
+  if (typedEntry) return { ...typedEntry, cell: typedEntry.sheet.getRange(typedEntry.row, 1) };
   function fromForm() {
-    const entry = createdRegistryEntries().find(entry => entry.record.id === id);
+    const entry = documentType ? null : createdRegistryEntries().find(entry => entry.record.id === id);
     if (!entry) throw new Error('Document was not found.');
     return { ...entry, cell: entry.sheet.getRange(entry.row, 1) };
   }
