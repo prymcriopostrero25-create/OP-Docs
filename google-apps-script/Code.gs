@@ -108,7 +108,7 @@ function createdDocumentLogSnapshot(sheet) {
   return { lastRow: lastRow, rows: range ? range.getDisplayValues() : [], notes: range ? range.getNotes() : [] };
 }
 
-function logCreatedDocument(sheet, record, data, internalId, snapshot) {
+function logCreatedDocument(sheet, record, data, internalId, snapshot, metadata) {
   const { lastRow, rows, notes } = snapshot || createdDocumentLogSnapshot(sheet);
   const existing = rows.findIndex((row, index) => {
     let note = {};
@@ -127,12 +127,49 @@ function logCreatedDocument(sheet, record, data, internalId, snapshot) {
         ? [internalId, record.id, label, data.recipientName || data.recipient, data.recipientPosition, data.institution, data.thru, record.subject, record.date, data.body || data.content, record.status, data.additionalInstitution]
       : [internalId, record.id, label, data.recipientPosition, data.institution, data.thru, record.subject, record.date, data.body || data.content, record.status, data.additionalInstitution];
   // Keep the file URL on the ID, preserving the PDF's exact column count.
-  sheet.getRange(row, 1).setNote(JSON.stringify({ createdDocumentId: internalId, reference: record.id, url: record.url }));
   sheet.getRange(row, 1, 1, values.length).setRichTextValues([values.map((value, index) => {
     const builder = SpreadsheetApp.newRichTextValue().setText(String(value || ''));
     if (index === 0 && record.type !== 'Travel Order') builder.setLinkUrl(record.url);
     return builder.build();
   })]);
+  let previous = {};
+  try { previous = JSON.parse(existing >= 0 ? notes[existing][0] || '{}' : '{}'); } catch (error) { /* Legacy note. */ }
+  sheet.getRange(row, 1).setNote(JSON.stringify({ ...previous, ...metadata, createdDocumentId: internalId, reference: record.id, url: record.url,
+    registry: [record.activity, record.id, record.date, record.subject, record.url] }));
+  return row;
+}
+
+// Form-tab ID notes hold workflow metadata without adding visible columns.
+function createdRegistryEntries() {
+  const entries = [];
+  const spreadsheet = appSpreadsheet();
+  Object.entries(CREATED_DOCUMENT_SHEETS).forEach(([type, name]) => {
+    const sheet = spreadsheet.getSheetByName(name);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    const count = sheet.getLastRow() - 1;
+    const ids = sheet.getRange(2, 1, count, 1).getDisplayValues();
+    const notes = sheet.getRange(2, 1, count, 1).getNotes();
+    ids.forEach((value, index) => {
+      if (!value[0]) return;
+      let metadata;
+      try { metadata = JSON.parse(notes[index][0] || '{}'); } catch (error) { return; }
+      if (!metadata || !Array.isArray(metadata.registry) || metadata.deleted) return;
+      const record = documentFromRow(metadata.registry, JSON.stringify(metadata));
+      if (!record.id || record.type !== type) return;
+      entries.push({ sheet: sheet, row: index + 2, metadata: metadata, record: record, created: true });
+    });
+  });
+  return entries;
+}
+
+function registeredDocuments(mainWidth) {
+  const sheet = mainFilesSheet();
+  const rows = sheetDataRows(sheet, 1, mainWidth || 5);
+  const notes = rows.length ? sheet.getRange(2, 2, rows.length, 1).getNotes() : [];
+  const records = rows.map((row, index) => documentFromRow(row, notes[index][0])).filter(record => record.id && !record.deleted);
+  const seen = new Set(records.map(record => record.id));
+  createdRegistryEntries().forEach(entry => { if (!seen.has(entry.record.id)) { records.push(entry.record); seen.add(entry.record.id); } });
+  return records;
 }
 
 function syncCreatedDocumentStatus(type, internalId, status) {
@@ -180,6 +217,58 @@ function canChangeDocumentStatus(token) {
   return !!account && ['admin', 'super admin'].includes(account.role);
 }
 
+// Bundled from public/esign.png for approved native documents and PDF exports.
+const PRESIDENT_SIGNATURE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAANMAAABUCAYAAAAYsgK5AAAKgElEQVR4nO2df4weRRnHP9eXu/JCsdDY2IqeOY2Q1labVEgj8iP1BxABbUGSYiEVAmm8ojVYLZookgIxarSg8iNW+SWgoEithVoUTCTVCiolqalpVYw1bSrW1guFo3evfzyzeWfnnd29e9/Zfd933+eTbHZ3dt59573b787MM8880zd79mwUpUOYBoyaDWDAOu54prS7AErPMxMRDcAIcfEUKaQBqxxNcUyggihKsxzwpFURIY0V8P0zgEGzjQK7zTZpVExKp1AFjpjjI2kZJ8EAUAGmA6cDZwOnIrXhKPAP4EZEUNPM91bN8chkv0zFpLSbqWb/CtBnjiuIEMbIburVzH4Q+AAimoVmc3kO2A48gdQ+u4C/mX3V5GlayCompd24YomMDmkP9SAwHxHMDSn5XgBWI2LZm1GOlmtDFZPSbuzmndu8mgXsQ0SzBLgImJdyr7uAu4Ftk/j+CoH6Ziompd3YNYItpFXAF4A3pHz2x8A1wH9a+P5gRg4Vk9IqfdlZJsRC4HLgkyl5ngG+Cmy00moJeQtHxaS0kyHgO8C5KXluAH5tto5GxaQUzSCwDliekud+YANdICAbFZNSBAPACuCLwBsT8jyJWN52FlOk8KiYlFAkWcVuAT6X8Jk9wBpk3CfUQG3bUDEpobCFNAT8BHhXQt4twJeQAdSOMSC0ijq6KiEZBDYhNY5PSJ9BnrnzESFVMu43K2jpckZrJiUEA8CX8TfnXgM+StycHZE1xrOvxXIViopJmShJ40kXAo950nchInohtxJ1GNrMU5plHTBOo5C2A0uBd9BDQgKtmZRs3NmuC4BfAK938o0hNdGjxRSr89CaScnCFtLjwB+IC2kn8DHkxdyzQgKtmRQ/bv/oMsQrwWUY+D4lGCMKgYpJcbGFVEGscS73Id4Kh4GjBZSpK9BmntLnbBE/wC+kM4ErESHp82OhfwzFZQFipVvmpG8A+oHfWmk+sfUs2sxTQJpzxwMvIsFHXFYis1iVFLRm6m2iZt3ngf/SKKTDwBnUhVS1rmW5AvUcWjMp4wnpw8Dt1nkVEVDkmKqGBwetmXqX2/AL6S/AacSFBDIoa8doqKLEyKNmmo90Yu/L4d5K6wwifSMfXwM+a47dqRGvWsdT0bGlBkLXTJuAHcC9wEOB7620zp0kC2kZdSHZ+PpGr3rSep6+wKtguG+ztyAhaJX2shj4ZcK1bwDfQiKb2mRN2jsGMVi81FrRykPImmmmJ+3MgPdXmmMVyUJaDVxHo5BcKtTDGEccRYUUI2Sf6d+etJeZfFy1rDeie79un/bcaty5WsI9FiBOqT62AJ9ARDSRv98YxaxI0dXkbc17O/JW87W7k9KV1hgAvkuykG5FvLyzaiNlkuQtprOd81uQAUJbRDVnc33F3M3Nr9SZiawmcaXn2mbgFKRp10o4YSWBkM08nzDPs47vQcLfgkSvWWmOI4Eok+ck4KA5vg0ZaPXxFeD6QkrUw4S05lXwj4pPBU6gsU+1CFkvJ2qLR4KK2v9LECvUjcRXl3PzdbsQQ8Tqfhk41pP+d+A9pAcm6fa/X8cQqpmX9UBc4kn7Zkr+zcgKB8MmX0trjZaYxYgXg09Iw8Bb6bIIP91MCDFlCel9wB2e9EXU+05TqPeJVhBvHi4DrqZe1ijfFHrXHep1iIie9FzbjEQMct2BlJwJ/TAe9KRtTsm/gLgxooJ/JbglzRepdEQe3j5WAhcAPzfn04ookCKEEJPd5vYFGrQZJj6hbK3Z9yFCOgvxHXNZbOU5xeyjGup2U4brybYE+raiiBYrhuaGBeYhtdE6z7W7kd9yJ3FL5/9otH6qNTQnQtVMNeQfnbYEyPPI+MdvrLSPEI90sybl8/PNfo/ZvxlZ/CqyCt6MBP5w8T20M1K+Jy9GqRtb0gZB3f/JNCS01o6E/B8EPt5y6ZSWCd1neiAhzz3AuxHBueGgoqbIFOJ9JZfLnfN7kZW1be5Hlm2sEH/7R8cXA39GLIt7PPfMmyrxppdP6Pa0iEuQCXrv9+S7CTgR2GqlabOujYS25o0iriou11jHW51rHzL7VU76U875p6k/LGcB700oy1pP2lNI8/Jh4FSTNoSIvIbEybbJy3p4hPicoKTaaS4iqh95rm0E3on0LQ8TL+uIJ79SECHGmdx+x3nEjQ77gTcRHx9yA3H0I53q462045DxEzcfyDSCpEWzos++hrws/og8nFlsBD48gXwhqCIiGEEGzm1RPY+/vP8CrgB+5aRrv6dDaLVm8pmon3XypK2WHVElLqRxRAyu6KYjD6ErJLfpGNVaDzMxIQFchIS3ypsBsx1CfucY8nu2IL/XV95bkTEjV0gQb8pOR2fAto2QpvHoXj7zuE2NxjGQw875OWb/Qyd9LWLEsLkZuNRJuwu4ChGIzYVI7daPWMeec65fBvw1odwhqCBN4UPmfAhprr2IWCxdNiIuQ6uJhym2sY0ah9AZsG2j1WZe1MSLhDTu7CP6ERHNBvaSHCkUxEJ3jjmuII6bacwBdqfcL2I5jeIcA76O9Mds1pu0yPE21L7flLOGGFCSDCCHEEvnRBZI1mZeh9BqzRSNVYxRF1CNxpH5qrn+T3P9KP4p0lA3j0f33Z3y/Y8i6wCNAQ+m5BumbmkcI26avg55cG0+ZX5D1IwNtT8O+L35bT4h7UeCmZwEPE32GJEKqYMIaRq3/7Fuk2SOk78PCd7hci3xdU5rpM/Wvdg6Xp+SzxaSj02IqGwiv7e51P9OzexPBr6HvEAOAgsTynAFsuzks6hIupK8fNtcE61vSjvImxpkItty4NvIA2xv+4Gfej57tXO+PeE75lHvoyQxjsRCOMNzbQfye5Z6ypa0nYh4ZGxH+kMrUr77AuTlotGcupy8glC6k8+SBhNfYWKCXooYB65CLGHrgUc8+eYgg7IRi5D1g6Bx0S4f2xDr434n/VjqYz57kL7XXuR3bUOasXNNGU/L/DVy/2vNb9BaqCQUJaaTA9zzAZI9LCJ2IR7VpyNLQNrzoLKEVEGagQcQgT8OnOvJ9zbE2bQZ7kAiAe3Myqh0H+2umfJgBP94TBZuf+p85CXwO9IHiLP4GeL18Qg6t6jU5CWmsri17EW8N0CamGsQr/UsnkFqoK1ovIWeIS8xuU0q3zIl3cYGs0XMQDzZh8z5PuBPaO3Ts+QlJjeKa5rjaLd2wF9CxoKebm8xlE4hL9O4a4rW+HhK6clLTG5TR8WklJ68xOR2ulVMSunJS0yu53JZrHuKkkhRobJ0WoBSevISk9us02aeUnpCismevu6awk/w5O9Wk7iieAkdNy/Cdc1J8s1TQSmloahmXpaTqaJ0PUWJSQPvK6VHxaQogchLTO6UCx1nUkpPXmJyDQ5Z08YVpevJS0xDznk7AuUrSqEUVTO54lKU0pGXmGY55we8uRSlRBQV6ksNEErpKcprXB1dldJTlNe4ekAopScvMbkBVNRrXCk9eYnJNYVrzaSUnqI8ILTPpJSevMTk+uKpNU8pPSHFZK8XtMO5ts1cq1r5tB+llIq8glDehPSTZgBPUF8BzxbQANr8U0pEiNXWFUWhuHEmdwXwirNXlK7n/0o0EWFuC3fPAAAAAElFTkSuQmCC';
+function syncApprovalSignature(file, form, status) {
+  if (!form || file.getMimeType() !== 'application/vnd.google-apps.document') return;
+  const doc = DocumentApp.openById(file.getId());
+  const body = doc.getBody();
+  const marker = 'op-president-approval-signature';
+  const name = String(form.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.').trim();
+  const signed = ['Approved', 'Out'].includes(status) && /^EDGARDO H\. ROSALES\b/i.test(name);
+  let changed = false;
+  function visit(container) {
+    for (let i = container.getNumChildren() - 1; i >= 0; i--) {
+      const child = container.getChild(i);
+      if (child.getType() === DocumentApp.ElementType.PARAGRAPH) {
+        const paragraph = child.asParagraph();
+        for (let j = paragraph.getNumChildren() - 1; j >= 0; j--) {
+          const part = paragraph.getChild(j);
+          if (part.getType() === DocumentApp.ElementType.INLINE_IMAGE && part.asInlineImage().getAltTitle() === marker) {
+            if (signed) return true;
+            paragraph.removeChild(part);
+            changed = true;
+            if (!paragraph.getText() && i < container.getNumChildren() - 1) container.removeChild(paragraph);
+            break;
+          }
+        }
+      } else if (child.getType() === DocumentApp.ElementType.TABLE) {
+        const table = child.asTable();
+        for (let r = 0; r < table.getNumRows(); r++) for (let c = 0; c < table.getRow(r).getNumCells(); c++) {
+          if (visit(table.getCell(r, c))) return true;
+        }
+      }
+    }
+    return false;
+  }
+  const existing = visit(body);
+  if (signed && !existing) {
+    const match = body.findText('EDGARDO H[.] ROSALES');
+    if (!match) throw new Error('The president signature block could not be found.');
+    const paragraph = match.getElement().getParent().asParagraph();
+    const parent = paragraph.getParent();
+    const signature = parent.insertParagraph(parent.getChildIndex(paragraph), '');
+    signature.setIndentStart(paragraph.getIndentStart() || 0).setIndentFirstLine(paragraph.getIndentStart() || 0)
+      .setSpacingBefore(paragraph.getSpacingBefore() || 0).setSpacingAfter(0);
+    paragraph.setSpacingBefore(0);
+    const image = signature.appendInlineImage(Utilities.newBlob(Utilities.base64Decode(PRESIDENT_SIGNATURE_PNG), 'image/png', 'esign.png'));
+    const height = Math.round(135 * image.getHeight() / image.getWidth());
+    image.setWidth(135).setHeight(height).setAltTitle(marker);
+    changed = true;
+  }
+  if (changed) doc.saveAndClose();
+}
+
 function updateDocumentStatus(request) {
   if (!canChangeDocumentStatus(request.token)) return jsonResponse({ success: false, message: 'Admin access is required to change document status.' });
   if (!DOCUMENT_STATUSES.includes(request.status)) return jsonResponse({ success: false, message: 'Choose a valid document status.' });
@@ -192,6 +281,8 @@ function updateDocumentStatus(request) {
       return jsonResponse({ success: false, message: 'This document is Out and locked. It can only be previewed or downloaded.' });
     }
     const metadata = entry.metadata;
+    const fileMatch = /\/d\/([a-zA-Z0-9_-]+)/.exec(entry.record.url);
+    if (metadata.form && fileMatch) syncApprovalSignature(DriveApp.getFileById(fileMatch[1]), metadata.form, request.status);
     metadata.status = request.status;
     metadata.updated = new Date().toISOString();
     if (request.status === 'Approved' && !metadata.approvedAt) metadata.approvedAt = metadata.updated;
@@ -268,6 +359,20 @@ function mutateDocument(request) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    const created = createdRegistryEntries().find(entry => entry.record.id === request.id);
+    if (created) {
+      if (created.record.status === 'Out') throw new Error('OUT documents are locked.');
+      if (request.action === 'deleteDocument') {
+        deleteDocumentFiles(created.record, created.sheet, created.row, created.metadata.form?.bodyRichFileId, true);
+        appendActivityEvent({ ...created.record, activity: 'Deleted', date: new Date().toISOString() });
+        return jsonResponse({ success: true, deletedId: request.id, storageDeleted: true });
+      }
+      created.metadata.registry[3] = subject;
+      if (['Executive Memorandum', 'Special Order'].includes(created.record.type)) created.sheet.getRange(created.row, 8).setRichTextValue(SpreadsheetApp.newRichTextValue().setText(subject).build());
+      created.sheet.getRange(created.row, 1).setNote(JSON.stringify(created.metadata));
+      SpreadsheetApp.flush();
+      return jsonResponse({ success: true, document: { ...created.record, subject: subject } });
+    }
     const sheet = mainFilesSheet();
     const rows = sheetDataRows(sheet, 1, 5);
     const index = rows.findIndex(row => row[1] === request.id);
@@ -294,11 +399,12 @@ function mutateDocument(request) {
   } finally { lock.releaseLock(); }
 }
 
-function deleteDocumentFiles(record, mainSheet, mainRow, bodyRichFileId) {
+function deleteDocumentFiles(record, mainSheet, mainRow, bodyRichFileId, created) {
   const match = /^https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)\/(view|preview)$/.exec(record.url);
   if (!match) throw new Error('The document has an invalid Drive link. Nothing was deleted.');
   // Resolve all sheets and the exact file before making any changes.
   const logs = FILING_TYPES.map(type => {
+    if (created && !appSpreadsheet().getSheetByName(TYPE_LOG_SHEETS[type])) return { rows: [] };
     const sheet = typeLogSheet(type);
     const rows = sheetDataRows(sheet, 2, 1);
     return { sheet: sheet, rows: rows.map((row, index) => row[0] === record.id ? index + 2 : 0).filter(Boolean).reverse() };
@@ -327,7 +433,7 @@ function doPost(e) {
     overviewMayChange = ['createDocument', 'createExecutiveMemorandum', 'uploadDocument', 'editDocument', 'deleteDocument', 'updateDocumentStatus', 'updateDocumentContent', 'sendDocument', 'documentSendStatus', 'prepareDocumentPreview'].includes(request.action);
     if (request.action === 'editorCapabilities') {
       if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
-      return jsonResponse({ success: true, richBodyVersion: 1 });
+      return jsonResponse({ success: true, richBodyVersion: 1, previewEmailPdfVersion: 1 });
     }
     if (['currentUser', 'createUser', 'updateUser', 'deleteUser', 'verificationLink', 'verify', 'sendDocument', 'documentSendStatus', 'documentDetails', 'updateDocumentContent'].includes(request.action)) return workflowRequest(request);
     if (request.action === 'documentPage') return documentPage(request);
@@ -435,12 +541,13 @@ function documentPage(request) {
   if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
   try {
     const entry = workflowDocument(request.id, true);
-    return jsonResponse({ success: true, form: loadRichBodyForm(entry.metadata.form), type: entry.record.type });
+    return jsonResponse({ success: true, form: entry.metadata.form ? { ...loadRichBodyForm(entry.metadata.form), status: entry.record.status, approvedAt: entry.record.approvedAt } : null, type: entry.record.type });
   } catch (error) { return jsonResponse({ success: false, message: error.message }); }
 }
 
-// Server-owned PDF cache, keyed by Drive revision. Never accept attachment bytes
-// from the browser. Missing/evicted chunks safely fall back to a fresh export.
+// Server-owned Google Docs export cache, keyed by Drive revision.
+// Preview email attachments are validated separately by previewEmailPdf.
+// Missing/evicted chunks safely fall back to a fresh export.
 function preparedDocumentPdf(file) {
   const native = file.getMimeType() === 'application/vnd.google-apps.document';
   if (!native) return file.getBlob();
@@ -525,8 +632,9 @@ function prepareDocumentPreview(request) {
         } finally { lock.releaseLock(); }
       }
     }
+    syncApprovalSignature(file, entry.metadata.form, entry.record.status);
     const pdf = preparedDocumentPdf(file);
-    return jsonResponse({ success: true, certificateLayoutVersion: certificateLayoutVersion, authorityLayoutVersion: authorityLayoutVersion, native: native, fileId: file.getId(), name: file.getName().replace(/\.pdf$/i, '') + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) });
+    return jsonResponse({ success: true, certificateLayoutVersion: certificateLayoutVersion, authorityLayoutVersion: authorityLayoutVersion, native: native, fileId: file.getId(), name: String(entry.record.id).replace(/\.pdf$/i, '') + '.pdf', data: Utilities.base64Encode(pdf.getBytes()) });
   } catch (error) {
     return jsonResponse({ success: false, message: 'Unable to prepare the PDF. ' + error.message });
   }
@@ -720,10 +828,7 @@ function activityFromRow(row) {
 }
 
 function getActivityLogs() {
-  const mainSheet = mainFilesSheet();
-  const mainRows = sheetDataRows(mainSheet, 1, 5);
-  const notes = mainRows.length ? mainSheet.getRange(2, 2, mainRows.length, 1).getNotes() : [];
-  const current = mainRows.map((row, index) => documentFromRow(row, notes[index][0])).filter(record => record.id && !record.deleted);
+  const current = registeredDocuments();
   let events = [];
   const sheet = appSpreadsheet().getSheetByName('ACTIVITY LOG');
   if (sheet && sheet.getLastRow() > 1) events = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getDisplayValues().map(activityFromRow).filter(record => record.id);
@@ -731,10 +836,7 @@ function getActivityLogs() {
 }
 
 function getDocuments() {
-  const sheet = mainFilesSheet();
-  const rows = sheetDataRows(sheet, 1, 5);
-  const notes = rows.length ? sheet.getRange(2, 2, rows.length, 1).getNotes() : [];
-  return jsonResponse({ success: true, documents: rows.map((row, index) => documentFromRow(row, notes[index][0])).filter((record) => record.id && !record.deleted).reverse() });
+  return jsonResponse({ success: true, documents: registeredDocuments().reverse() });
 }
 
 // Return chart counts only. No activity history, document bodies or Drive reads.
@@ -748,12 +850,8 @@ function getOverview(request) {
       if (summary && typeof summary.total === 'number' && summary.types && summary.statuses && summary.months) return jsonResponse({ success: true, summary: summary });
     }
   } catch (error) { /* Cache failures fall back to reading the register. */ }
-  const sheet = mainFilesSheet();
-  const rows = sheetDataRows(sheet, 1, 3);
-  const notes = rows.length ? sheet.getRange(2, 2, rows.length, 1).getNotes() : [];
   const summary = { total: 0, types: {}, statuses: {}, months: {} };
-  rows.forEach((row, index) => {
-    const record = documentFromRow(row, notes[index][0]);
+  registeredDocuments(3).forEach(record => {
     if (!record.id || record.deleted || record.id === '1cb7ca84-b1d8-420a-a4ce-84dc89f79281') return;
     summary.total++;
     const type = record.type || 'Unclassified';
@@ -1460,6 +1558,23 @@ function validateTemplateDocument(request, type) {
 }
 
 // Called under the creation lock. Persist reservations so retries keep their number.
+function creationReferenceLog(sheet, type) {
+  const snapshot = createdDocumentLogSnapshot(sheet);
+  const referenceColumn = ['Executive Memorandum', 'Special Order'].includes(type) ? 2 : 1;
+  const values = snapshot.rows.length ? sheet.getRange(2, referenceColumn, snapshot.rows.length, 1).getDisplayValues() : [];
+  const rows = values.map((row, index) => {
+    let note = {};
+    try { note = JSON.parse(snapshot.notes[index][0] || '{}'); } catch (error) { /* Legacy note. */ }
+    const reference = note.reference || row[0];
+    const year = note.year || /(?:s\.\s*|[- ])((?:19|20)\d{2})\b/.exec(reference || '')?.[1] || '';
+    return [reference, year];
+  });
+  // Include existing sent/legacy category references without requiring that tab.
+  const category = appSpreadsheet().getSheetByName(TYPE_LOG_SHEETS[type]);
+  if (category && category.getLastRow() > 1) rows.push(...sheetDataRows(category, 2, 2));
+  return { getLastRow: () => rows.length + 1, getRange: () => ({ getDisplayValues: () => rows }) };
+}
+
 function reserveDocumentReference(request, data, automaticDate, categorySheet) {
   const properties = PropertiesService.getScriptProperties();
   const owner = CacheService.getScriptCache().get('session:' + request.token);
@@ -1513,13 +1628,11 @@ function createDocument(request) {
     locked = true;
     stage = 'checking MAIN Files first-row headers';
     const sheet = mainFilesSheet();
-    stage = 'checking ' + TYPE_LOG_SHEETS[type] + ' first-row headers';
-    const logSheet = typeLogSheet(type);
     stage = 'checking ' + CREATED_DOCUMENT_SHEETS[type] + ' first-row headers';
     const creationSheet = createdDocumentSheet(type);
     stage = 'prepare';
     if (autoReference) {
-      const reserved = reserveDocumentReference(request, data, automaticDate, logSheet);
+      const reserved = reserveDocumentReference(request, data, automaticDate, creationReferenceLog(creationSheet, type));
       data.reference = reserved.reference;
       data.date = reserved.date;
       data.year = reserved.year;
@@ -1540,7 +1653,6 @@ function createDocument(request) {
     });
     const creationSnapshot = createdDocumentLogSnapshot(creationSheet);
     const creationRows = creationSnapshot.rows;
-    const hasLogEvidence = existingTypeLogRow(logSheet, id);
     const hasCreationEvidence = creationRows.some((row, i) => {
       if (row[0] === key) return true;
       try { return Boolean(row[0]) && JSON.parse(creationSnapshot.notes[i][0] || '{}').createdDocumentId === key; }
@@ -1548,17 +1660,13 @@ function createDocument(request) {
     });
     const hasMainRowEvidence = index >= 0;
     const hasRecoveryEvidence = Boolean(state && (state.fileId || state.allocationName));
-    // An orphaned property record with no related MAIN Files row, type log row, or
-    // created-document short log evidence is stale. Remove it so a new request can
-    // reserve the same document number instead of being blocked as a duplicate.
-    if (state && !hasMainRowEvidence && !hasLogEvidence && !hasCreationEvidence && !hasRecoveryEvidence) {
+    // Ignore orphaned reservations with no saved row or recoverable Drive allocation.
+    if (state && !hasMainRowEvidence && !hasCreationEvidence && !hasRecoveryEvidence) {
       properties.deleteProperty(key);
       state = null;
     }
-    // A Drive file or reservation alone is not a completed creation. Legacy attempts
-    // have no completion flag, so verify all three registry entries as well.
-    const completed = state && (state.completed === true || (state.completed === undefined && hasMainRowEvidence &&
-      hasLogEvidence && hasCreationEvidence));
+    // Legacy attempts need form and register evidence; new saves have a completion flag.
+    const completed = state && (state.completed === true || (state.completed === undefined && hasMainRowEvidence && hasCreationEvidence));
     const recoverReservation = state && !completed && state.owner === owner;
     if ((state || index >= 0) && (!state || (state.requestId !== request.requestId && !recoverReservation) || state.owner !== owner)) return jsonResponse({ success: false, message: id + ' already exists.' });
     if (state && state.fingerprint !== fingerprint) {
@@ -1569,6 +1677,9 @@ function createDocument(request) {
         state.rendered = false;
       } else return jsonResponse({ success: false, message: 'This number belongs to an unfinished attempt with different fields. Restore the original fields to resume it safely.' });
     }
+    const savedEntry = createdRegistryEntries().find(entry => entry.metadata.createdDocumentId === key);
+    if (completed && !savedEntry && index < 0) throw new Error('The saved form row was removed. Start a new creation request.');
+    if (completed && savedEntry) return jsonResponse({ success: true, document: savedEntry.record });
     if (completed && index >= 0) return jsonResponse({ success: true, document: documentFromRow(rows[index], sheet.getRange(index + 2, 2).getNote()) });
     if (recoverReservation) state.requestId = request.requestId;
     const saveState = () => properties.setProperty(key, JSON.stringify(state));
@@ -1627,29 +1738,18 @@ function createDocument(request) {
       if (root.isTrashed()) throw new Error('The destination folder is in the trash.');
       const folder = filingSubfolder(filingSubfolder(root, type), data.year);
       file.moveTo(folder);
+      syncApprovalSignature(file, data, state.status);
       state.rendered = true;
       saveState();
     }
     stage = 'registry';
     const record = { activity: type.toUpperCase(), id: id, date: executiveMemoDate(data.date), subject: data.subject, url: 'https://drive.google.com/file/d/' + state.fileId + '/view', type: type, year: data.year, status: state.status };
-    const row = index >= 0 ? index + 2 : sheet.getLastRow() + 1;
-    if (index < 0) {
-      const values = [record.activity, id, record.date, record.subject, record.url].map((value, i) => {
-        const builder = SpreadsheetApp.newRichTextValue().setText(value);
-        if (i === 4) builder.setLinkUrl(value);
-        return builder.build();
-      });
-      sheet.getRange(row, 1, 1, 5).setRichTextValues([values]);
-    }
-    const cell = sheet.getRange(row, 2);
-    let metadata = {};
-    try { metadata = JSON.parse(cell.getNote() || '{}') || {}; } catch (error) { /* Repair a partial registry write. */ }
+    const metadata = savedEntry ? savedEntry.metadata : {};
+    if (['Approved', 'Out'].includes(metadata.status || record.status) && !metadata.approvedAt) metadata.approvedAt = new Date().toISOString();
     const storedData = storeRichBodyForm(data, file, state.bodyRichFileId);
     if (storedData.bodyRichFileId && state.bodyRichFileId !== storedData.bodyRichFileId) { state.bodyRichFileId = storedData.bodyRichFileId; saveState(); }
     const savedNote = JSON.stringify({ ...metadata, type: record.type, year: record.year, status: metadata.status || record.status, owner: owner, form: { ...storedData, travelFrom: request.travelFrom || '', travelUntil: request.travelUntil || '', templateVersion: request.templateVersion || 1, type: type, signatoryPosition: data.position || request.signatoryPosition || '' }, createdDocumentId: key });
-    cell.setNote(savedNote);
-    if (!hasLogEvidence) writeTypeLog(logSheet, logSheet.getLastRow() + 1, { ...record, date: new Date().toISOString() });
-    logCreatedDocument(creationSheet, { ...record, status: metadata.status || record.status }, data, key, creationSnapshot);
+    logCreatedDocument(creationSheet, { ...record, status: metadata.status || record.status }, data, key, creationSnapshot, JSON.parse(savedNote));
     SpreadsheetApp.flush();
     state.completed = true;
     saveState();
@@ -1659,7 +1759,7 @@ function createDocument(request) {
     if (stage.startsWith('checking ')) return jsonResponse({ success: false, message: 'Creation failed while ' + stage + '. ' + String(error && error.message || error) });
     if (type === 'Travel Order' && stage !== 'registry') return jsonResponse({ success: false, message: 'Unable to create Travel Order during ' + stage + ': ' + String(error && error.message || error) + ' Retry the same form after correcting this error.' });
     if (stage === 'allocate') return jsonResponse({ success: false, message: 'Google Docs creation could not finish. The deployment owner should run checkCreateDocumentSetup in Apps Script and authorize access, then update the web app deployment. Retry the same fields afterward; the reserved number can be recovered automatically.' });
-    return jsonResponse({ success: false, message: stage === 'registry' ? 'Document was created, but MAIN Files or the ' + CREATED_DOCUMENT_SHEETS[type] + ' / category log could not be updated. Retry with the same fields to finish logging without creating another document.' : 'Unable to create ' + type + '. Please retry with the same fields. If this persists, ask the administrator to check document access and sheet configuration.' });
+    return jsonResponse({ success: false, message: stage === 'registry' ? 'Document was created, but the ' + CREATED_DOCUMENT_SHEETS[type] + ' form tab could not be updated. Retry with the same fields to finish logging without creating another document.' : 'Unable to create ' + type + '. Please retry with the same fields. If this persists, ask the administrator to check document access and sheet configuration.' });
   } finally { if (locked) lock.releaseLock(); }
 }
 
@@ -1762,21 +1862,27 @@ function manageAccount(request, user) {
 // Preview reads transfer one row rather than the entire growing register.
 // Resolve again under the migration lock: deletes can shift row positions.
 function workflowDocument(id, targeted) {
+  function fromForm() {
+    const entry = createdRegistryEntries().find(entry => entry.record.id === id);
+    if (!entry) throw new Error('Document was not found.');
+    return { ...entry, cell: entry.sheet.getRange(entry.row, 1) };
+  }
   const sheet = mainFilesSheet();
   let row, values;
   if (targeted) {
     const lastRow = sheet.getLastRow();
-    if (typeof id !== 'string' || !id || lastRow < 2) throw new Error('Document was not found.');
+    if (typeof id !== 'string' || !id) throw new Error('Document was not found.');
+    if (lastRow < 2) return fromForm();
     const match = sheet.getRange(2, 2, lastRow - 1, 1).createTextFinder(id)
       .matchEntireCell(true).matchCase(true).useRegularExpression(false).findNext();
-    if (!match) throw new Error('Document was not found.');
+    if (!match) return fromForm();
     row = match.getRow();
     values = sheet.getRange(row, 1, 1, 5).getDisplayValues()[0];
     if (values[1] !== id) throw new Error('Document was not found. Please retry.');
   } else {
     const rows = sheetDataRows(sheet, 1, 5);
     const index = rows.findIndex(value => value[1] === id);
-    if (index < 0) throw new Error('Document was not found.');
+    if (index < 0) return fromForm();
     row = index + 2;
     values = rows[index];
   }
@@ -1812,7 +1918,12 @@ function verifyRegisteredDocument(code) {
   const count = sheet.getLastRow() - 1;
   const notes = count > 0 ? sheet.getRange(2, 2, count, 1).getNotes() : [];
   const index = notes.findIndex(note => { try { return JSON.parse(note[0]).verificationCode === code; } catch (error) { return false; } });
-  if (index < 0) throw new Error('No registered document matches this code.');
+  if (index < 0) {
+    const created = createdRegistryEntries().find(entry => entry.metadata.verificationCode === code);
+    if (!created) throw new Error('No registered document matches this code.');
+    const record = created.record;
+    return jsonResponse({ success: true, document: { id: record.id, type: record.type, date: record.date, status: record.status } });
+  }
   const row = sheet.getRange(index + 2, 1, 1, 5).getDisplayValues()[0];
   const record = documentFromRow(row, notes[index][0]);
   if (record.deleted) throw new Error('This record is no longer available.');
@@ -1842,11 +1953,15 @@ function updateDocumentContent(request) {
     const doc = DocumentApp.openById(file.getId());
     if (entry.record.type === 'Executive Memorandum') renderExecutiveMemorandum(doc, data, logo);
     else renderCreatedDocument(doc, data, entry.record.type, logo);
+    syncApprovalSignature(file, data, entry.record.status);
     const storedData = storeRichBodyForm(data, file, entry.metadata.form.bodyRichFileId);
     entry.metadata.form = { ...storedData, travelFrom: request.travelFrom || '', travelUntil: request.travelUntil || '', type: entry.record.type, templateVersion: 2, signatoryPosition: data.position || request.signatoryPosition || '' };
     entry.metadata.updated = new Date().toISOString();
     entry.cell.setNote(JSON.stringify(entry.metadata));
-    entry.sheet.getRange(entry.row, 4).setRichTextValue(SpreadsheetApp.newRichTextValue().setText(data.subject).build());
+    if (entry.created) {
+      entry.metadata.registry[3] = data.subject;
+      entry.cell.setNote(JSON.stringify(entry.metadata));
+    } else entry.sheet.getRange(entry.row, 4).setRichTextValue(SpreadsheetApp.newRichTextValue().setText(data.subject).build());
     logCreatedDocument(createdDocumentSheet(entry.record.type), { ...entry.record, subject: data.subject }, data, entry.metadata.createdDocumentId);
     appendActivityEvent({ ...entry.record, activity: 'Document content edited', date: entry.metadata.updated });
     return jsonResponse({ success: true, document: { ...entry.record, subject: data.subject, updated: entry.metadata.updated } });
@@ -1870,10 +1985,27 @@ function prepareEmailAttachment(request) {
     const file = match && DriveApp.getFileById(match[1]);
     if (!file || file.isTrashed()) throw new Error('The registered file is unavailable.');
     if (!['application/vnd.google-apps.document', 'application/pdf'].includes(file.getMimeType())) throw new Error('Unsupported document format.');
+    syncApprovalSignature(file, entry.metadata.form, entry.record.status);
     const pdf = preparedDocumentPdf(file);
     if (pdf.getBytes().length > 20 * 1024 * 1024) throw new Error('This PDF exceeds the 20 MB email attachment limit.');
-    return jsonResponse({ success: true, name: file.getName().replace(/\.pdf$/i, '') + '.pdf', revision: file.getLastUpdated ? String(file.getLastUpdated().getTime()) : '' });
+    return jsonResponse({ success: true, name: String(entry.record.id).replace(/\.pdf$/i, '') + '.pdf', revision: file.getLastUpdated ? String(file.getLastUpdated().getTime()) : '' });
   } catch (error) { return jsonResponse({ success: false, message: error.message }); }
+}
+
+// An authenticated admin may email the exact PDF rendered from the saved form.
+// Bind it to the current registered revision and enforce the attachment limit.
+function previewPdfHash(preview) {
+  if (!preview || typeof preview.data !== 'string' || !preview.data.length || preview.data.length > Math.ceil(20 * 1024 * 1024 / 3) * 4 || !/^[A-Za-z0-9+/=]+$/.test(preview.data)) throw new Error('Invalid or oversized preview PDF.');
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, preview.data));
+}
+function previewEmailPdf(preview, entry) {
+  if (!entry.metadata.form) throw new Error('This record does not support a rendered preview attachment.');
+  if (!preview.revision || preview.revision !== entry.record.updated) throw new Error('The document changed after this preview was prepared. Close and reopen the preview.');
+  const bytes = Utilities.base64Decode(preview.data);
+  if (bytes.length > 20 * 1024 * 1024 || bytes.slice(0, 5).map(byte => String.fromCharCode(byte)).join('') !== '%PDF-') throw new Error('The preview attachment is not a valid PDF.');
+  const name = String(preview.name || 'Document.pdf');
+  if (name.length > 250 || !/\.pdf$/i.test(name) || /[\r\n]/.test(name)) throw new Error('Invalid preview PDF filename.');
+  return Utilities.newBlob(bytes, 'application/pdf', name);
 }
 
 function sendRegisteredDocument(request, user) {
@@ -1890,8 +2022,10 @@ function sendRegisteredDocument(request, user) {
     const key = 'sent:' + request.requestId;
     const prior = JSON.parse(props.getProperty(key) || 'null');
     const fingerprint = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([request.id, to, cc, subject, message])));
+    const previewHash = request.previewPdf ? previewPdfHash(request.previewPdf) : '';
     if (prior) {
       if (prior.id !== request.id || prior.owner !== user.email) throw new Error('Send request does not match.');
+      if ((prior.previewHash || '') !== previewHash) throw new Error('This send request already used a different PDF. Close and reopen the email form.');
       if (prior.fingerprint !== fingerprint) throw new Error('This send request already used different recipients or content. Close and reopen the email form to start a new email.');
       if (prior.state !== 'sent') throw new Error('This send attempt has an uncertain result. Check the sender mailbox before starting another email.');
       return finishDocumentSend(entry, request, to, cc);
@@ -1901,11 +2035,12 @@ function sendRegisteredDocument(request, user) {
     const file = match && DriveApp.getFileById(match[1]);
     if (!file || file.isTrashed()) throw new Error('The registered file is unavailable.');
     if (request.attachmentRevision && String(file.getLastUpdated().getTime()) !== request.attachmentRevision) throw new Error('The document changed after its attachment was prepared. Close and reopen the email form to prepare the current PDF.');
-    const pdf = preparedDocumentPdf(file);
+    if (!request.previewPdf) syncApprovalSignature(file, entry.metadata.form, entry.record.status);
+    const pdf = request.previewPdf ? previewEmailPdf(request.previewPdf, entry) : preparedDocumentPdf(file);
     if (pdf.getBytes().length > 20 * 1024 * 1024) throw new Error('This PDF exceeds the 20 MB email attachment limit.');
     const profile = Gmail.Users.getProfile('me');
-    const raw = gmailPdfMessage(user, profile.emailAddress, to, cc, subject, message, pdf, file.getName());
-    const state = { id: request.id, owner: user.email, state: 'pending', fingerprint: fingerprint };
+    const raw = gmailPdfMessage(user, profile.emailAddress, to, cc, subject, message, pdf, entry.record.id);
+    const state = { id: request.id, owner: user.email, state: 'pending', fingerprint: fingerprint, previewHash: previewHash };
     props.setProperty(key, JSON.stringify(state));
     const sent = Gmail.Users.Messages.send({ raw: raw }, 'me');
     if (!sent || !sent.id) throw new Error('Gmail did not confirm the send. Check the sender mailbox before starting another email.');
@@ -1953,6 +2088,11 @@ function documentSendStatus(request, user) {
 }
 
 function finishDocumentSend(entry, request, to, cc) {
+  // This runs only after a confirmed Gmail receipt, including recovery retries.
+  if (entry.created) {
+    const log = typeLogSheet(entry.record.type);
+    if (!existingTypeLogRow(log, entry.record.id)) writeTypeLog(log, log.getLastRow() + 1, { ...entry.record, date: new Date().toISOString() });
+  }
   entry.metadata.status = 'Out';
   entry.metadata.updated = entry.metadata.updated || new Date().toISOString();
   entry.cell.setNote(JSON.stringify(entry.metadata));
@@ -1989,6 +2129,7 @@ function gmailPdfMessage(user, sender, to, cc, subject, message, pdf, fileName) 
   const lines = data => (Utilities.base64Encode(data).match(/.{1,76}/g) || []).join('\r\n');
   const boundary = 'op_pdf_' + Utilities.getUuid();
   const name = String(fileName || 'Document').replace(/\.pdf$/i, '') + '.pdf';
+  const fallbackName = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\\r\n]/g, '_');
   const headers = [
     'From: ' + encodedHeader('J.H. Cerilles State College Office of the President') + ' <' + address(sender) + '>',
     'To: ' + to.map(address).join(', '),
@@ -2002,7 +2143,7 @@ function gmailPdfMessage(user, sender, to, cc, subject, message, pdf, fileName) 
     '', '--' + boundary, 'Content-Type: text/plain; charset=UTF-8',
     'Content-Transfer-Encoding: base64', '', lines(Utilities.newBlob(message).getBytes()),
     '--' + boundary, 'Content-Type: application/pdf',
-    'Content-Disposition: attachment; filename="document.pdf"; filename*=UTF-8\'\'' + encodeURIComponent(name).replace(/['()*]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase()),
+    'Content-Disposition: attachment; filename="' + fallbackName + '"; filename*=UTF-8\'\'' + encodeURIComponent(name).replace(/['()*]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase()),
     'Content-Transfer-Encoding: base64', '', lines(pdf.getBytes()), '--' + boundary + '--', '',
   ]).join('\r\n');
   return Utilities.base64EncodeWebSafe(Utilities.newBlob(mime).getBytes()).replace(/=+$/, '');

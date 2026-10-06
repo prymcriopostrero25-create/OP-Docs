@@ -7,6 +7,7 @@ import { authorityBody } from '../src/lib/travelAuthority.js'
 test('authority fields and wording agree between form and backend', () => {
   const context = vm.createContext({})
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  context.syncApprovalSignature = () => {} // Signature rendering is covered separately.
   const form = { authorityStructured: true, body: 'Generated wording', recipientName: 'Maria Santos', recipientPosition: 'Instructor', salaryGrade: '18', employmentStatus: 'Permanent', travelFrom: '2026-10-10', travelUntil: '2026-10-15', purpose: 'Personal leave', place: 'Japan', travelClassification: 'PERSONAL LEAVE', date: '2026-10-05', signatory: 'President', signatoryPosition: 'SUC President II', cc: 'HRMO' }
   const data = context.validateTemplateDocument(form, 'Authority to Travel Abroad')
   assert.equal(data.recipientPosition, 'Instructor')
@@ -32,6 +33,7 @@ test('PDF renderer includes authority tables, letterhead, body, signature and fo
   for (const key of ['setPageWidth', 'setPageHeight', 'setMarginLeft', 'setMarginRight', 'setMarginTop', 'setMarginBottom', 'setAttributes']) section[key] = () => section
   const context = vm.createContext({ DocumentApp: { Attribute: {}, HorizontalAlignment: { CENTER: 'center', JUSTIFY: 'justify' } } })
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  context.syncApprovalSignature = () => {} // Signature rendering is covered separately.
   const data = { authorityStructured: true, recipientName: 'Maria Santos', place: 'Japan', salaryGrade: '18', employmentStatus: 'permanent', travelClassification: 'personal leave', inclusiveDate: 'October 10, 2026', issueDate: '2026-10-05', signatory: 'Certifying Officer', position: 'President', cc: 'HRMO' }
   context.renderCreatedDocument({ getBody: () => section, getHeader: () => null, getFooter: () => section, saveAndClose() { closed = true } }, data, 'Authority to Travel Abroad', 'college-logo')
   assert.equal(insertedLogo, 'college-logo')
@@ -52,6 +54,7 @@ test('PDF renderer includes authority tables, letterhead, body, signature and fo
 test('authority saves every input in its corresponding A:P column and updates the same row', () => {
   const context = vm.createContext({})
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  context.syncApprovalSignature = () => {} // Signature rendering is covered separately.
   context.SpreadsheetApp = { newRichTextValue: () => {
     let text
     const builder = { setText(value) { text = value; return builder }, setLinkUrl() { return builder }, build() { return text } }
@@ -73,6 +76,7 @@ test('authority saves every input in its corresponding A:P column and updates th
 test('authority accepts the screenshot headers and extends only an empty legacy header tail', () => {
   const context = vm.createContext({})
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  context.syncApprovalSignature = () => {} // Signature rendering is covered separately.
   const expected = Array.from(vm.runInContext('CREATED_DOCUMENT_HEADERS.Auth_Travel', context))
   let headers = [...expected], writes = 0
   const sheet = { getLastRow: () => 2, getRange(row, col, height, width) { return {
@@ -103,6 +107,7 @@ test('existing authority wording is corrected before PDF export and only once', 
     SpreadsheetApp: { flush() {} },
   })
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  context.syncApprovalSignature = () => {} // Signature rendering is covered separately.
   context.getDocumentSession = () => true
   context.jsonResponse = value => value
   cell.createTextFinder = () => ({ matchEntireCell() { return this }, matchCase() { return this }, useRegularExpression() { return this }, findNext: () => ({ getRow: () => 2 }) })

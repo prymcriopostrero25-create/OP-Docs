@@ -137,6 +137,10 @@ export async function sendDocument(form) {
   return sendWithConfirmation(form, documentRequest)
 }
 export const prepareEmailAttachment = id => documentRequest({ action: 'prepareEmailAttachment', id })
+export async function requirePreviewEmailSupport() {
+  const result = await documentRequest({ action: 'editorCapabilities' })
+  if (result.previewEmailPdfVersion !== 1) throw new Error('Deploy the latest Code.gs as a new version of the existing Apps Script web app to email the preview PDF, then reopen this email form.')
+}
 export const documentDetails = async id => (await documentRequest({ action: 'documentDetails', id })).form
 export const updateDocumentContent = async (id, form) => {
   await requireRichBodySupport(form)

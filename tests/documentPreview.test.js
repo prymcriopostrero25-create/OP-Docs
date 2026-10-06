@@ -35,7 +35,7 @@ test('preview exports the registered Google Doc as PDF on demand', () => {
   const result = f.run()
   assert.equal(result.success, true)
   assert.equal(result.native, true)
-  assert.equal(result.name, 'Document.pdf')
+  assert.equal(result.name, 'known.pdf')
   assert.deepEqual(f.exports, ['application/pdf'])
 })
 

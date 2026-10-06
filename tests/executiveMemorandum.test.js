@@ -16,6 +16,7 @@ function fixture() {
     getRange: (r, c, n = 1, w = 1) => ({
       getDisplayValues: () => Array.from({ length: n }, (_, i) => (data[r - 1 + i] || []).slice(c - 1, c - 1 + w)),
       getNotes: () => Array.from({ length: n }, (_, i) => [shortNotes[name + ':' + (r + i)] || '']),
+      getNote: () => shortNotes[name + ':' + r] || '',
       setNote: value => { shortNotes[name + ':' + r] = value; if (!data[r - 1]) data[r - 1] = [] },
       setValues: values => { data[r - 1] = Array.from(values[0]) },
       setValue: value => { data[r - 1][c - 1] = value },
@@ -40,6 +41,7 @@ function fixture() {
   }
   vm.createContext(ctx)
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), ctx)
+  ctx.syncApprovalSignature = () => {} // Covered by approvalSignature.test.js.
   ctx.getDocumentSession = () => f.authenticated
   ctx.canChangeDocumentStatus = () => f.admin
   ctx.isSuperAdminSession = () => false
@@ -59,11 +61,11 @@ test('acceptance memorandum is saved before registry logging with uppercase subj
   const f = fixture()
   const result = f.ctx.createExecutiveMemorandum(sample)
   assert.equal(result.success, true)
-  assert.deepEqual(Array.from(f.rows[0]), ['EXECUTIVE MEMORANDUM', 'Executive Memorandum No. 203, s. 2026', 'September 9, 2026', sample.subject.toUpperCase(), 'https://drive.google.com/file/d/actual-google-doc-id/view'])
+  assert.deepEqual(Array.from(f.ctx.createdRegistryEntries()[0].metadata.registry), ['EXECUTIVE MEMORANDUM', 'Executive Memorandum No. 203, s. 2026', 'September 9, 2026', sample.subject.toUpperCase(), 'https://drive.google.com/file/d/actual-google-doc-id/view'])
   assert.equal(result.document.status, 'Draft')
   assert.equal(f.rendered.body, sample.body)
   assert.equal(f.rendered.recipient, sample.recipient)
-  assert.equal(f.log.length, 1)
+  assert.equal(f.log.length, 0)
 })
 
 test('same request retries once; different request and zero-padded equivalent cannot duplicate', () => {
@@ -72,22 +74,43 @@ test('same request retries once; different request and zero-padded equivalent ca
   assert.equal(f.ctx.createExecutiveMemorandum(sample).success, true)
   assert.match(f.ctx.createExecutiveMemorandum({ ...sample, requestId: 'different-request-203', number: '000203' }).message, /already exists/)
   assert.equal(f.allocations, 1)
-  assert.equal(f.rows.length, 1)
-  assert.equal(f.log.length, 1)
+  assert.equal(f.rows.length, 0)
+  assert.equal(f.log.length, 0)
 })
 
-test('registry and category failures are repairable without another document', () => {
-  for (const fault of ['failRegistry', 'failCategory', 'failShortLog']) {
+test('form-tab failures are repairable without another document', () => {
+  for (const fault of ['failShortLog']) {
     const f = fixture()
     f[fault] = true
     assert.match(f.ctx.createExecutiveMemorandum(sample).message, /Document was created/)
     f[fault] = false
     assert.equal(f.ctx.createExecutiveMemorandum(sample).success, true)
     assert.equal(f.allocations, 1)
-    assert.equal(f.rows.length, 1)
-    assert.equal(f.log.length, 1)
+    assert.equal(f.rows.length, 0)
+    assert.equal(f.log.length, 0)
     assert.equal(f.shortRows.EX_Memo.length, 2)
   }
+})
+
+test('created documents remain available from their form tabs and disappear when the form row is removed', () => {
+  const f = fixture()
+  const result = f.ctx.createDocument({ ...sample, templateVersion: 2, type: 'Executive Memorandum', reference: '203', recipientLabel: 'For', recipientName: 'Recipient' })
+  assert.equal(result.success, true)
+  assert.equal(f.rows.length, 0)
+  assert.equal(f.log.length, 0)
+  f.ctx.jsonResponse = value => value
+  f.ctx.mainFilesSheet = () => ({ getLastRow: () => 1 })
+  assert.equal(f.ctx.getDocuments().documents[0].id, result.document.id)
+  const entry = f.ctx.workflowDocument(result.document.id, true)
+  assert.equal(entry.created, true)
+  assert.equal(entry.metadata.form.body, sample.body)
+  f.ctx.canChangeDocumentStatus = () => true
+  f.ctx.appendActivityEvent = () => {}
+  assert.equal(f.ctx.updateDocumentStatus({ id: result.document.id, token: 'session', status: 'Approved' }).success, true)
+  assert.equal(f.ctx.getDocuments().documents[0].status, 'Approved')
+  f.shortRows.EX_Memo.splice(1, 1)
+  assert.equal(f.ctx.getDocuments().documents.length, 0)
+  assert.throws(() => f.ctx.workflowDocument(result.document.id, true), /not found/)
 })
 
 test('failed generation never logs a row, and retries reuse the allocated document', () => {
@@ -182,7 +205,7 @@ test('all other creation types persist to their matching tab and type/year Drive
     const request = { ...sample, type, reference: tab + '-2026-007', title: 'Official subject', content: 'Document body.\nSecond paragraph.', to: 'Travel recipient', recipient: 'Office recipient', destination: 'Pagadian', travelDates: 'September 10-11, 2026', transportation: 'Official vehicle', purpose: 'Conference', remarks: 'Approved itinerary' }
     assert.equal(f.ctx.createDocument(request).success, true)
     assert.deepEqual(f.destinations, ['OP Systems/' + type + '/2026'])
-    assert.equal(f.rows[0][1], request.reference)
+    assert.equal(f.ctx.createdRegistryEntries()[0].record.id, request.reference)
     assert.equal(f.shortRows[tab].length, 2)
     if (tab === 'Trav_Ord') assert.deepEqual(f.shortRows.Trav_Ord[1], [request.reference, 'To', request.recipient, '', request.destination, request.travelDates, request.transportation, request.purpose, request.remarks])
     else if (tab === 'Spe_Ord') assert.equal(f.shortRows[tab][1][7], request.title)
@@ -297,7 +320,7 @@ test('Travel Order recovers its blank allocation after file-ID persistence fails
   assert.equal(f.allocations, 1)
   assert.equal(f.rendered.signatory, request.signatory)
   assert.equal(f.rendered.position, request.signatoryPosition)
-  assert.equal(f.rows.length, 1)
+  assert.equal(f.rows.length, 0)
 })
 
 test('unavailable Travel Order file reports access failure before registry writes', () => {
@@ -343,8 +366,8 @@ test('orphaned stale reservations without any registry evidence are ignored so a
   f.properties['EM-2026-203'] = JSON.stringify({ requestId: 'old-request-203', owner: 'user@jhcsc.edu.ph', fingerprint: 'stale-fingerprint', status: 'Draft' })
   const request = { ...sample, requestId: 'fresh-request-203', subject: 'Fresh subject' }
   assert.equal(f.ctx.createExecutiveMemorandum(request).success, true)
-  assert.equal(f.rows.length, 1)
-  assert.equal(f.log.length, 1)
+  assert.equal(f.rows.length, 0)
+  assert.equal(f.log.length, 0)
 })
 
 test('lost file-ID persistence recovers a blank pending file instead of allocating twice', () => {
@@ -406,7 +429,7 @@ test('reopened form resumes a failed render with its existing file', () => {
   f.failRender = false
   assert.equal(f.ctx.createExecutiveMemorandum({ ...sample, requestId: 'new-form-after-render-failure' }).success, true)
   assert.equal(f.allocations, 1)
-  assert.equal(f.rows.length, 1)
+  assert.equal(f.rows.length, 0)
 })
 
 test('reopened form repairs partially logged creation without reporting a duplicate', () => {
@@ -417,7 +440,7 @@ test('reopened form repairs partially logged creation without reporting a duplic
   const repaired = f.ctx.createExecutiveMemorandum({ ...sample, requestId: 'new-form-after-logging-failure' })
   assert.equal(repaired.success, true, repaired.message)
   assert.equal(f.allocations, 1)
-  assert.equal(f.rows.length, 1)
+  assert.equal(f.rows.length, 0)
   assert.equal(f.shortRows.EX_Memo.length, 2)
 })
 
@@ -428,7 +451,7 @@ test('unpublished failed file accepts corrected fields but completed documents s
   f.failRender = false
   const corrected = { ...sample, subject: 'Corrected subject', requestId: 'corrected-unfinished-request' }
   assert.equal(f.ctx.createExecutiveMemorandum(corrected).success, true)
-  assert.equal(f.rows[0][3], 'CORRECTED SUBJECT')
+  assert.equal(f.ctx.createdRegistryEntries()[0].record.subject, 'CORRECTED SUBJECT')
   assert.equal(f.allocations, 1)
   assert.match(f.ctx.createExecutiveMemorandum({ ...corrected, requestId: 'new-completed-document-request' }).message, /already exists/)
 })
@@ -523,7 +546,7 @@ test('Travel Order fills the supplied native template and restores it on retry',
 })
 
 test('creation reports which sheet needs configuration before allocating a file', () => {
-  for (const [helper, tab] of [['mainFilesSheet', 'MAIN Files'], ['typeLogSheet', 'Executive Memorandum'], ['createdDocumentSheet', 'EX_Memo']]) {
+  for (const [helper, tab] of [['mainFilesSheet', 'MAIN Files'], ['createdDocumentSheet', 'EX_Memo']]) {
     const f = fixture()
     f.ctx[helper] = () => { throw new Error('Configuration failure') }
     const result = f.ctx.createExecutiveMemorandum(sample)
@@ -572,7 +595,7 @@ test('Special Order shares the memorandum renderer and retains its reference and
     assert.equal(first.document.id, type + ' No. 001, s. 2026')
     assert.equal(f.ctx.createDocument(request).document.id, first.document.id)
     assert.equal(f.allocations, 1)
-    assert.equal(f.rows.length, 1)
+    assert.equal(f.rows.length, 0)
   }
 })
 
@@ -585,8 +608,8 @@ test('fresh creation renders the open document without reopening it or rereading
   const result = f.ctx.createExecutiveMemorandum(sample)
   assert.equal(result.success, true, result.message)
   assert.equal(opens, 0)
-  assert.equal(categoryReads, 1)
+  assert.equal(categoryReads, 0)
   assert.equal(f.renders, 1)
-  assert.equal(f.rows.length, 1)
-  assert.equal(f.log.length, 1)
+  assert.equal(f.rows.length, 0)
+  assert.equal(f.log.length, 0)
 })

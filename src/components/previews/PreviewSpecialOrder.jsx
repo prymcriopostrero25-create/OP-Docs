@@ -1,9 +1,10 @@
+import ApprovalSignature from './ApprovalSignature'
 import PreviewFooter from './PreviewFooter'
 import RichBodyPreview from '../RichBodyPreview'
 import { Fragment } from 'react'
 
 // Edit the on-screen special order layout and Tailwind classes here.
-// Saved Google Docs and PDFs use their own renderer in Google Apps Script.
+// Save as PDF captures this layout. The saved Google Doc uses Apps Script.
 export default function PreviewSpecialOrder({ form, reference }) {
   const recipient = [form.recipientName || form.recipient, form.recipientPosition, form.institution, form.additionalInstitution].filter(Boolean).join('\n')
   const fields = [[form.recipientLabel || 'For', recipient], ['Thru', form.thru], ['Subject', form.subject], ['Date', form.date]]
@@ -38,12 +39,13 @@ export default function PreviewSpecialOrder({ form, reference }) {
       {/* Body and signature */}
       <div className="mt-7">{form.bodyRich ? <RichBodyPreview value={form.bodyRich} /> : <div className="whitespace-pre-wrap">{form.body || form.content || ''}</div>}</div>
       <div className="mt-12 mr-0 mb-0 ml-[0%] whitespace-pre-wrap max-[600px]:ml-[20%]">
+        <ApprovalSignature form={form} />
         {form.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.'}<br />
         {form.signatoryPosition || form.position || 'SUC President II'}
       </div>
       {form.cc && <p className="my-[1em] whitespace-pre-wrap">cc: {form.cc}</p>}
       <PreviewFooter />
     </article>
-    <p className="my-[1em] text-center text-[13px] text-[#aeb8c8]">Page preview. Final pagination and formatting are applied in the PDF.</p>
+    <p className="my-[1em] text-center text-[13px] text-[#aeb8c8]">Save as PDF downloads this preview layout.</p>
   </div>
 }

@@ -1,6 +1,6 @@
 ﻿import LoadingModal from './LoadingModal'
 import { useEffect, useRef, useState } from 'react'
-import { prepareEmailAttachment, sendDocument } from '../lib/appsScriptApi'
+import { prepareEmailAttachment, requirePreviewEmailSupport, sendDocument } from '../lib/appsScriptApi'
 
 function MailIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="5" width="18" height="14" rx="3" /><path d="m4 7 8 6 8-6" /></svg>
@@ -19,17 +19,18 @@ export default function SendDocument({ record, onClose, onSent }) {
   useEffect(() => { dialog.current.showModal() }, [])
   useEffect(() => {
     let active = true
-    prepareEmailAttachment(record.reference).then(result => {
+    const preparing = record.previewPdf ? previewEmailAttachment(record.previewPdf, record.updated) : prepareEmailAttachment(record.reference)
+    preparing.then(result => {
       if (active) setAttachment(result)
     }).catch(failure => { if (active) setAttachmentError(failure.message) })
     return () => { active = false }
-  }, [record.reference, prepareAttempt])
+  }, [record.reference, record.previewPdf, record.updated, prepareAttempt])
   async function submit(event) {
     event.preventDefault()
     if (sending.current || sent || !attachment) return
     sending.current = true
     setBusy(true); setError('')
-    try { const result = await sendDocument({ ...form, attachmentRevision: attachment.revision, id: record.reference }); setSent(true); onSent(result) }
+    try { const result = await sendDocument({ ...form, attachmentRevision: attachment.revision, previewPdf: attachment.previewPdf, id: record.reference }); setSent(true); onSent(result) }
     catch (failure) { setError(failure.message) }
     finally { sending.current = false; setBusy(false) }
   }
@@ -51,3 +52,15 @@ export default function SendDocument({ record, onClose, onSent }) {
   </form></dialog>
 }
 
+
+async function previewEmailAttachment(file, revision) {
+  await requirePreviewEmailSupport()
+  if (file.size > 20 * 1024 * 1024) throw new Error('This PDF exceeds the 20 MB email attachment limit.')
+  const data = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result).split(',')[1])
+    reader.onerror = () => reject(new Error('Unable to read the prepared preview PDF.'))
+    reader.readAsDataURL(file)
+  })
+  return { name: file.name, previewPdf: { data, name: file.name, revision } }
+}

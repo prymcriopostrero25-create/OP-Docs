@@ -22,7 +22,9 @@ function fixture() {
     CacheService: { getScriptCache: () => ({ get: key => key.startsWith('issued:') ? '100' : 'admin@jhcsc.edu.ph' }) },
   })
   vm.runInContext(source, context)
+  context.syncApprovalSignature = () => {} // Signature rendering is covered separately.
   context.jsonResponse = value => value
+  context.appSpreadsheet = () => ({ getSheetByName: () => null })
   context.workflowDocument = () => entry
   context.canChangeDocumentStatus = () => true
   context.syncCreatedDocumentStatus = () => {}
@@ -31,6 +33,51 @@ function fixture() {
 }
 const user = { email: 'admin@jhcsc.edu.ph', name: 'Admin', role: 'admin' }
 const request = { id: 'TO-1', token: 'valid', requestId: '11111111-1111-1111-1111-111111111111', to: 'recipient@example.com', cc: 'copy@example.com', subject: 'Travel order', message: 'Please see attached.' }
+
+test('every document category prepares and emails the reference filename', () => {
+  for (const type of ['Executive Memorandum', 'Special Order', 'Travel Order', 'Authority to Travel Abroad', 'Certificate of Travel']) {
+    const f = fixture()
+    const reference = type + ' No. 147, s. 2026'
+    f.entry.record.id = reference
+    f.entry.record.type = type
+    f.entry.metadata.type = type
+    assert.equal(f.context.prepareEmailAttachment({ ...request, id: reference }).name, reference + '.pdf')
+    f.context.sendRegisteredDocument({ ...request, id: reference }, user)
+    const mime = Buffer.from(f.sent[0].raw, 'base64url').toString('utf8')
+    assert.ok(mime.includes('filename="' + reference + '.pdf"'))
+  }
+})
+
+test('created documents enter category logs only after confirmed email; retries repair logging without resending', () => {
+  const f = fixture(), logs = []
+  f.entry.created = true
+  f.entry.record.year = '2026'
+  f.context.typeLogSheet = () => ({ getLastRow: () => logs.length + 1 })
+  f.context.existingTypeLogRow = (_, id) => logs.some(record => record.id === id) ? 2 : 0
+  let failLog = true
+  f.context.writeTypeLog = (_, __, record) => {
+    assert.equal(f.sent.length, 1)
+    if (failLog) throw Error('Category log unavailable')
+    logs.push(record)
+  }
+  assert.throws(() => f.context.sendRegisteredDocument(request, user), /Category log/)
+  assert.equal(logs.length, 0)
+  assert.equal(f.entry.metadata.status, 'Approved')
+  failLog = false
+  assert.equal(f.context.sendRegisteredDocument(request, user).document.status, 'Out')
+  f.context.sendRegisteredDocument(request, user)
+  assert.equal(f.sent.length, 1)
+  assert.equal(logs.length, 1)
+})
+
+test('an unconfirmed Gmail send never writes a created document category log', () => {
+  const f = fixture()
+  f.entry.created = true
+  f.context.Gmail.Users.Messages.send = () => ({})
+  f.context.typeLogSheet = () => { throw Error('Must not access category log') }
+  assert.throws(() => f.context.sendRegisteredDocument(request, user), /Gmail did not confirm/)
+  assert.equal(f.entry.metadata.status, 'Approved')
+})
 
 test('email attachment preparation warms the revision cache without sending or changing status', () => {
   const f = fixture(), cache = new Map()
@@ -47,7 +94,7 @@ test('email attachment preparation warms the revision cache without sending or c
       getAs: () => { exports++; return { getBytes: () => [1, 2] } },
     }
   }
-  assert.equal(f.context.prepareEmailAttachment(request).name, 'Order.pdf')
+  assert.equal(f.context.prepareEmailAttachment(request).name, 'TO-1.pdf')
   assert.equal(exports, 1)
   assert.equal(f.sent.length, 0)
   assert.equal(f.entry.metadata.status, 'Approved')
@@ -105,7 +152,8 @@ test('email uses registered PDF, preserves CC, locks OUT, and retries without re
   const from = mime.match(/From: ([\s\S]*?) <owner@/)[1]
   assert.equal([...from.matchAll(/=\?UTF-8\?B\?([^?]*)\?=/g)].map(match => Buffer.from(match[1], 'base64').toString('utf8')).join(''), 'J.H. Cerilles State College Office of the President')
   assert.ok(mime.includes('Content-Type: application/pdf'))
-  assert.ok(mime.includes('filename*=UTF-8\'\'Order.pdf'))
+  assert.ok(mime.includes('filename="TO-1.pdf"'))
+  assert.ok(mime.includes('filename*=UTF-8\'\'TO-1.pdf'))
   assert.ok(mime.includes(Buffer.from([1, 2]).toString('base64')))
   assert.ok(mime.includes(Buffer.from(request.message).toString('base64')))
   assert.equal(JSON.parse(f.properties.get('sent:' + request.requestId)).gmailMessageId, 'gmail-sent-1')
@@ -266,4 +314,44 @@ test('record filters combine date bounds, type and search; export escapes spread
   assert.equal(filterRecords(records, { type: 'Travel Order', start: '2026-09-01', end: '2026-09-30', status: 'Approved' }).length, 1)
   assert.equal(filterRecords(records, { query: 'missing' }).length, 0)
   assert.match(recordsCsv(records), /'=HYPERLINK\(""bad""\)/)
+})
+
+
+test('email sends the exact rendered preview bytes and retries do not send twice', () => {
+  const f = fixture()
+  f.entry.metadata.form = { templateVersion: 2 }
+  f.entry.record.updated = '2026-10-06T06:30:00Z'
+  const bytes = Buffer.from('%PDF-1.7 exact preview layout')
+  f.context.Utilities.base64Decode = value => Array.from(Buffer.from(value, 'base64'))
+  f.context.Utilities.newBlob = value => ({ getBytes: () => value })
+  f.context.gmailPdfMessage = (_user, _sender, _to, _cc, _subject, _message, pdf, name) => {
+    assert.deepEqual(Buffer.from(pdf.getBytes()), bytes)
+    assert.equal(name, 'TO-1')
+    return 'preview-mime'
+  }
+  f.context.preparedDocumentPdf = () => { throw Error('Must not export a different PDF') }
+  const sending = { ...request, previewPdf: { data: bytes.toString('base64'), name: 'Preview.pdf', revision: f.entry.record.updated } }
+  assert.equal(f.context.sendRegisteredDocument(sending, user).document.status, 'Out')
+  assert.equal(f.context.sendRegisteredDocument(sending, user).success, true)
+  assert.equal(f.sent.length, 1)
+  assert.throws(() => f.context.sendRegisteredDocument({ ...sending, previewPdf: { ...sending.previewPdf, data: Buffer.from('%PDF-changed').toString('base64') } }, user), /different PDF/)
+})
+
+test('stale preview attachments are rejected before Gmail sends', () => {
+  const f = fixture()
+  f.entry.metadata.form = { templateVersion: 2 }
+  f.entry.record.updated = 'new-revision'
+  const previewPdf = { data: Buffer.from('%PDF-1.7').toString('base64'), name: 'Preview.pdf', revision: 'old-revision' }
+  assert.throws(() => f.context.sendRegisteredDocument({ ...request, previewPdf }, user), /document changed/)
+  assert.equal(f.sent.length, 0)
+})
+
+test('non-PDF preview attachment bytes are rejected before Gmail sends', () => {
+  const f = fixture()
+  f.entry.metadata.form = { templateVersion: 2 }
+  f.entry.record.updated = 'revision'
+  f.context.Utilities.base64Decode = value => Array.from(Buffer.from(value, 'base64'))
+  const previewPdf = { data: Buffer.from('invalid').toString('base64'), name: 'Preview.pdf', revision: 'revision' }
+  assert.throws(() => f.context.sendRegisteredDocument({ ...request, previewPdf }, user), /not a valid PDF/)
+  assert.equal(f.sent.length, 0)
 })

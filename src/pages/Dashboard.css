@@ -320,11 +320,10 @@
 .document-registry .registry-heading button { display:flex; align-items:center; min-height:40px; padding:0 14px; border:1px solid #e6dadd; border-radius:9px; background:#fff; }
 .document-registry .registry-table table { table-layout:fixed; min-width:1000px; white-space:normal; }
 .document-registry .registry-table th { height:44px; background:#f8f6f5; color:#857679; font-weight:700; font-size:10px; letter-spacing:.8px; }
-.document-registry th:first-child { width:35%; }
-.document-registry th:nth-child(2) { width:17%; }
-.document-registry th:nth-child(3) { width:11%; }
+.document-registry th:first-child { width:23%; }
+.document-registry th:nth-child(2) { width:37%; }
+.document-registry th:nth-child(3) { width:13%; }
 .document-registry th:nth-child(4) { width:13%; }
-.document-registry th:nth-child(5) { width:13%; }
 .document-registry th:last-child { width:140px; }
 .document-registry .registry-table td { height:88px; padding-top:16px; padding-bottom:16px; line-height:1.5; }
 .document-registry th:first-child,.document-registry td:first-child { padding-left:24px; }
@@ -567,7 +566,7 @@
 .travel-order-paper .document-paper-body { margin-top: 16px; }
 .travel-order-authorization { font-size: 14px; line-height: 1.2; white-space: normal; }
 .travel-order-authorization p { margin: 0 0 12px; }
-.travel-order-authorization p:first-child { text-indent: 30px; }
+.travel-order-authorization p:nth-child(-n + 2) { text-indent: 30px; text-align: justify; }
 .travel-order-paper .document-signatory { margin: 60px 0 16px 2%; font-size: 16px; line-height: 1.2; }
 @media (max-width: 600px) { .travel-order-paper { padding: 28px 24px 16px; } .travel-order-paper dl { grid-template-columns: 120px minmax(0, 1fr); gap: 5px 12px; } .travel-order-paper .travel-order-heading { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 12px; } .travel-order-paper .document-letterhead strong { font-size: 16px; } }
 /* Email composer */

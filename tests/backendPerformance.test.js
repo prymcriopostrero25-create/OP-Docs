@@ -120,6 +120,7 @@ test('reading login logs requires no sheet writes', () => {
 
 test('overview returns counts without document details, activity history or Drive reads', () => {
   const f = fixture()
+  f.context.createdRegistryEntries = () => []
   const rows = [
     ['Created', 'EM-1', '2026-10-01'],
     ['Uploaded', 'SO-2', '2026-09-01'],

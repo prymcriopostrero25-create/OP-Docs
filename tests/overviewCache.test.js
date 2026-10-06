@@ -11,6 +11,7 @@ function fixture() {
     Utilities: { formatDate: () => '2026-10' },
   })
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  context.appSpreadsheet = () => ({ getSheetByName: () => null })
   context.jsonResponse = value => value
   context.mainFilesSheet = () => ({ getLastRow: () => 2, getRange: () => ({
     getDisplayValues() { reads++; return [['Created', 'TEST', '2026-10-06']] },

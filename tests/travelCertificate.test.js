@@ -20,6 +20,7 @@ test('one-day travel prints one date and edited dates supersede an old range', (
 test('backend retains certificate fields and writes all fourteen sheet columns', () => {
   const context = vm.createContext({ Utilities: { formatDate: () => 'October 10, 2026' }, Session: { getScriptTimeZone: () => 'Asia/Manila' } })
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  context.syncApprovalSignature = () => {} // Signature rendering is covered separately.
   const request = { certificateStructured: true, body: 'Certificate body', recipientName: 'Maria Santos', salaryGrade: '18', employmentStatus: 'permanent', place: 'Japan', travelFrom: '2026-10-10', travelUntil: '2026-10-15', travelClassification: 'personal leave', date: '2026-10-05', signatory: 'Certifying Officer', signatoryPosition: 'President', cc: 'HRMO' }
   const data = context.validateTemplateDocument(request, 'Certificate of Travel')
   assert.equal(data.recipientName, 'Maria Santos')
@@ -55,6 +56,7 @@ test('PDF renderer includes certificate tables, letterhead, body, signature and 
   for (const key of ['setPageWidth', 'setPageHeight', 'setMarginLeft', 'setMarginRight', 'setMarginTop', 'setMarginBottom', 'setAttributes']) section[key] = () => section
   const context = vm.createContext({ DocumentApp: { Attribute: {}, HorizontalAlignment: { CENTER: 'center', JUSTIFY: 'justify' } } })
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  context.syncApprovalSignature = () => {} // Signature rendering is covered separately.
   const data = { certificateStructured: true, recipientName: 'Maria Santos', place: 'Japan', salaryGrade: '18', employmentStatus: 'permanent', travelClassification: 'personal leave', inclusiveDate: 'October 10, 2026', issueDate: '2026-10-05', signatory: 'Certifying Officer', position: 'President', cc: 'HRMO' }
   context.renderCreatedDocument({ getBody: () => section, getHeader: () => null, getFooter: () => section, saveAndClose() { closed = true } }, data, 'Certificate of Travel', 'college-logo')
   assert.equal(insertedLogo, 'college-logo')
@@ -83,6 +85,7 @@ test('download upgrades an older saved certificate before exporting it', () => {
     SpreadsheetApp: { flush() {} },
   })
   vm.runInContext(fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8'), context)
+  context.syncApprovalSignature = () => {} // Signature rendering is covered separately.
   context.getDocumentSession = () => true
   context.jsonResponse = value => value
   cell.createTextFinder = () => ({ matchEntireCell() { return this }, matchCase() { return this }, useRegularExpression() { return this }, findNext: () => ({ getRow: () => 2 }) })

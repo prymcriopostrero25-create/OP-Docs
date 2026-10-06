@@ -18,6 +18,16 @@ never passwords or secrets. Changing this URL requires rebuilding the frontend.
 
 ## Apps Script
 
+Newly created documents save only to their form tab (`EX_Memo`, `Spe_Ord`,
+`Trav_Ord`, `Auth_Travel`, or `Cert_Travel`). The ID cell note stores the file
+link and workflow metadata; preserve that note when editing rows manually.
+Category logs receive the document only after Gmail confirms a successful send.
+Email recovery retries finish logging without sending another email.
+New creations never add a row to `MAIN Files`; PDF uploads still use that tab.
+Existing `MAIN Files` records remain supported and are not migrated or deleted.
+Deploy the updated `Code.gs` as a new version of the existing web app deployment
+to enable this behavior.
+
 1. Back up the current script and spreadsheet.
 2. Copy `google-apps-script/Code.gs` into the existing Apps Script project.
 3. Enable the manifest in Project Settings. Merge the supplied
@@ -95,6 +105,14 @@ the server. Caches improve speed but do not bypass authorization or guarantee
 Google service availability.
 
 ## Production acceptance
+
+Deploy the latest `google-apps-script/Code.gs` as a new version of the existing
+web app before using Send PDF. The frontend checks `previewEmailPdfVersion: 1`
+and asks for a backend update if the deployed version lacks this support.
+For saved forms, Save as PDF and Send PDF use the same PDF captured from the
+preview, including its signature and approval timestamp. Uploaded PDFs continue
+to use the registered Drive file. Preview attachments are limited to 20 MB and
+must match the current registered document revision.
 
 Use a test document and an inbox you control:
 

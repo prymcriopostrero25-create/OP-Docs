@@ -1,8 +1,9 @@
+import ApprovalSignature from './ApprovalSignature'
 import PreviewFooter from './PreviewFooter'
 import RichBodyPreview from '../RichBodyPreview'
 
-// Edit the on-screen memo layout and styling here. Saved Docs/PDFs use
-// their own renderer in Google Apps Script.
+// Edit the preview and downloaded PDF layout here.
+// The saved Google Doc uses the separate Apps Script renderer.
 function displayDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return value || ''
   const date = new Date(`${value}T00:00:00Z`)
@@ -44,12 +45,13 @@ export default function PreviewExecutiveMemo({ form, reference }) {
       </div>
 
       <div className="mt-15 mr-0 mb-4 ml-[2%] whitespace-pre-wrap">
+        <ApprovalSignature form={form} />
         {form.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.'}<br />
         {form.signatoryPosition || form.position || 'SUC President II'}
       </div>
       {form.cc && <p className="text-[12px] whitespace-pre-wrap">cc:{'\n'}{form.cc}</p>}
       <PreviewFooter />
     </article>
-    <p className="text-center text-[13px] text-[#aeb8c8]">On-screen preview. Saved Google Docs and PDFs use separate formatting.</p>
+    <p className="text-center text-[13px] text-[#aeb8c8]">Save as PDF downloads this preview layout.</p>
   </div>
 }

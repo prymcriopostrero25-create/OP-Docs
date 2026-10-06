@@ -1,7 +1,8 @@
+import ApprovalSignature from './ApprovalSignature'
 import { authorityBody } from '../../lib/travelAuthority'
 import { certificateTravelDates } from '../../lib/travelCertificate'
 
-// On-screen template. Saved Google Docs and PDFs use a separate renderer.
+// Preview and downloaded PDF template. The saved Google Doc uses Apps Script.
 export default function PreviewTravelAuthority({ form }) {
   const employee = form.recipientName || form.recipient || '[FULL NAME OF EMPLOYEE]'
   const destination = form.place || '[COUNTRY / DESTINATION]'
@@ -35,6 +36,7 @@ export default function PreviewTravelAuthority({ form }) {
 
       <div className="mt-6 ml-[49%] whitespace-pre-wrap">
         <p className="m-0 mb-8 text-[12px] font-bold text-[#707875]">APPROVED:</p>
+        <ApprovalSignature form={form} />
         <strong>{form.signatory || '[NAME OF APPROVING AUTHORITY]'}</strong>
         <p className="m-0 text-[12px] text-[#707875]">{form.signatoryPosition || form.position || '[POSITION]'}</p>
       </div>
@@ -44,6 +46,6 @@ export default function PreviewTravelAuthority({ form }) {
         <div className="grid grid-cols-[40%_1fr] gap-2"><span>JHCSC | Office of the President</span><span>Authority to Travel Abroad | Page 1 of 1</span></div>
       </footer>
     </article>
-    <p className="text-center text-[13px] text-[#aeb8c8]">On-screen preview. Saved Google Docs and PDFs use separate formatting.</p>
+    <p className="text-center text-[13px] text-[#aeb8c8]">Save as PDF downloads this preview layout.</p>
   </div>
 }

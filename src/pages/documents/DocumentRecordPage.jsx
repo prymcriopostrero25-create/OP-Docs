@@ -1,8 +1,8 @@
 import { lockBodyScroll } from '../../lib/scrollLock'
 import { preparedPdfFile } from '../../lib/pdfFile'
+import { previewPdfFile } from '../../lib/previewPdf'
 import LoadingModal from '../../components/LoadingModal'
 import { DocumentContext } from '../../lib/documentContext'
-import { documentTypeLabel } from '../../lib/documentTypes'
 import { filterRecords, recordsCsv, downloadFile } from '../../lib/recordTools'
 import SendDocument from '../../components/SendDocument'
 import DocumentPage from '../../components/DocumentPage'
@@ -14,7 +14,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 const statuses = ['All statuses', 'Draft', 'For Review', 'For Signature', 'Approved', 'Out']
 
-function UpdatedDate({ value }) {
+function CreatedDate({ value }) {
   const date = new Date(value)
   if (!value || Number.isNaN(date.getTime())) return <span className="record-muted">Not available</span>
   return <time className="record-date" dateTime={date.toISOString()} title={date.toLocaleString()}><span>{date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</span><small>{date.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</small></time>
@@ -47,6 +47,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   const [preparedPreview, setPreparedPreview] = useState(null)
   const [previewError, setPreviewError] = useState('')
   const previewDialog = useRef(null)
+  const previewPaper = useRef(null)
   const refreshPreview = useRef(false)
   const [action, setAction] = useState(null)
   const [editedTitle, setEditedTitle] = useState('')
@@ -114,27 +115,53 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   }, [preview])
 
   useEffect(() => {
-    if (!preview) return
+    if (!preview || !pageContent) return
     let cancelled = false
     let objectUrl
+    let attempt = 0
+    let resizeTimer
     const refresh = refreshPreview.current
     refreshPreview.current = false
-    prepareDocumentPreview(preview.reference, preview.type, preview.updated, refresh).then(result => {
-      if (cancelled) return
-      const file = preparedPdfFile(result)
-      objectUrl = URL.createObjectURL(file)
-      setPreparedPreview({ file, url: objectUrl })
-    }).catch(failure => {
-      if (!cancelled) {
-        setPdfError('Unable to prepare the PDF. ' + failure.message)
-        setPreviewLoading(false)
+    async function prepare() {
+      const currentAttempt = ++attempt
+      setPreparedPreview(null)
+      setPdfError('')
+      try {
+        const file = pageContent.form
+          ? await previewPdfFile(previewPaper.current?.querySelector('article'), preview.reference)
+          : preparedPdfFile({ ...await prepareDocumentPreview(preview.reference, preview.type, preview.updated, refresh), name: preview.reference.replace(/\.pdf$/i, '') + '.pdf' })
+        if (cancelled || currentAttempt !== attempt) return
+        if (objectUrl) URL.revokeObjectURL(objectUrl)
+        objectUrl = URL.createObjectURL(file)
+        setPreparedPreview({ file, url: objectUrl })
+      } catch (failure) {
+        if (!cancelled && currentAttempt === attempt) {
+          setPdfError('Unable to prepare the PDF. ' + failure.message)
+          setPreviewLoading(false)
+        }
       }
-    })
+    }
+    void prepare()
+    const paper = previewPaper.current?.querySelector('article')
+    let initialSize
+    const observer = pageContent.form && paper ? new ResizeObserver(([entry]) => {
+      const size = `${entry.contentRect.width}:${entry.contentRect.height}`
+      if (initialSize && size !== initialSize) {
+        ++attempt
+        setPreparedPreview(null)
+        clearTimeout(resizeTimer)
+        resizeTimer = setTimeout(() => { void prepare() }, 150)
+      }
+      initialSize = size
+    }) : null
+    observer?.observe(paper)
     return () => {
       cancelled = true
+      clearTimeout(resizeTimer)
+      observer?.disconnect()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [preview])
+  }, [preview, pageContent])
 
   function openPreview(record) {
     setPreparedPreview(null)
@@ -177,11 +204,12 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
       </div>
       <div className="registry-heading"><div><h2>{title}</h2><p>{visibleRecords.length} shown from {records.filter(record => !type || record.type === type).length} records</p></div><div><button onClick={refreshRecords} disabled={loading}>Refresh</button><button onClick={() => downloadFile(new Blob([recordsCsv(visibleRecords)], { type: 'text/csv;charset=utf-8' }), 'documents.csv')}>Export list</button></div></div>
       <div className="table-wrap registry-table" aria-busy={loading}><table>
-        <thead><tr><th>Document</th><th>Type</th><th>Owner</th><th>Last updated</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Reference No.</th><th>Document</th><th>Date Created</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
           {pageRecords.map((record, index) => <tr key={JSON.stringify([record.type, record.reference, record.url, index])}>
-            <td><div className="doc-cell"><span className="file-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M14 3H5v18h14V8Z M14 3v5h5 M8 12h8 M8 16h6" /></svg></span><div><strong title={record.title}>{record.title}</strong><small title={record.reference}>Ref: {record.reference}</small></div></div></td>
-            <td><span className="record-type">{documentTypeLabel(record.type)}</span></td><td><span className={!record.owner || record.owner === '?' ? 'record-muted' : 'record-owner'}>{!record.owner || record.owner === '?' ? 'Unassigned' : record.owner}</span></td><td><UpdatedDate value={record.updated} /></td>
+            <td><span title={record.reference}>{record.reference}</span></td>
+            <td><div className="doc-cell"><span className="file-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M14 3H5v18h14V8Z M14 3v5h5 M8 12h8 M8 16h6" /></svg></span><div><strong title={record.title}>{record.title}</strong></div></div></td>
+            <td><CreatedDate value={record.date} /></td>
             <td>{permissions.changeStatus && record.status !== 'Out' ? <select name={`status-${record.reference}`} className={`record-status ${record.status.toLowerCase().replaceAll(' ', '-')}`} aria-label={`Change status for ${record.title}`} disabled={saving} value={record.status} onChange={(event) => saveStatus(record.reference, event.target.value)}>{statuses.slice(1).map((option) => <option key={option}>{option}</option>)}</select> : <span className={`status ${record.status.toLowerCase().replaceAll(' ', '-')}`}>{record.status === 'Out' ? 'OUT' : record.status}</span>}</td>
             <td><div className="record-actions">
               <button type="button" aria-label={loadingEdit === record.reference ? `Loading editor for ${record.title}` : `Edit ${record.title}`} aria-busy={loadingEdit === record.reference} title={record.status === 'Out' ? 'OUT documents are locked' : !permissions.changeStatus ? 'Admin access required' : 'Edit title'} disabled={saving || !permissions.changeStatus || record.status === 'Out'} onClick={() => openAction('edit', record)}><ActionIcon kind="edit" /></button>
@@ -189,7 +217,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
               <button type="button" className="delete-record" aria-label={`Delete ${record.title}`} title={record.status === 'Out' ? 'OUT documents are locked' : !permissions.changeStatus ? 'Admin access required' : 'Delete'} disabled={saving || !permissions.changeStatus || record.status === 'Out'} onClick={() => openAction('delete', record)}><ActionIcon kind="delete" /></button>
             </div></td>
           </tr>)}
-          {!loading && !visibleRecords.length && <tr><td colSpan="6" className="empty-records"><div className="registry-empty"><span className="registry-empty-icon" aria-hidden="true"><ActionIcon kind="preview" /></span><strong>{hasFilters ? 'No matching documents' : 'No documents yet'}</strong><p>{hasFilters ? 'Try another search or clear your filters to see more records.' : 'Documents in this category will appear here once created or uploaded.'}</p>{hasFilters && <button type="button" onClick={resetFilters}>Clear filters</button>}</div></td></tr>}
+          {!loading && !visibleRecords.length && <tr><td colSpan="5" className="empty-records"><div className="registry-empty"><span className="registry-empty-icon" aria-hidden="true"><ActionIcon kind="preview" /></span><strong>{hasFilters ? 'No matching documents' : 'No documents yet'}</strong><p>{hasFilters ? 'Try another search or clear your filters to see more records.' : 'Documents in this category will appear here once created or uploaded.'}</p>{hasFilters && <button type="button" onClick={resetFilters}>Clear filters</button>}</div></td></tr>}
         </tbody>
       </table></div>
       <div className="documents-pagination"><span>{visibleRecords.length ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, visibleRecords.length)} of ${visibleRecords.length} records` : '0 records'}</span><div className="registry-pagination-controls"><select aria-label="Records per page" value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1) }}>{[10, 25, 50].map(size => <option key={size} value={size}>{size} per page</option>)}</select><button disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage} of {pageCount}</span><button disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div></div>
@@ -205,14 +233,14 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
         <header className="official-preview-header"><div className="official-preview-heading"><h2 id="pdf-preview-title">OFFICIAL PREVIEW</h2><p className="preview-reference">{preview.reference}</p></div>
         <div className="preview-actions official-preview-actions">
           <span className="pdf-preparation-status" role="status">{pdfError ? 'PDF preparation failed' : preparedPreview ? 'PDF ready' : !pageContent ? 'Loading preview...' : 'Preparing PDF in the background...'}</span>
-          <button type="button" className="preview-send" disabled={!preparedPreview || !permissions.changeStatus || !['Approved', 'Out'].includes(preview.status)} title={!permissions.changeStatus ? 'Admin access required' : !['Approved', 'Out'].includes(preview.status) ? 'Approve this document before sending' : 'Send PDF by email'} onClick={() => setEmailRecord(preview)}><PreviewActionIcon kind="send" />Send</button>
+          <button type="button" className="preview-send" disabled={!preparedPreview || !permissions.changeStatus || !['Approved', 'Out'].includes(preview.status)} title={!permissions.changeStatus ? 'Admin access required' : !['Approved', 'Out'].includes(preview.status) ? 'Approve this document before sending' : 'Send PDF by email'} onClick={() => setEmailRecord({ ...preview, previewPdf: pageContent?.form ? preparedPreview.file : null })}><PreviewActionIcon kind="send" />Send</button>
           {preparedPreview ? <a className="preview-save" href={preparedPreview.url} download={preparedPreview.file.name}><PreviewActionIcon kind="save" />Save as PDF</a> : <button type="button" className="preview-save" disabled><PreviewActionIcon kind="save" />Save as PDF</button>}
           <button type="button" className="preview-close" aria-label="Close preview" title="Close preview" autoFocus onClick={closePreview}><PreviewActionIcon kind="close" /></button>
         </div>
         </header>
-        <div className="preview-frame-wrap">
+        <div ref={previewPaper} className="preview-frame-wrap">
           {previewLoading && !pdfError && <div className="preview-loading" role="status"><span className="preview-spinner" aria-hidden="true" /><span>Loading document preview...</span></div>}
-          {pageContent?.form && <DocumentPage form={pageContent.form} type={pageContent.type} reference={preview.reference} />}
+          {pageContent?.form && <DocumentPage form={{ ...pageContent.form, status: preview.status, approvedAt: preview.approvedAt || pageContent.form.approvedAt }} type={pageContent.type} reference={preview.reference} />}
           {pageContent && !pageContent.form && preparedPreview && <DocumentPages file={preparedPreview.file} onReady={() => setPreviewLoading(false)} onError={() => { setPreviewLoading(false); setPreviewError('Unable to display the document. You can still save it using Save as PDF.') }} />}
         </div>
         {(previewError || pdfError) && <div className="preview-message" role="alert"><p>{[previewError, pdfError].filter(Boolean).join(' ')}</p><button type="button" className="secondary-action" onClick={() => { refreshPreview.current = true; openPreview({ ...preview }) }}>Retry preview</button></div>}
