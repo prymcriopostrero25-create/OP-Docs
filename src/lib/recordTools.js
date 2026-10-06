@@ -5,7 +5,8 @@ export function filterRecords(records, { type, query = '', status = 'All statuse
     return (!type || record.type === type) && (status === 'All statuses' || record.status === status)
       && (!search || [record.title, record.reference, record.type, record.owner, record.status].some(value => String(value || '').toLowerCase().includes(search)))
       && (!start || date >= new Date(`${start}T00:00:00`)) && (!end || date <= new Date(`${end}T23:59:59.999`))
-  }).sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : ((Date.parse(b.updated || b.date) || 0) - (Date.parse(a.updated || a.date) || 0)) * (sort === 'oldest' ? -1 : 1))
+  // Sort by the document date so status updates keep the row in place.
+  }).sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : ((Date.parse(b.date) || 0) - (Date.parse(a.date) || 0)) * (sort === 'oldest' ? -1 : 1))
 }
 export function recordsCsv(records) {
   const cell = value => '"' + String(value ?? '').replace(/^[=+@\-\t\r]/, "'$&").replaceAll('"', '""') + '"'

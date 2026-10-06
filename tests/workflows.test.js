@@ -245,6 +245,19 @@ test('OUT documents reject content edits', () => {
   f.entry.record.status = 'Out'
   assert.throws(() => f.context.updateDocumentContent(request), /locked/)
 })
+test('status updates preserve document date ordering', () => {
+  const records = [
+    { reference: 'older', date: '2026-09-01', updated: '2026-09-01', status: 'Draft' },
+    { reference: 'newer', date: '2026-09-28', updated: '2026-09-28', status: 'Draft' },
+  ]
+  for (const sort of ['newest', 'oldest']) {
+    const before = filterRecords(records, { sort }).map(record => record.reference)
+    const changed = records.map(record => record.reference === 'older' ? { ...record, status: 'Approved', updated: '2026-10-06' } : record)
+    assert.deepEqual(filterRecords(changed, { sort }).map(record => record.reference), before)
+    assert.equal(filterRecords(changed, { sort }).find(record => record.reference === 'older').status, 'Approved')
+  }
+})
+
 test('record filters combine date bounds, type and search; export escapes spreadsheet formulas', () => {
   const records = [
     { reference: '1', title: '=HYPERLINK("bad")', type: 'Travel Order', updated: '2026-09-28', status: 'Approved' },
