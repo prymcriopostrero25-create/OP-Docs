@@ -1,3 +1,4 @@
+import LoadingModal from '../components/LoadingModal'
 import { useEffect, useMemo, useState } from 'react'
 import { fetchUserLogs } from '../lib/appsScriptApi'
 
@@ -42,7 +43,7 @@ export default function UserLogsPage() {
         <label className="archive-search"><span>⌕</span><input name="userLogSearch" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search logs..." aria-label="Search user logs" /></label>
       </header>
 
-      {status === 'loading' && <div className="user-logs-state">Loading user logs...</div>}
+      {status === 'loading' && <LoadingModal title="Loading user logs..." />}
       {status === 'error' && <div className="user-logs-state user-logs-error"><p>{error}</p><button className="secondary-action" onClick={loadLogs}>Try again</button></div>}
       {status === 'success' && <div className="user-logs-table-wrap">
         <table className="user-logs-table">

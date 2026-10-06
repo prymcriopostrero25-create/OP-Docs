@@ -1,7 +1,10 @@
+import { lockBodyScroll } from '../lib/scrollLock'
+import LoadingModal from './LoadingModal'
 import { authorityBody } from '../lib/travelAuthority'
 import { certificateBody, certificateTravelDates } from '../lib/travelCertificate'
 import { documentTypes, documentTypeLabel } from '../lib/documentTypes'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import './CreateDocument.css'
 
 const RichTextEditor = lazy(() => import('./RichTextEditor'))
 
@@ -11,10 +14,10 @@ const emptyForm = () => ({ templateVersion: 2, type: types[0], reference: '', re
 function DocumentSuccess({ record, onContinue }) {
   const dialog = useRef(null)
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const unlockScroll = lockBodyScroll()
+
     dialog.current.showModal()
-    return () => { document.body.style.overflow = previousOverflow }
+    return () => { unlockScroll() }
   }, [])
   const label = documentTypeLabel(record.type)
   return <dialog ref={dialog} className="create-success-dialog" aria-labelledby="create-success-title" aria-describedby="create-success-description" onCancel={event => { event.preventDefault(); onContinue() }}>
@@ -119,12 +122,12 @@ export default function CreateDocument({ isOpen, onClose, onCreate, onViewCreate
   function field(name, label) {
     if (memoForm && name === 'body') return <div key={name} className="create-field full">
       <label htmlFor="document-body">Body</label>
-      <Suspense fallback={<p>Loading editor…</p>}><RichTextEditor key={form.requestId} value={form.bodyRich} plainText={form.body} disabled={busy} error={errors.body} onChange={(bodyRich, body) => {
+      <Suspense fallback={<LoadingModal title="Loading editor..." />}><RichTextEditor key={form.requestId} value={form.bodyRich} plainText={form.body} disabled={busy} error={errors.body} onChange={(bodyRich, body) => {
         setForm(current => ({ ...current, bodyRich, body }))
         setErrors(current => ({ ...current, body: '' }))
       }} /></Suspense>
     </div>
-    if (memoForm && name === 'recipientLabel') return <div key={name} className="create-field full">
+    if ((memoForm || travel) && name === 'recipientLabel') return <div key={name} className="create-field full">
       <span className="create-field-caption" id="recipient-label-caption">Recipient label</span>
       <div className="create-recipient-options" role="group" aria-labelledby="recipient-label-caption">
         {['For', 'To'].map(value => <button key={value} type="button" aria-pressed={form.recipientLabel === value} disabled={busy} onClick={() => updateField({ target: { name, value } })}>{value}</button>)}
@@ -164,9 +167,10 @@ export default function CreateDocument({ isOpen, onClose, onCreate, onViewCreate
   if (created) return <DocumentSuccess record={created} onContinue={() => { if (onViewCreated) onViewCreated(created); else close() }} />
 
   return <div className={page ? 'create-document-page-content' : 'create-document-overlay'} onMouseDown={event => !page && event.target === event.currentTarget && close()}>
-    <section className={`create-document-modal${page ? ' create-document-panel' : ''}`} role={page ? undefined : 'dialog'} aria-modal={page ? undefined : true} aria-labelledby="create-document-title" aria-busy={busy} onKeyDown={event => { if (!page && event.key === 'Escape') { event.stopPropagation(); close() } }}>
-      <header><div><p>Office of the President ? Document registry</p><h2 id="create-document-title">{initialForm ? 'Edit document' : 'Create new document'}</h2><span>{initialForm ? 'Update the details of your official document.' : 'Choose a document type, fill in the details, and save your draft.'}</span></div><button type="button" onClick={close} disabled={busy} aria-label="Close">×</button></header>
+    <section className={`create-document-modal create-document-formal${page ? ' create-document-panel' : ''}`} role={page ? undefined : 'dialog'} aria-modal={page ? undefined : true} aria-labelledby="create-document-title" aria-busy={busy} onKeyDown={event => { if (!page && event.key === 'Escape') { event.stopPropagation(); close() } }}>
+      <header><div className="create-header-identity"><span className="create-header-emblem" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h4M9 12h6M9 16h6" /></svg></span><div><p>Office of the President <span aria-hidden="true">/</span> Document registry</p><h2 id="create-document-title">{initialForm ? 'Edit document' : 'Create new document'}</h2><span>{initialForm ? 'Update the details of your official document.' : 'Choose a document type, fill in the details, and save your draft.'}</span></div></div><button type="button" onClick={close} disabled={busy} aria-label="Close"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m6 6 12 12M18 6 6 18" /></svg></button></header>
       <form onSubmit={handleSubmit} noValidate>
+        {busy && <LoadingModal title="Saving document..." />}
         <section className="create-section create-setup" aria-labelledby="create-setup-title">
           <div className="create-section-heading"><span className="create-section-icon" aria-hidden="true">01</span><div><h3 id="create-setup-title">Document setup</h3><p>Start with the type of document you need.</p></div></div>
           <div className="create-section-fields">

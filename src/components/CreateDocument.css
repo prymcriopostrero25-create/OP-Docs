@@ -1,0 +1,173 @@
+/* Scoped to the document form so the registry and dashboard retain their styles. */
+.create-document-modal.create-document-formal {
+  --form-ink: #292d35;
+  --form-muted: #69717e;
+  --form-line: #e2e5e9;
+  --form-accent: #781b2d;
+  width: min(960px, 100%);
+  border: 1px solid var(--form-line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--form-ink);
+  font-family: 'DM Sans', 'Segoe UI', sans-serif;
+  box-shadow: 0 18px 60px #24263318;
+}
+.create-document-panel.create-document-formal {
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: auto;
+  box-shadow: 0 4px 24px #24263308;
+}
+.create-document-formal.create-document-modal header {
+  padding: 30px 34px;
+  gap: 20px;
+  border-top: 4px solid var(--form-accent);
+  border-bottom: 1px solid var(--form-line);
+  border-radius: 11px 11px 0 0;
+  background: #fbfbfc;
+}
+.create-document-formal .create-header-identity {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+.create-document-formal header .create-header-emblem {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 52px;
+  height: 60px;
+  margin: 0;
+  border: 1px solid #e5d9dd;
+  border-radius: 8px;
+  background: #f6eff1;
+  color: var(--form-accent);
+}
+.create-header-emblem svg { width: 28px; height: 28px; }
+.create-document-formal.create-document-modal header p {
+  margin-bottom: 9px;
+  color: var(--form-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.3px;
+  line-height: 1.6;
+}
+.create-document-formal header p span { display: inline; margin: 0 8px; color: #b1a4aa; font-size: inherit; }
+.create-document-formal.create-document-modal header h2 {
+  color: var(--form-ink);
+  font-family: 'Manrope', 'Segoe UI', sans-serif;
+  font-size: clamp(22px, 2.2vw, 28px);
+  font-weight: 700;
+  letter-spacing: -.7px;
+}
+.create-document-formal header span { color: var(--form-muted); }
+.create-document-formal.create-document-modal header > button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid var(--form-line);
+  border-radius: 6px;
+  background: #fff;
+  color: #69717e;
+}
+.create-document-formal header > button svg { width: 18px; height: 18px; }
+.create-document-formal.create-document-modal form,
+.create-document-formal.create-document-modal.create-document-panel form { gap: 0; padding: 0; }
+.create-document-formal .create-section {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 0 32px;
+  margin: 0 34px;
+  padding: 30px 0;
+  border: 0;
+  border-bottom: 1px solid var(--form-line);
+  border-radius: 0;
+  background: #fff;
+}
+.create-document-formal .create-section-heading { align-items: flex-start; gap: 12px; margin: 0; }
+.create-document-formal .create-section-icon {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #e5d9dd;
+  border-radius: 5px;
+  background: #fbf7f8;
+  color: var(--form-accent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.create-document-formal .create-section-heading h3 { margin-top: 4px; color: var(--form-ink); font-size: 14px; font-weight: 700; }
+.create-document-formal .create-section-heading p { margin-top: 8px; color: var(--form-muted); font-size: 12px; line-height: 1.7; }
+.create-document-formal .create-section-fields { align-content: start; gap: 22px 20px; }
+.create-document-formal .create-field label,
+.create-document-formal .create-field-caption { color: #404651; font-size: 12px; font-weight: 600; margin-bottom: 9px; }
+.create-document-formal .create-field label small { font-size: 10px; color: #757d89; font-weight: 400; }
+.create-document-formal .create-field input,
+.create-document-formal .create-field select,
+.create-document-formal .create-field textarea { border-color: #d4d9e0; border-radius: 6px; color: var(--form-ink); background: #fff; }
+.create-document-formal .create-field input:not([type=color]),
+.create-document-formal .create-field select { height: 44px; }
+.create-document-formal .create-field input:focus,
+.create-document-formal .create-field select:focus,
+.create-document-formal .create-field textarea:focus { border-color: #985264; box-shadow: 0 0 0 3px #781b2d0d; }
+.create-document-formal .create-field :disabled { background: #f4f5f7; color: #68717f; cursor: not-allowed; }
+.create-document-formal .create-reference-note {
+  grid-column: 2;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid #e7e9ed;
+  border-radius: 6px;
+  background: #f8f9fb;
+  color: var(--form-muted);
+}
+.create-document-formal .create-reference-note > span { color: #7a8391; font-size: 18px; }
+.create-document-formal .create-reference-note strong { color: #454d59; font-weight: 600; }
+.create-document-formal .create-recipient-options { width: fit-content; gap: 4px; padding: 4px; border: 1px solid var(--form-line); border-radius: 7px; background: #f5f6f8; }
+.create-document-formal .create-recipient-options button { min-width: 66px; height: 34px; min-height: 34px; border-color: transparent; border-radius: 4px; background: transparent; font-size: 12px; font-weight: 600; }
+.create-document-formal .create-recipient-options button[aria-pressed=true] { border-color: #e4d3d8; background: #fff; color: var(--form-accent); box-shadow: 0 1px 3px #2426330a; }
+.create-document-formal .create-institution-row button { width: 44px; height: 44px; border-radius: 6px; background: #f8f9fb; color: #535d6a; }
+.create-document-formal .create-thru { padding: 14px 16px; border: 1px solid var(--form-line); border-radius: 6px; background: #fafbfc; }
+.create-document-formal .create-thru summary { color: #404651; font-size: 12px; font-weight: 600; }
+.create-document-formal .create-signatory { margin: 24px 34px; padding: 18px 20px; border: 1px solid var(--form-line); border-radius: 6px; background: #fafbfc; }
+.create-document-formal .create-signatory summary { color: #404651; font-size: 13px; }
+.create-document-formal .create-signatory summary small { color: var(--form-muted); font-size: 12px; }
+.create-document-formal.create-document-modal .create-form-actions {
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 22px 34px;
+  border-top: 1px solid var(--form-line);
+  border-radius: 0 0 11px 11px;
+  background: #f8f9fb;
+}
+.create-document-formal .create-form-actions p { color: var(--form-muted); font-size: 12px; }
+.create-document-formal.create-document-modal .create-form-actions button { border-radius: 6px; border-color: #d4d9e0; color: #454d59; font-size: 12px; font-weight: 600; }
+.create-document-formal.create-document-modal .create-form-actions button[type=submit] { border-color: var(--form-accent); background: var(--form-accent); color: #fff; box-shadow: 0 2px 4px #781b2d15; }
+.create-document-formal button:not(:disabled):hover { filter: brightness(.97); }
+.create-document-formal button:focus-visible,
+.create-document-formal summary:focus-visible { outline: 2px solid #985264; outline-offset: 3px; }
+.create-document-formal form > .create-field-error { margin: 0 34px 22px; }
+/* Keep the editor's compact controls independent of the form input sizing. */
+.create-document-formal .rich-toolbar select { height: 34px; }
+@media (max-width: 800px) {
+  .create-document-formal .create-section { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .create-document-formal .create-reference-note { grid-column: 1; margin-top: 0; }
+  .create-document-formal .create-section-heading p { margin-top: 4px; }
+}
+@media (max-width: 560px) {
+  .create-document-formal.create-document-modal header { padding: 22px 18px; gap: 12px; }
+  .create-document-formal .create-header-identity { gap: 0; }
+  .create-document-formal header .create-header-emblem { display: none; }
+  .create-document-formal.create-document-modal header p { font-size: 9px; letter-spacing: .8px; }
+  .create-document-formal header p span { margin-inline: 4px; }
+  .create-document-formal .create-section { margin-inline: 18px; padding-block: 24px; }
+  .create-document-formal .create-section-fields { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .create-document-formal .create-signatory { margin: 20px 18px; padding: 16px; }
+  .create-document-formal.create-document-modal .create-form-actions { padding: 20px 18px; }
+  .create-document-formal .create-form-actions p { flex-basis: 100%; }
+  .create-document-formal.create-document-modal .create-form-actions button { flex: 1; }
+  .create-document-formal form > .create-field-error { margin-inline: 18px; }
+}

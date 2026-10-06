@@ -1,3 +1,4 @@
+import { createAccountLoader } from './accountLoader'
 import { fetchAppsScript } from './appsScriptFetch'
 import { readAppsScriptResponse } from './appsScriptResponse'
 import { loadDocumentPage } from './documentPageLoader'
@@ -69,44 +70,38 @@ export async function fetchUserLogs() {
   return result.logs || []
 }
 
-export async function fetchUsers() {
-  if (!APPS_SCRIPT_URL) {
-    throw new Error('The Apps Script web app URL is not configured.')
-  }
-
-  const response = await fetch(requestTarget(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'users', token: getSessionToken() }),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Apps Script request failed with status ${response.status}.`)
-  }
-
-  const result = await readAppsScriptResponse(response)
-
-  if (!result.success) {
-    throw new Error(result.message || 'Unable to load users.')
-  }
-
-  return result.users || []
-}
+const accountLoader = createAccountLoader(async token => (await sendDocumentRequest({ action: 'users' }, token)).users || [])
+export const fetchUsers = (refresh = false) => accountLoader.load(getSessionToken(), refresh)
 function getSessionToken() {
   try { return JSON.parse(window.localStorage.getItem('op-dms-user'))?.token || '' } catch { return '' }
 }
 
-async function documentRequest(payload) {
+const pendingReads = new Map()
+const sharedReadActions = new Set(['documents', 'overview', 'activityLogs', 'documentDetails', 'editorCapabilities'])
+
+function documentRequest(payload) {
+  const token = getSessionToken()
+  if (!sharedReadActions.has(payload.action)) return sendDocumentRequest(payload, token)
+  const key = JSON.stringify([token, payload])
+  if (!pendingReads.has(key)) {
+    const promise = sendDocumentRequest(payload, token).finally(() => pendingReads.delete(key))
+    pendingReads.set(key, promise)
+  }
+  return pendingReads.get(key)
+}
+
+async function sendDocumentRequest(payload, token) {
   if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
   const response = await fetchAppsScript(requestTarget(), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ ...payload, token: getSessionToken() }),
+    body: JSON.stringify({ ...payload, token }),
     signal: AbortSignal.timeout(90000),
   }, payload.action)
   if (!response.ok) throw new Error(`Document request failed with status ${response.status}.`)
   const result = await readAppsScriptResponse(response)
   if (!result.success) throw new Error(result.message || 'Unable to process the document.')
+  if (['createUser', 'updateUser', 'deleteUser'].includes(payload.action)) accountLoader.invalidate(token)
   return result
 }
 
@@ -130,11 +125,15 @@ export const updateDocumentContent = async (id, form) => {
   return (await documentRequest({ ...form, id, action: 'updateDocumentContent' })).document
 }
 
+let editorSupport
 async function requireRichBodySupport(form) {
   if (!form.bodyRich) return
+  const token = getSessionToken()
+  if (editorSupport?.token === token && editorSupport.expires > Date.now()) return
   try {
     const result = await documentRequest({ action: 'editorCapabilities' })
     if (result.richBodyVersion !== 1) throw new Error('Unsupported action.')
+    editorSupport = { token, expires: Date.now() + 5 * 60 * 1000 }
   } catch (error) {
     if (/Unsupported action/i.test(error.message)) throw new Error('Formatted documents need the updated Apps Script deployment. Ask the administrator to deploy the latest Code.gs, then retry. Your body is still here.', { cause: error })
     throw error

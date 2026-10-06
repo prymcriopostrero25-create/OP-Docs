@@ -1,3 +1,5 @@
+import { lockBodyScroll } from '../lib/scrollLock'
+import LoadingModal from './LoadingModal'
 import { DocumentContext } from '../lib/documentContext'
 import { useContext, useEffect, useRef, useState } from 'react'
 import { uploadPdf } from '../lib/appsScriptApi'
@@ -22,11 +24,11 @@ export default function DocumentUploads({ onCreateDocument }) {
   const opener = useRef(null)
   useEffect(() => {
     if (!open) return
-    const previousOverflow = document.body.style.overflow
+    const unlockScroll = lockBodyScroll()
     const trigger = opener.current
-    document.body.style.overflow = 'hidden'
+
     activeDialog.current?.focus()
-    return () => { document.body.style.overflow = previousOverflow; trigger?.focus() }
+    return () => { unlockScroll(); trigger?.focus() }
   }, [open])
 
   async function chooseFile(file) {
@@ -103,7 +105,7 @@ export default function DocumentUploads({ onCreateDocument }) {
             <div className="upload-file-copy"><strong>{selection?.file.name || 'Drag and drop your PDF here'}</strong><span>{selection ? `${(selection.file.size / (1024 * 1024)).toFixed(2)} MB · PDF document` : 'Or browse your computer to select a file'}</span></div>
             <button type="button" className="secondary-action" disabled={!!busy} onClick={() => input.current?.click()}>{selection ? 'Change file' : 'Browse files'}</button>
           </div>
-          {busy && <p className="upload-notice" role="status"><span className="upload-spinner" aria-hidden="true" />{busy}</p>}
+          {busy && <LoadingModal title={busy} />}
           {error && <p className="upload-notice upload-error" role="alert">{error}</p>}
           <div className="upload-section-heading upload-details-heading"><h3><span>02</span> Filing details</h3><span className="upload-review-badge">For Review</span></div>
           {selection ? <form id="pdf-filing-form" className="filing-form" onSubmit={submit}>

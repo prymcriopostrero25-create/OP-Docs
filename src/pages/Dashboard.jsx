@@ -1,11 +1,12 @@
+import { lockBodyScroll } from '../lib/scrollLock'
+import LoadingModal from '../components/LoadingModal'
 import { fetchDocuments, fetchActivityLogs, updateDocumentStatus, editDocument, deleteDocument, createDocument as saveCreatedDocument } from '../lib/appsScriptApi'
 import LiveOverview from '../components/LiveOverview'
 import { canAccessPage, permissionsFor } from '../lib/permissions'
 import { DocumentContext } from '../lib/documentContext'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { fetchOverview } from '../lib/appsScriptApi'
 import { usePageData } from '../lib/usePageData'
-import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
 import './Dashboard.css'
 
@@ -16,6 +17,7 @@ const ActivityLogPage = lazy(() => import('./ActivityLogPage'))
 const UserManagementPage = lazy(() => import('./UserManagementPage'))
 const UserLogsPage = lazy(() => import('./UserLogsPage'))
 const SettingsPage = lazy(() => import('./SettingsPage'))
+const emptyFiles = []
 
 export default function Dashboard({ user, onLogout }) {
   const [selectedPage, setActive] = useState('Overview')
@@ -28,7 +30,7 @@ export default function Dashboard({ user, onLogout }) {
   const documents = usePageData(['Documents', 'Archive'].includes(active), fetchDocuments, loadAttempt)
   const activities = usePageData(active === 'Activity log' && permissions.fullAccess, fetchActivityLogs, loadAttempt + summaryAttempt)
   const overview = usePageData(active === 'Overview', fetchOverview, loadAttempt + summaryAttempt)
-  const files = documents.data || []
+  const files = documents.data || emptyFiles
   const activityLogs = permissions.fullAccess ? activities.data || [] : []
   const pageData = active === 'Overview' ? overview : active === 'Activity log' ? activities : documents
   const loading = pageData.loading
@@ -38,7 +40,7 @@ export default function Dashboard({ user, onLogout }) {
     setSummaryAttempt(attempt => attempt + 1)
   }
   const setActivityLogs = activities.setData
-  const records = [...drafts, ...files.map(file => ({ ...file, title: file.subject, reference: file.id, owner: file.owner || '', updated: file.updated || file.date, status: file.status || 'For Review' }))]
+  const records = useMemo(() => [...drafts, ...files.map(file => ({ ...file, title: file.subject, reference: file.id, owner: file.owner || '', updated: file.updated || file.date, status: file.status || 'For Review' }))], [drafts, files])
 
   async function changeStatus(reference, status) {
     if (!permissions.changeStatus || records.find(record => record.reference === reference)?.status === 'Out') return
@@ -80,8 +82,8 @@ export default function Dashboard({ user, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => {
     if (!menuOpen) return
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const unlockScroll = lockBodyScroll()
+
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') {
         setMenuOpen(false)
@@ -89,7 +91,7 @@ export default function Dashboard({ user, onLogout }) {
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => {
-      document.body.style.overflow = previousOverflow
+      unlockScroll()
       window.removeEventListener('keydown', closeOnEscape)
     }
   }, [menuOpen])
@@ -118,9 +120,9 @@ export default function Dashboard({ user, onLogout }) {
       />
 
       <div className="dashboard-main" inert={menuOpen}>
-        <Navbar isMenuOpen={menuOpen} onToggleMenu={() => setMenuOpen((isOpen) => !isOpen)} />
+        <button type="button" className="dashboard-navigation-toggle" onClick={() => setMenuOpen(isOpen => !isOpen)} aria-controls="main-sidebar" aria-expanded={menuOpen} aria-label="Open navigation"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg><span>Menu</span></button>
 
-        <Suspense fallback={<main className="dashboard-content" role="status">Loading page…</main>}>
+        <Suspense fallback={<LoadingModal title="Loading page..." />}>
         {active === 'Create document' ? <main className="dashboard-content create-document-page"><CreateDocument isOpen page onClose={() => setActive('Documents')} onCreate={createDocument} onViewCreated={record => { setDocumentType(record.type); setActive('Documents') }} canChangeStatus={permissions.changeStatus} /></main>
           : active === 'Documents' ? <DocumentsPage initialType={documentType} onCreateDocument={() => { setMenuOpen(false); setActive('Create document') }} />
           : active === 'Archive' ? <ArchivePage />

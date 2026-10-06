@@ -147,6 +147,13 @@ function syncCreatedDocumentStatus(type, internalId, status) {
 
 // Only doPost owns this cache; never reuse authorization between requests.
 let requestAccounts;
+let requestCredentialRows;
+function credentialRows(sheet) {
+  if (requestAccounts && requestCredentialRows) return requestCredentialRows;
+  const rows = sheet ? sheetDataRows(sheet, 1, 4) : [];
+  if (requestAccounts) requestCredentialRows = rows;
+  return rows;
+}
 function authenticatedAccount(token) {
   if (typeof token !== 'string' || !token) return null;
   if (requestAccounts && requestAccounts.has(token)) return requestAccounts.get(token);
@@ -154,7 +161,7 @@ function authenticatedAccount(token) {
   let account = null;
   if (email && !sessionRevoked(email, token)) {
     const sheet = appSpreadsheet().getSheetByName('CREDENTIALS');
-    const rows = sheet ? sheetDataRows(sheet, 1, 4) : [];
+    const rows = credentialRows(sheet);
     const row = rows.find(item => String(item[0]).trim().toLowerCase() === email);
     if (row) account = { email: email, name: row[1], role: normalizeRole(row[3]), token: token };
   }
@@ -179,25 +186,20 @@ function updateDocumentStatus(request) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const sheet = mainFilesSheet();
-    const rows = sheetDataRows(sheet, 1, 5);
-    const index = rows.findIndex((row) => row[1] === request.id);
-    if (index === -1) return jsonResponse({ success: false, message: 'Document was not found.' });
-    const cell = sheet.getRange(index + 2, 2);
-    if (documentFromRow(rows[index], cell.getNote()).status === 'Out') {
+    const entry = workflowDocument(request.id, true);
+    const cell = entry.cell;
+    if (entry.record.status === 'Out') {
       return jsonResponse({ success: false, message: 'This document is Out and locked. It can only be previewed or downloaded.' });
     }
-    let metadata = {};
-    try { metadata = JSON.parse(cell.getNote() || '{}'); } catch (error) { /* Legacy metadata. */ }
-    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
+    const metadata = entry.metadata;
     metadata.status = request.status;
     metadata.updated = new Date().toISOString();
     if (request.status === 'Approved' && !metadata.approvedAt) metadata.approvedAt = metadata.updated;
     syncCreatedDocumentStatus(metadata.type, metadata.createdDocumentId, request.status);
     cell.setNote(JSON.stringify(metadata));
-    appendActivityEvent({ activity: 'Status changed to ' + request.status, id: rows[index][1], date: new Date().toISOString(), subject: rows[index][3], url: rows[index][4], type: documentFromRow(rows[index], JSON.stringify(metadata)).type });
+    appendActivityEvent({ ...entry.record, activity: 'Status changed to ' + request.status, date: new Date().toISOString() });
     SpreadsheetApp.flush();
-    return jsonResponse({ success: true, document: documentFromRow(rows[index], JSON.stringify(metadata)) });
+    return jsonResponse({ success: true, document: { ...entry.record, status: metadata.status, updated: metadata.updated, approvedAt: metadata.approvedAt || '' } });
   } finally { lock.releaseLock(); }
 }
 const TYPE_LOG_SHEETS = {
@@ -318,6 +320,7 @@ function deleteDocumentFiles(record, mainSheet, mainRow, bodyRichFileId) {
 
 function doPost(e) {
   requestAccounts = new Map();
+  requestCredentialRows = undefined;
   try {
     const request = JSON.parse(e.postData.contents || '{}');
     if (request.action === 'editorCapabilities') {
@@ -417,6 +420,7 @@ function doPost(e) {
     return jsonResponse({ success: false, message: 'Unable to process the login request.' });
   } finally {
     requestAccounts = undefined;
+    requestCredentialRows = undefined;
   }
 }
 
@@ -592,7 +596,7 @@ function getUsers() {
   }
 
   // CREDENTIALS columns: A EMAIL, B NAME, C PASSWORD, D ROLE.
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues();
+  const rows = credentialRows(sheet);
   const settings = PropertiesService.getScriptProperties().getProperties();
   const users = rows
     .filter((row) => String(row[0]).trim() || String(row[1]).trim())
@@ -1221,8 +1225,10 @@ function storeRichBodyForm(data, documentFile, existingId) {
     const folder = parents.next();
     const name = documentFile.getId() + '.body.json';
     const matches = folder.getFilesByName(name);
-    file = matches.hasNext() ? matches.next() : folder.createFile(name, source, 'application/json');
-    file.setContent(source);
+    if (matches.hasNext()) {
+      file = matches.next();
+      file.setContent(source);
+    } else file = folder.createFile(name, source, 'application/json');
   }
   const stored = { ...data, bodyRichFileId: file.getId() };
   delete stored.bodyRich;
@@ -1683,7 +1689,7 @@ function workflowRequest(request) {
     if (request.action === 'verificationLink') return documentVerificationLink(request);
     if (request.action === 'documentDetails') {
       if (!canChangeDocumentStatus(request.token)) throw new Error('Admin access is required.');
-      const entry = workflowDocument(request.id);
+      const entry = workflowDocument(request.id, true);
       if (!entry.metadata.form) throw new Error('This record has no editable form. You can edit its registry title.');
       return jsonResponse({ success: true, form: loadRichBodyForm(entry.metadata.form) });
     }
@@ -1774,7 +1780,7 @@ function documentVerificationLink(request) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const entry = workflowDocument(request.id);
+    const entry = workflowDocument(request.id, true);
     if (!entry.metadata.verificationCode) {
       entry.metadata.verificationCode = Utilities.getUuid() + Utilities.getUuid();
       entry.cell.setNote(JSON.stringify(entry.metadata));
@@ -1802,7 +1808,7 @@ function updateDocumentContent(request) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const entry = workflowDocument(request.id);
+    const entry = workflowDocument(request.id, true);
     if (entry.record.status === 'Out') throw new Error('OUT documents are locked.');
     if (!entry.metadata.form || entry.metadata.form.templateVersion !== 2) throw new Error('This legacy document supports title editing only.');
     const data = validateTemplateDocument({ ...request, reference: entry.metadata.form.reference }, entry.record.type);
@@ -1845,7 +1851,7 @@ function sendRegisteredDocument(request, user) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const entry = workflowDocument(request.id);
+    const entry = workflowDocument(request.id, true);
     const props = PropertiesService.getScriptProperties();
     const key = 'sent:' + request.requestId;
     const prior = JSON.parse(props.getProperty(key) || 'null');

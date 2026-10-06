@@ -1,3 +1,4 @@
+import LoadingModal from '../components/LoadingModal'
 import { useEffect, useRef, useState } from 'react'
 import { fetchUsers, saveUser, removeUser } from '../lib/appsScriptApi'
 import './Administration.css'
@@ -14,9 +15,9 @@ export default function UserManagementPage() {
   const [formError, setFormError] = useState('')
   const dialog = useRef(null)
   const filtered = users.filter(user => `${user.name} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase()))
-  async function loadUsers() {
+  async function loadUsers(refresh = false) {
     setLoading(true); setError('')
-    try { setUsers(await fetchUsers()) }
+    try { setUsers(await fetchUsers(refresh)) }
     catch (failure) { setError(failure.message) }
     finally { setLoading(false) }
   }
@@ -41,11 +42,13 @@ export default function UserManagementPage() {
     finally { setBusy(false) }
   }
   return <main className="dashboard-content admin-page user-management-page">
-    <div className="admin-title"><div><p className="eyebrow">Administration</p><h1>User Management</h1><p>Manage office accounts, access levels, and passwords.</p></div><div><button className="secondary-action" onClick={loadUsers} disabled={loading || busy}>Refresh users</button><button className="primary-action" onClick={() => openForm(null)}>Add user</button></div></div>
+    {busy && <LoadingModal title="Updating user accounts..." />}
+    {loading && <p role="status">Loading accounts…</p>}
+    <div className="admin-title"><div><p className="eyebrow">Administration</p><h1>User Management</h1><p>Manage office accounts, access levels, and passwords.</p></div><div><button className="secondary-action" onClick={() => loadUsers(true)} disabled={loading || busy}>Refresh users</button><button className="primary-action" onClick={() => openForm(null)}>Add user</button></div></div>
     <section className="admin-stats"><article><span>Total users</span><strong>{users.length}</strong><small>Registered accounts</small></article><article><span>Active accounts</span><strong>{users.filter(user => user.status !== 'Inactive').length}</strong><small>Enabled sign-in accounts</small></article><article><span>Administrators</span><strong>{users.filter(user => user.role !== 'user').length}</strong><small>Manage document workflows</small></article><article><span>Inactive accounts</span><strong>{users.filter(user => user.status === 'Inactive').length}</strong><small>Sign-in disabled</small></article></section>
     {error && <p role="alert">{error}</p>}
     <section className="admin-panel"><div className="admin-toolbar"><div><h2>User accounts</h2><p>Changes are saved to the connected account registry.</p></div><input aria-label="Search users" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search users…" /></div><div className="admin-table-wrap"><table className="users-table"><thead><tr><th>User</th><th>Email</th><th>Account type</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-      {loading ? <tr><td colSpan="5">Loading accounts…</td></tr> : filtered.map(account => <tr key={account.email}><td><div className="admin-user"><span>{account.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}</span><strong>{account.name}</strong></div></td><td>{account.email}</td><td><span className="role-pill">{account.role === 'user' ? 'Viewer' : account.role}</span></td><td>{account.status || 'Active'}</td><td><button disabled={busy} onClick={() => openForm(account)}>Edit</button><button disabled={busy} onClick={() => deleteAccount(account)}>Delete</button></td></tr>)}
+      {filtered.map(account => <tr key={account.email}><td><div className="admin-user"><span>{account.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}</span><strong>{account.name}</strong></div></td><td>{account.email}</td><td><span className="role-pill">{account.role === 'user' ? 'Viewer' : account.role}</span></td><td>{account.status || 'Active'}</td><td><button disabled={busy} onClick={() => openForm(account)}>Edit</button><button disabled={busy} onClick={() => deleteAccount(account)}>Delete</button></td></tr>)}
       {!loading && !filtered.length && <tr><td colSpan="5">No accounts found.</td></tr>}
     </tbody></table></div></section>
     {form && <dialog ref={dialog} className="record-action-dialog" onCancel={event => { if (busy) event.preventDefault(); else setForm(null) }}><form onSubmit={submit}><h2>{creating ? 'Add user' : 'Edit account'}</h2>

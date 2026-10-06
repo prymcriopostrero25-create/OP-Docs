@@ -15,6 +15,20 @@ export default defineConfig(({ mode }) => {
       react(),
       babel({ presets: [reactCompilerPreset()] })
     ],
+    optimizeDeps: {
+      // Scan every app component before serving lazy-loaded document pages.
+      entries: ['index.html', 'src/**/*.{js,jsx}'],
+      include: [
+        '@tiptap/react',
+        '@tiptap/core',
+        '@tiptap/starter-kit',
+        '@tiptap/extension-text-style',
+        '@tiptap/extension-text-align',
+        '@tiptap/extension-highlight',
+        '@tiptap/extension-image',
+        '@tiptap/extension-table',
+      ],
+    },
     server: {
       host: 'localhost',
       port: 5173,

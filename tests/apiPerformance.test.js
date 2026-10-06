@@ -1,0 +1,55 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import vm from 'node:vm'
+import { createAccountLoader } from '../src/lib/accountLoader.js'
+
+function fixture() {
+  const calls = []
+  let token = 'first'
+  const context = vm.createContext({
+    createAccountLoader,
+    AbortSignal, Date,
+    window: { localStorage: { getItem: () => JSON.stringify({ token }) } },
+    fetchAppsScript: async (_, options) => {
+      const payload = JSON.parse(options.body)
+      calls.push(payload)
+      return { ok: true, result: { success: true, documents: [], richBodyVersion: 1, document: { id: payload.requestId, url: 'url' } } }
+    },
+    readAppsScriptResponse: async response => response.result,
+  })
+  const source = fs.readFileSync(new URL('../src/lib/appsScriptApi.js', import.meta.url), 'utf8')
+    .replace(/^import .*$/gm, '')
+    .replace(/import\.meta\.env\.VITE_APPS_SCRIPT_URL/g, "'https://example.test/exec'")
+    .replace(/import\.meta\.env\.DEV/g, 'false')
+    .replace(/export /g, '')
+  vm.runInContext(source, context)
+  return { context, calls, setToken(value) { token = value } }
+}
+
+test('overlapping reads share a request, later refreshes and other sessions fetch again', async () => {
+  const f = fixture()
+  await Promise.all([f.context.fetchDocuments(), f.context.fetchDocuments()])
+  assert.equal(f.calls.length, 1)
+  await f.context.fetchDocuments()
+  assert.equal(f.calls.length, 2)
+  const first = f.context.fetchDocuments()
+  f.setToken('second')
+  await Promise.all([first, f.context.fetchDocuments()])
+  assert.equal(f.calls.length, 4)
+  assert.equal(f.calls.at(-1).token, 'second')
+})
+
+test('formatted saves reuse editor capabilities while every mutation remains separate', async () => {
+  const f = fixture()
+  await f.context.createDocument({ bodyRich: {}, requestId: 'one' })
+  await Promise.all([
+    f.context.createDocument({ bodyRich: {}, requestId: 'two' }),
+    f.context.createDocument({ bodyRich: {}, requestId: 'three' }),
+  ])
+  assert.equal(f.calls.filter(call => call.action === 'editorCapabilities').length, 1)
+  assert.equal(f.calls.filter(call => call.action === 'createDocument').length, 3)
+  f.setToken('second')
+  await f.context.createDocument({ bodyRich: {}, requestId: 'four' })
+  assert.equal(f.calls.filter(call => call.action === 'editorCapabilities').length, 2)
+})

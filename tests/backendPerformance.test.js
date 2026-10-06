@@ -4,6 +4,51 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 
 const source = fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8')
+
+test('status updates transfer one registry row even with 10,000 documents', () => {
+  let reads = 0, noteReads = 0, released = false, saved
+  const context = vm.createContext({
+    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() { released = true } }) },
+    SpreadsheetApp: { flush() {} },
+  })
+  vm.runInContext(source, context)
+  context.canChangeDocumentStatus = () => true
+  context.jsonResponse = value => value
+  context.syncCreatedDocumentStatus = () => {}
+  context.appendActivityEvent = () => {}
+  context.mainFilesSheet = () => ({ getLastRow: () => 10001, getRange(row, column, count, width) {
+    if (count === 10000) return { createTextFinder: () => ({
+      matchEntireCell() { return this }, matchCase() { return this }, useRegularExpression() { return this },
+      findNext: () => ({ getRow: () => 8000 }),
+    }) }
+    assert.equal(row, 8000)
+    if (width === 5) return { getDisplayValues() { reads++; return [['Created', 'known', '2026-10-01', 'Title', 'url']] } }
+    return { getNote() { noteReads++; return JSON.stringify({ status: 'Draft', type: 'Travel Order' }) }, setNote(value) { saved = JSON.parse(value) } }
+  } })
+  const result = context.updateDocumentStatus({ id: 'known', status: 'Approved' })
+  assert.equal(result.document.status, 'Approved')
+  assert.equal(reads, 1)
+  assert.equal(noteReads, 1)
+  assert.ok(saved.approvedAt)
+  assert.equal(released, true)
+})
+
+test('new rich body source is written once while recovered sources are updated', () => {
+  const context = vm.createContext({})
+  vm.runInContext(source, context)
+  let creates = 0, writes = 0, recovered = false
+  const file = { getId: () => 'source', setContent() { writes++ } }
+  const folder = { getFilesByName: () => ({ hasNext: () => recovered, next: () => file }), createFile() { creates++; return file } }
+  const document = { getId: () => 'doc', getParents: () => ({ hasNext: () => true, next: () => folder }) }
+  const data = { bodyRich: { type: 'doc', content: [] } }
+  assert.equal(context.storeRichBodyForm(data, document).bodyRichFileId, 'source')
+  assert.equal(creates, 1)
+  assert.equal(writes, 0)
+  recovered = true
+  context.storeRichBodyForm(data, document)
+  assert.equal(creates, 1)
+  assert.equal(writes, 1)
+})
 function fixture() {
   const counts = { reads: 0, settings: 0, bulk: 0 }
   const rows = [['admin@jhcsc.edu.ph', 'Admin', 'private', 'super admin']]
@@ -55,6 +100,15 @@ test('user list batches settings and does not expose passwords', () => {
   assert.equal(f.counts.bulk, 1)
   assert.equal(f.counts.settings, 0)
   assert.equal(JSON.stringify(result).includes('secret'), false)
+})
+
+test('account listing reuses authorization credentials only within the same request', () => {
+  const f = fixture()
+  assert.equal(f.post('users').success, true)
+  assert.equal(f.counts.reads, 1)
+  f.rows[0][3] = 'user'
+  assert.equal(f.post('users').success, false)
+  assert.equal(f.counts.reads, 2)
 })
 
 test('reading login logs requires no sheet writes', () => {

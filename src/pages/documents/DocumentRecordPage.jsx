@@ -1,3 +1,5 @@
+import { lockBodyScroll } from '../../lib/scrollLock'
+import LoadingModal from '../../components/LoadingModal'
 import { DocumentContext } from '../../lib/documentContext'
 import { documentTypeLabel } from '../../lib/documentTypes'
 import { filterRecords, recordsCsv, downloadFile } from '../../lib/recordTools'
@@ -29,6 +31,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   const { records, changeStatus, editRecord, deleteRecord, permissions, loading, loadError, setFiles, refreshRecords } = useContext(DocumentContext)
   const [emailRecord, setEmailRecord] = useState(null)
   const [editing, setEditing] = useState(null)
+  const [loadingEdit, setLoadingEdit] = useState(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [start, setStart] = useState('')
@@ -52,18 +55,19 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   useEffect(() => {
     if (!action) return
     const trigger = document.activeElement
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const unlockScroll = lockBodyScroll()
+
     actionDialog.current.showModal()
-    return () => { document.body.style.overflow = previousOverflow; trigger?.focus() }
+    return () => { unlockScroll(); trigger?.focus() }
   }, [action])
 
   async function openAction(kind, record) {
     if (kind === 'edit' && record.editableContent) {
+      setLoadingEdit(record.reference)
       setSaving(true); setError('')
       try { const form = await documentDetails(record.reference); setEditing({ record, form }) }
       catch (failure) { setError(failure.message) }
-      finally { setSaving(false) }
+      finally { setSaving(false); setLoadingEdit(null) }
       return
     }
     setEditedTitle(record.title)
@@ -88,8 +92,8 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   useEffect(() => {
     if (!preview) return
     const trigger = document.activeElement
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const unlockScroll = lockBodyScroll()
+
     previewDialog.current.showModal()
     let cancelled = false
     documentPage(preview.reference).then(result => {
@@ -102,7 +106,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     })
     return () => {
       cancelled = true
-      document.body.style.overflow = previousOverflow
+      unlockScroll()
       trigger?.focus()
     }
   }, [preview])
@@ -164,19 +168,22 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
   const pageCount = Math.max(1, Math.ceil(visibleRecords.length / pageSize))
   const currentPage = Math.min(page, pageCount)
   const pageRecords = visibleRecords.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const hasFilters = Boolean(query || start || end || status !== 'All statuses')
   const resetFilters = () => { setQuery(''); setStatus('All statuses'); setStart(''); setEnd(''); setPage(1) }
   return (
     <section className="documents-panel document-registry">
       {(error || loadError) && <p role="alert">{error || loadError}</p>}
-      {loading && <p role="status">Loading documents...</p>}
+      {loadingEdit !== null && <LoadingModal title="Opening document editor..." description="Please wait while we load your document." />}
+      {saving && loadingEdit === null && <LoadingModal title={action?.kind === 'delete' ? 'Deleting document...' : 'Saving changes...'} />}
+      {loading && !saving && <LoadingModal title="Loading documents..." description="Please wait while we fetch your records." />}
       <div className="documents-toolbar">
         <div className="document-search"><span aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg></span><input name="documentSearch" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Search documents..." aria-label={`Search ${title}`} /></div>
-        <select name="statusFilter" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }} aria-label="Filter by status">{statuses.map((option) => <option key={option}>{option}</option>)}</select>
-        <input type="date" aria-label="From date" value={start} max={end} onChange={event => { setStart(event.target.value); setPage(1) }} /><input type="date" aria-label="Until date" value={end} min={start} onChange={event => { setEnd(event.target.value); setPage(1) }} /><select aria-label="Sort documents" value={sort} onChange={event => { setSort(event.target.value); setPage(1) }}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="title">Title A–Z</option></select>
-        {(query || start || end || status !== 'All statuses') && <button type="button" className="filter-button" onClick={resetFilters}>Clear filters</button>}
+        <label className="registry-filter">Status<select name="statusFilter" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}>{statuses.map((option) => <option key={option}>{option}</option>)}</select></label>
+        <label className="registry-filter">Updated from<input type="date" value={start} max={end} onChange={event => { setStart(event.target.value); setPage(1) }} /></label><label className="registry-filter">Updated until<input type="date" value={end} min={start} onChange={event => { setEnd(event.target.value); setPage(1) }} /></label><label className="registry-filter">Sort by<select value={sort} onChange={event => { setSort(event.target.value); setPage(1) }}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="title">Title A–Z</option></select></label>
+        {hasFilters && <button type="button" className="filter-button" onClick={resetFilters}>Clear filters</button>}
       </div>
       <div className="registry-heading"><div><h2>{title}</h2><p>{visibleRecords.length} shown from {records.filter(record => !type || record.type === type).length} records</p></div><div><button onClick={refreshRecords} disabled={loading}>Refresh</button><button onClick={() => downloadFile(new Blob([recordsCsv(visibleRecords)], { type: 'text/csv;charset=utf-8' }), 'documents.csv')}>Export list</button></div></div>
-      <div className="table-wrap registry-table"><table>
+      <div className="table-wrap registry-table" aria-busy={loading}><table>
         <thead><tr><th>Document</th><th>Type</th><th>Owner</th><th>Last updated</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
           {pageRecords.map((record, index) => <tr key={JSON.stringify([record.type, record.reference, record.url, index])}>
@@ -184,15 +191,15 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
             <td><span className="record-type">{documentTypeLabel(record.type)}</span></td><td><span className={!record.owner || record.owner === '?' ? 'record-muted' : 'record-owner'}>{!record.owner || record.owner === '?' ? 'Unassigned' : record.owner}</span></td><td><UpdatedDate value={record.updated} /></td>
             <td>{permissions.changeStatus && record.status !== 'Out' ? <select name={`status-${record.reference}`} className={`record-status ${record.status.toLowerCase().replaceAll(' ', '-')}`} aria-label={`Change status for ${record.title}`} disabled={saving} value={record.status} onChange={(event) => saveStatus(record.reference, event.target.value)}>{statuses.slice(1).map((option) => <option key={option}>{option}</option>)}</select> : <span className={`status ${record.status.toLowerCase().replaceAll(' ', '-')}`}>{record.status === 'Out' ? 'OUT' : record.status}</span>}</td>
             <td><div className="record-actions">
-              <button type="button" aria-label={`Edit ${record.title}`} title={record.status === 'Out' ? 'OUT documents are locked' : !permissions.changeStatus ? 'Admin access required' : 'Edit title'} disabled={saving || !permissions.changeStatus || record.status === 'Out'} onClick={() => openAction('edit', record)}><ActionIcon kind="edit" /></button>
+              <button type="button" aria-label={loadingEdit === record.reference ? `Loading editor for ${record.title}` : `Edit ${record.title}`} aria-busy={loadingEdit === record.reference} title={record.status === 'Out' ? 'OUT documents are locked' : !permissions.changeStatus ? 'Admin access required' : 'Edit title'} disabled={saving || !permissions.changeStatus || record.status === 'Out'} onClick={() => openAction('edit', record)}><ActionIcon kind="edit" /></button>
               <button type="button" aria-label={`Preview ${record.title}`} title="Preview" disabled={!/^https:\/\/drive\.google\.com\/file\/d\/[a-zA-Z0-9_-]+\/(view|preview)$/.test(record.url || '')} onClick={() => openPreview(record)}><ActionIcon kind="preview" /></button>
               <button type="button" className="delete-record" aria-label={`Delete ${record.title}`} title={record.status === 'Out' ? 'OUT documents are locked' : !permissions.changeStatus ? 'Admin access required' : 'Delete'} disabled={saving || !permissions.changeStatus || record.status === 'Out'} onClick={() => openAction('delete', record)}><ActionIcon kind="delete" /></button>
             </div></td>
           </tr>)}
-          {!visibleRecords.length && <tr><td colSpan="6" className="empty-records">No documents match your search.</td></tr>}
+          {!loading && !visibleRecords.length && <tr><td colSpan="6" className="empty-records"><div className="registry-empty"><span className="registry-empty-icon" aria-hidden="true"><ActionIcon kind="preview" /></span><strong>{hasFilters ? 'No matching documents' : 'No documents yet'}</strong><p>{hasFilters ? 'Try another search or clear your filters to see more records.' : 'Documents in this category will appear here once created or uploaded.'}</p>{hasFilters && <button type="button" onClick={resetFilters}>Clear filters</button>}</div></td></tr>}
         </tbody>
       </table></div>
-      <div className="documents-pagination"><span>{visibleRecords.length} records · Page {currentPage} of {pageCount}</span><select aria-label="Records per page" value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1) }}>{[10, 25, 50].map(size => <option key={size} value={size}>{size} per page</option>)}</select><button disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button><button disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div>
+      <div className="documents-pagination"><span>{visibleRecords.length ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, visibleRecords.length)} of ${visibleRecords.length} records` : '0 records'}</span><div className="registry-pagination-controls"><select aria-label="Records per page" value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1) }}>{[10, 25, 50].map(size => <option key={size} value={size}>{size} per page</option>)}</select><button disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage} of {pageCount}</span><button disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div></div>
       {action && <dialog ref={actionDialog} className="record-action-dialog" aria-labelledby="record-action-title" onCancel={event => { if (actionBusy.current) event.preventDefault(); else setAction(null) }}>
         <form onSubmit={submitAction}>
           <h2 id="record-action-title">{action.kind === 'edit' ? 'Edit document title' : 'Delete document?'}</h2>
@@ -211,7 +218,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
         </div>
         </header>
         <div className="preview-frame-wrap">
-          {previewLoading && !pdfError && <div className="preview-loading" role="status" aria-live="polite"><span className="preview-spinner" /><span className="preview-loading-text">Loading document preview...</span></div>}
+          {previewLoading && !pdfError && <LoadingModal title="Loading document preview..." />}
           {pageContent?.form && <DocumentPage form={pageContent.form} type={pageContent.type} reference={preview.reference} />}
           {pageContent && !pageContent.form && preparedPreview && <DocumentPages file={preparedPreview.file} onReady={() => setPreviewLoading(false)} onError={() => { setPreviewLoading(false); setPreviewError('Unable to display the document. You can still save it using Save as PDF.') }} />}
         </div>

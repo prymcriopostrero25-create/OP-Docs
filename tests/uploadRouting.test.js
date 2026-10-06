@@ -18,6 +18,13 @@ function fixture({ failWrite = false, failCleanup = false, failLogWrite = false,
   }
   const root = folder('OP Systems')
   const sheet = { getLastRow: () => rows.length, getRange: (r, c, n = 1, w = 1) => ({
+    createTextFinder: id => ({
+      matchEntireCell() { return this }, matchCase() { return this }, useRegularExpression() { return this },
+      findNext() {
+        const index = rows.findIndex((row, index) => index >= r - 1 && index < r - 1 + n && row[c - 1] === id)
+        return index < 0 ? null : { getRow: () => index + 1 }
+      },
+    }),
     getDisplayValues: () => rows.slice(r - 1, r - 1 + n).map(row => row.slice(c - 1, c - 1 + w)),
     setRichTextValues: values => { if (failWrite) throw Error('Sheet write denied'); rows[r - 1] = values[0].map(v => v.text) },
     setNote: value => { notes[r] = value }, getNote: () => notes[r] || '',

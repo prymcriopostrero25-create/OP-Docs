@@ -20,6 +20,7 @@ export default function DocumentsPage({ onCreateDocument, initialType }) {
   return <main className="dashboard-content documents-page">
     <DocumentUploads onCreateDocument={onCreateDocument} />
     <section className="document-summary" aria-label="Document summary"><div><span>All records</span><strong>{records.length}</strong></div><div><span>For Review</span><strong>{records.filter(r => r.status === 'For Review').length}</strong></div><div><span>For Signature</span><strong>{records.filter(r => r.status === 'For Signature').length}</strong></div><div><span>Approved</span><strong>{records.filter(r => r.status === 'Approved').length}</strong></div><div><span>Out</span><strong>{records.filter(r => r.status === 'Out').length}</strong></div></section>
-    <nav className="document-type-pages" aria-label="Document type pages">{documentTypes.map((type) => <button key={type.label} className={selectedType === type.label ? 'active' : ''} onClick={() => setSelectedType(type.label)}><span>{type.short}</span><div><strong>{type.label}</strong><small>{typeCounts(type.label)} records</small></div></button>)}</nav><ActivePage />
+    <div className="document-browse-heading"><h2>Browse documents</h2><p>Select a category to view its records.</p></div>
+    <nav className="document-type-pages" aria-label="Document type pages">{documentTypes.map((type) => <button type="button" key={type.label} aria-pressed={selectedType === type.label} className={selectedType === type.label ? 'active' : ''} onClick={() => setSelectedType(type.label)}><span>{type.short}</span><div><strong>{type.label}</strong><small>{typeCounts(type.label)} records</small></div></button>)}</nav><ActivePage />
   </main>
 }
