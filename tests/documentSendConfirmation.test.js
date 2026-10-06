@@ -26,3 +26,29 @@ test('validation errors do not trigger a delivery check', async () => {
   await assert.rejects(sendWithConfirmation({}, async () => { calls++; throw Error('Approve the document before sending it.') }), /Approve/)
   assert.equal(calls, 1)
 })
+
+test('Gmail receipt ends loading while the original send response is still pending', async () => {
+  const calls = [], form = { id: 'memo', requestId: 'same-request' }
+  let finishSend
+  const result = await sendWithConfirmation(form, payload => {
+    calls.push(payload)
+    if (payload.action === 'sendDocument') return new Promise(resolve => { finishSend = resolve })
+    return Promise.resolve({ confirmed: true, registryPending: true, document: { id: 'memo', status: 'Out' } })
+  }, { pollInterval: 1 })
+  assert.equal(result.status, 'Out')
+  assert.deepEqual(calls.map(call => call.action), ['sendDocument', 'documentSendStatus'])
+  finishSend({ document: result })
+})
+
+test('pending receipts keep waiting without starting another send', async () => {
+  let sends = 0, checks = 0, finishSend
+  const result = await sendWithConfirmation({ id: 'memo' }, payload => {
+    if (payload.action === 'sendDocument') { sends++; return new Promise(resolve => { finishSend = resolve }) }
+    checks++
+    if (checks === 2) finishSend({ document: { id: 'memo', status: 'Out' } })
+    return Promise.resolve({ confirmed: false })
+  }, { pollInterval: 1 })
+  assert.equal(result.status, 'Out')
+  assert.equal(sends, 1)
+  assert.equal(checks, 2)
+})

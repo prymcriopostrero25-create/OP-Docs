@@ -76,6 +76,23 @@ test('a changed Drive revision cannot send the PDF prepared for an earlier revis
   assert.equal(f.entry.metadata.status, 'Approved')
 })
 
+test('send status confirms the persisted Gmail receipt without waiting on spreadsheet lock', () => {
+  const f = fixture()
+  f.context.sendRegisteredDocument(request, user)
+  const key = 'sent:' + request.requestId
+  const receipt = JSON.parse(f.properties.get(key))
+  delete receipt.registryComplete
+  f.properties.set(key, JSON.stringify(receipt))
+  f.context.LockService = { getScriptLock: () => ({ tryLock: () => false, waitLock() { throw Error('Must not wait') }, releaseLock() { throw Error('Must not release unowned lock') } }) }
+  f.context.workflowDocument = () => { throw Error('Must not read the spreadsheet') }
+  const result = f.context.documentSendStatus(request, user)
+  assert.equal(result.confirmed, true)
+  assert.equal(result.document.status, 'Out')
+  assert.equal(result.registryPending, true)
+  assert.equal(f.sent.length, 1)
+  assert.throws(() => f.context.documentSendStatus({ ...request, to: 'different@example.com' }, user), /does not match/)
+})
+
 test('email uses registered PDF, preserves CC, locks OUT, and retries without resending', () => {
   const f = fixture()
   assert.equal(f.context.sendRegisteredDocument(request, user).document.status, 'Out')

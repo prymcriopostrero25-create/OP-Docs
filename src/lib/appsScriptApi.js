@@ -103,7 +103,7 @@ async function sendDocumentRequest(payload, token) {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ ...payload, token }),
-    signal: AbortSignal.timeout((sharedReadActions.has(payload.action) && payload.action !== 'prepareEmailAttachment') || payload.action === 'currentUser' ? 30000 : 90000),
+    signal: AbortSignal.timeout(payload.action === 'documentSendStatus' ? 10000 : (sharedReadActions.has(payload.action) && payload.action !== 'prepareEmailAttachment') || payload.action === 'currentUser' ? 30000 : 90000),
   }, payload.action) } catch (error) {
     if (error.name === 'TimeoutError' || error.name === 'AbortError') {
       throw new Error('The document service took too long to respond. Check the Apps Script deployment and your connection, then retry.', { cause: error })

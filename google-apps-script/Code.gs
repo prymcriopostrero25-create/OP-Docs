@@ -1896,8 +1896,12 @@ function sendRegisteredDocument(request, user) {
     if (!sent || !sent.id) throw new Error('Gmail did not confirm the send. Check the sender mailbox before starting another email.');
     state.state = 'sent';
     state.gmailMessageId = sent.id;
+    state.document = { ...entry.record, status: 'Out', updated: new Date().toISOString() };
     props.setProperty(key, JSON.stringify(state));
-    return finishDocumentSend(entry, request, to, cc);
+    const result = finishDocumentSend(entry, request, to, cc);
+    state.registryComplete = true;
+    props.setProperty(key, JSON.stringify(state));
+    return result;
   } finally { lock.releaseLock(); }
 }
 
@@ -1906,7 +1910,21 @@ function documentSendStatus(request, user) {
   if (!canChangeDocumentStatus(request.token)) throw new Error('Admin access is required.');
   if (!/^[a-zA-Z0-9-]{16,80}$/.test(String(request.requestId || ''))) throw new Error('Invalid send request.');
   const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  // Read the Gmail receipt before waiting for spreadsheet work owned by the
+  // original send. That work can be slow even though the email is already sent.
+  const receipt = JSON.parse(PropertiesService.getScriptProperties().getProperty('sent:' + request.requestId) || 'null');
+  if (!receipt) return jsonResponse({ success: true, confirmed: false });
+  if (receipt.id !== request.id || receipt.owner !== user.email) throw new Error('Send request does not match.');
+  if (receipt.state !== 'sent') return jsonResponse({ success: true, confirmed: false });
+  const receiptTo = emailAddresses(request.to, true), receiptCc = emailAddresses(request.cc, false);
+  const receiptFingerprint = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([request.id, receiptTo, receiptCc, String(request.subject || '').trim(), String(request.message || '').trim()])));
+  if (receipt.fingerprint !== receiptFingerprint) throw new Error('Send request does not match.');
+  if (receipt.registryComplete && receipt.document) return jsonResponse({ success: true, confirmed: true, document: receipt.document });
+  if (typeof lock.tryLock === 'function') {
+    if (!lock.tryLock(1)) {
+      return jsonResponse({ success: true, confirmed: !!receipt.document, registryPending: true, document: receipt.document });
+    }
+  } else lock.waitLock(30000);
   try {
     const state = JSON.parse(PropertiesService.getScriptProperties().getProperty('sent:' + request.requestId) || 'null');
     if (!state) return jsonResponse({ success: true, confirmed: false });

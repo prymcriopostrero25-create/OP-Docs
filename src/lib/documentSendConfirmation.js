@@ -1,7 +1,24 @@
-export async function sendWithConfirmation(form, request) {
+export async function sendWithConfirmation(form, request, { pollInterval = 3000 } = {}) {
+  // Keep the send running once, but check its persisted Gmail receipt while
+  // spreadsheet logging or the original HTTP response is still pending.
+  const sending = Promise.resolve().then(() => request({ ...form, action: 'sendDocument' }))
+    .then(result => ({ result }), error => ({ error }))
+  let outcome
+  while (!outcome) {
+    let timer
+    const next = await Promise.race([sending, new Promise(resolve => { timer = setTimeout(() => resolve(null), pollInterval) })])
+    clearTimeout(timer)
+    if (next) { outcome = next; break }
+    const checking = Promise.resolve().then(() => request({ ...form, action: 'documentSendStatus' })).catch(() => null)
+    const checked = await Promise.race([sending, checking.then(result => ({ checked: result }))])
+    if ('checked' in checked) {
+      if (checked.checked?.document?.id === form.id && checked.checked.document.status === 'Out') return checked.checked.document
+    } else outcome = checked
+  }
   let result
   try {
-    result = await request({ ...form, action: 'sendDocument' })
+    if (outcome.error) throw outcome.error
+    result = outcome.result
   } catch (error) {
     // A transport failure can happen after Gmail accepted the message. Only
     // check the existing request here; never start a second send automatically.

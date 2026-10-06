@@ -76,6 +76,11 @@ site's PDF worker. Test the actual production origin, including Google redirects
 - Each email form has a stable request ID. An ambiguous send response triggers a
   status check for that same request, never an automatic second send. If delivery
   remains uncertain, check the sender's Sent mailbox before starting a new form.
+- While a send is pending, the browser checks its receipt every three seconds
+  (each status request has a ten-second deadline). A persisted Gmail confirmation
+  can end the send animation while the original execution finishes spreadsheet
+  logging. The status check does not wait for the original execution's lock when
+  a confirmed receipt is available. This confirms Gmail acceptance, not inbox arrival.
 
 Browser-cached PDFs can remain visible briefly after an external Drive edit;
 Retry preview fetches fresh data. Sending always checks the registered file on
