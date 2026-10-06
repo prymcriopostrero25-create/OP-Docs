@@ -1,4 +1,3 @@
-import LoadingModal from './LoadingModal'
 import { useContext } from 'react'
 import { DocumentContext } from '../lib/documentContext'
 import { filingTypes } from '../lib/documentClassification'
@@ -12,7 +11,7 @@ function OverviewIcon({ kind }) {
 }
 
 function OverviewLoading() {
-  return <LoadingModal title="Loading your dashboard..." />
+  return <div className="overview-summary-loading" role="status"><span className="preview-spinner" aria-hidden="true" /><span>Loading document totals. You can create or browse documents while this loads.</span></div>
 }
 
 export default function LiveOverview({ user, onDocuments, onCreate }) {
@@ -43,7 +42,7 @@ export default function LiveOverview({ user, onDocuments, onCreate }) {
     <div className="overview-section-heading"><div><h2>Workspace at a glance</h2><p>Document totals and the current state of your workflow.</p></div><button type="button" className="overview-refresh" onClick={refreshRecords} disabled={loading}><OverviewIcon kind="refresh" />{loading ? 'Refreshing…' : 'Refresh overview'}</button></div>
     {loading && <OverviewLoading />}
     {loadError && <div className="overview-load-error" role="alert"><p>{loadError}</p><button onClick={refreshRecords} disabled={loading}>Try again</button></div>}
-    {!loading && !loadError && <>
+    {summary && <>
       <div className="overview-metrics">
         {[{ label: 'Total documents', value: total, note: 'All available records', tone: 'wine' }, { label: 'Awaiting action', value: pending, note: `${countStatus('For Review')} for review · ${countStatus('For Signature')} for signature`, tone: 'amber' }, { label: 'Approved', value: countStatus('Approved'), note: 'Approved document records', tone: 'green' }, { label: 'Released', value: countStatus('Out'), note: 'Documents marked Out', tone: 'blue' }].map(metric => <article className={`overview-metric ${metric.tone}`} key={metric.label}><div><span>{metric.label}</span><i><OverviewIcon kind={metric.tone} /></i></div><strong>{metric.value.toLocaleString()}</strong><p>{metric.note}</p></article>)}
       </div>

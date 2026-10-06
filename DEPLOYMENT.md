@@ -56,6 +56,13 @@ site's PDF worker. Test the actual production origin, including Google redirects
 
 ## Preview and email behavior
 
+Dashboard totals load inline without blocking navigation or document creation.
+Successful login supplies the authenticated account, avoiding an immediate
+duplicate account request. Role/session checks still run on focus and each minute;
+restored sessions are checked immediately. Server overview totals are cached for
+30 seconds after authorization, invalidated by document mutations, and bypassed
+by Refresh overview. Existing charts remain visible during refresh.
+
 - Saved form previews and PDF export load independently. Closing a preview
   releases its object URL and cancels rendering; it does not cancel a shared export.
 - Browser PDF caching lasts two minutes, holds at most five entries and caps

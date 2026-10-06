@@ -4,7 +4,7 @@ import { fetchDocuments, fetchActivityLogs, updateDocumentStatus, editDocument, 
 import LiveOverview from '../components/LiveOverview'
 import { canAccessPage, permissionsFor } from '../lib/permissions'
 import { DocumentContext } from '../lib/documentContext'
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchOverview } from '../lib/appsScriptApi'
 import { usePageData } from '../lib/usePageData'
 import Sidebar from '../components/Sidebar'
@@ -30,7 +30,8 @@ export default function Dashboard({ user, onLogout }) {
   const [drafts, setDrafts] = useState([])
   const documents = usePageData(['Documents', 'Archive'].includes(active), fetchDocuments, loadAttempt)
   const activities = usePageData(active === 'Activity log' && permissions.fullAccess, fetchActivityLogs, loadAttempt + summaryAttempt)
-  const overview = usePageData(active === 'Overview', fetchOverview, loadAttempt + summaryAttempt)
+  const loadOverview = useCallback(() => fetchOverview(loadAttempt + summaryAttempt > 0), [loadAttempt, summaryAttempt])
+  const overview = usePageData(active === 'Overview', loadOverview, loadAttempt + summaryAttempt)
   const files = documents.data || emptyFiles
   const activityLogs = permissions.fullAccess ? activities.data || [] : []
   const pageData = active === 'Overview' ? overview : active === 'Activity log' ? activities : documents

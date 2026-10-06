@@ -126,7 +126,7 @@ export async function fetchDocuments() {
   return files.filter(file => file.id !== '1cb7ca84-b1d8-420a-a4ce-84dc89f79281')
 }
 
-export const fetchOverview = async () => (await documentRequest({ action: 'overview' })).summary
+export const fetchOverview = async (refresh = false) => (await documentRequest({ action: 'overview', refresh })).summary
 
 export const currentUser = async () => (await documentRequest({ action: 'currentUser' })).user
 export const saveUser = (form, creating) => documentRequest({ ...form, action: creating ? 'createUser' : 'updateUser' })

@@ -321,8 +321,10 @@ function deleteDocumentFiles(record, mainSheet, mainRow, bodyRichFileId) {
 function doPost(e) {
   requestAccounts = new Map();
   requestCredentialRows = undefined;
+  let overviewMayChange = false;
   try {
     const request = JSON.parse(e.postData.contents || '{}');
+    overviewMayChange = ['createDocument', 'createExecutiveMemorandum', 'uploadDocument', 'editDocument', 'deleteDocument', 'updateDocumentStatus', 'updateDocumentContent', 'sendDocument', 'documentSendStatus', 'prepareDocumentPreview'].includes(request.action);
     if (request.action === 'editorCapabilities') {
       if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
       return jsonResponse({ success: true, richBodyVersion: 1 });
@@ -345,7 +347,7 @@ function doPost(e) {
         return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
       }
       if (request.action === 'uploadDocument') return uploadDocument(request);
-      if (request.action === 'overview') return getOverview();
+      if (request.action === 'overview') return getOverview(request);
       return request.action === 'documents' ? getDocuments() : getActivityLogs();
     }
 
@@ -420,6 +422,9 @@ function doPost(e) {
   } catch (error) {
     return jsonResponse({ success: false, message: 'Unable to process the login request.' });
   } finally {
+    if (overviewMayChange) {
+      try { CacheService.getScriptCache().remove('overview:v1'); } catch (error) { /* Optional summary cache. */ }
+    }
     requestAccounts = undefined;
     requestCredentialRows = undefined;
   }
@@ -733,7 +738,16 @@ function getDocuments() {
 }
 
 // Return chart counts only. No activity history, document bodies or Drive reads.
-function getOverview() {
+function getOverview(request) {
+  let cache;
+  try {
+    cache = CacheService.getScriptCache();
+    const stored = !(request && request.refresh) && cache.get('overview:v1');
+    if (stored) {
+      const summary = JSON.parse(stored);
+      if (summary && typeof summary.total === 'number' && summary.types && summary.statuses && summary.months) return jsonResponse({ success: true, summary: summary });
+    }
+  } catch (error) { /* Cache failures fall back to reading the register. */ }
   const sheet = mainFilesSheet();
   const rows = sheetDataRows(sheet, 1, 3);
   const notes = rows.length ? sheet.getRange(2, 2, rows.length, 1).getNotes() : [];
@@ -751,6 +765,7 @@ function getOverview() {
       summary.months[month] = (summary.months[month] || 0) + 1;
     }
   });
+  try { if (cache) cache.put('overview:v1', JSON.stringify(summary), 30); } catch (error) { /* Summary remains available. */ }
   return jsonResponse({ success: true, summary: summary });
 }
 

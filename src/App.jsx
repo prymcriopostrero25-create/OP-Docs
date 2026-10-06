@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Login from './pages/login'
 import Dashboard from './pages/Dashboard'
 import VerifyPage from './pages/VerifyPage'
 import { logoutUser, currentUser } from './lib/appsScriptApi'
 
 export default function App() {
+  const freshLoginToken = useRef(null)
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(window.localStorage.getItem('op-dms-user'))
@@ -23,18 +24,26 @@ export default function App() {
   useEffect(() => {
     if (!user?.token || verificationCode) return
     let active = true
-    const refresh = () => currentUser().then(account => {
+    let pending = false
+    const refresh = () => {
+      if (pending) return
+      pending = true
+      return currentUser().then(account => {
       if (active) { window.localStorage.setItem('op-dms-user', JSON.stringify(account)); setUser(previous => JSON.stringify(previous) === JSON.stringify(account) ? previous : account) }
     }).catch(error => {
       if (active && /session expired/i.test(error.message)) { window.localStorage.removeItem('op-dms-user'); setUser(null) }
-    })
-    refresh()
+    }).finally(() => { pending = false })
+    }
+    // Login just authenticated this account. Avoid an immediate second backend
+    // execution competing with the initial overview request.
+    if (freshLoginToken.current !== user.token) refresh()
     window.addEventListener('focus', refresh)
     const timer = setInterval(refresh, 60000)
     return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refresh) }
   }, [user?.token, verificationCode])
 
   function handleLogin(account) {
+    freshLoginToken.current = account.token
     window.localStorage.setItem('op-dms-user', JSON.stringify(account))
     window.location.hash = '/dashboard'
     setUser(account)
@@ -53,6 +62,6 @@ export default function App() {
   if (verificationCode) return <VerifyPage code={verificationCode} />
 
   return user
-    ? <Dashboard user={user} onLogout={handleLogout} />
+    ? <Dashboard key={user.token} user={user} onLogout={handleLogout} />
     : <Login onLogin={handleLogin} />
 }
