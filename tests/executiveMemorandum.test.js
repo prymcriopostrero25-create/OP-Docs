@@ -207,7 +207,7 @@ test('all other creation types persist to their matching tab and type/year Drive
     assert.deepEqual(f.destinations, ['OP Systems/' + type + '/2026'])
     assert.equal(f.ctx.createdRegistryEntries()[0].record.id, request.reference)
     assert.equal(f.shortRows[tab].length, 2)
-    if (tab === 'Trav_Ord') assert.deepEqual(f.shortRows.Trav_Ord[1], [request.reference, 'To', request.recipient, '', request.destination, request.travelDates, request.transportation, request.purpose, request.remarks])
+    if (tab === 'Trav_Ord') assert.deepEqual(f.shortRows.Trav_Ord[1], [request.reference, 'To', request.recipient, '', request.destination, request.travelDates, request.transportation, request.purpose, request.remarks, 'Official Time'])
     else if (tab === 'Spe_Ord') assert.equal(f.shortRows[tab][1][7], request.title)
     else assert.deepEqual(f.shortRows[tab][1].slice(1, 3), ['September 9, 2026', request.content])
     assert.equal(f.ctx.createDocument(request).success, true)
@@ -285,14 +285,14 @@ test('authority and certificate need only body and retain the server creation da
 
 
 
-test('travel-order PDF fields require no subject/date/body and log nine columns', () => {
+test('travel-order PDF fields require no subject/date/body and log ten columns', () => {
   const f = fixture()
   const request = { token: sample.token, logo: 'logo', requestId: sample.requestId, templateVersion: 2, type: 'Travel Order', reference: 'TO-203', recipientLabel: 'For', recipientName: 'Jane Doe', recipientPosition: 'Instructor', place: 'Pagadian', inclusiveDate: 'September 10-11, 2026', transportation: 'College vehicle', purpose: 'Training', remarks: 'Return after training' }
   assert.equal(f.ctx.createDocument(request).success, true)
-  assert.deepEqual(f.shortRows.Trav_Ord[1], ['TO-203', 'For', 'Jane Doe', 'Instructor', 'Pagadian', 'September 10-11, 2026', 'College vehicle', 'Training', 'Return after training'])
+  assert.deepEqual(f.shortRows.Trav_Ord[1], ['TO-203', 'For', 'Jane Doe', 'Instructor', 'Pagadian', 'September 10-11, 2026', 'College vehicle', 'Training', 'Return after training', 'Official Time'])
   assert.equal(f.ctx.createDocument(request).success, true)
   assert.equal(f.shortRows.Trav_Ord.length, 2)
-  assert.deepEqual(f.shortRows.Trav_Ord[0], ['REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'PLACE', 'INCLUSIVE DATES', 'MODE OF TRANSPORTATION', 'PURPOSE', 'REMARKS'])
+  assert.deepEqual(f.shortRows.Trav_Ord[0], ['REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'PLACE', 'INCLUSIVE DATES', 'MODE OF TRANSPORTATION', 'PURPOSE', 'REMARKS', 'TYPE OF TRAVEL'])
   assert.equal(f.ctx.createdDocumentSheet('Travel Order').getLastRow(), 2)
 })
 
@@ -481,6 +481,8 @@ test('Travel Order fills the supplied native template and restores it on retry',
     } },
   })
   const section = children => ({
+    replaceText(search, replacement) { this.children.filter(c => c.getType() === 'PARAGRAPH').forEach(p => { p.value = p.value.replace(search, replacement) }); return this },
+    getChildIndex(child) { return this.children.indexOf(child) },
     children, getNumChildren() { return this.children.length }, getChild(i) { return this.children[i] },
     getTables() { return this.children.filter(c => c.getType() === 'TABLE') },
     getText() { return this.getTables().flatMap(t => t.rows.flat(2).map(p => p.value)).join('\n') },
@@ -531,15 +533,18 @@ test('Travel Order fills the supplied native template and restores it on retry',
   assert.equal(output.getTables().length, 2)
   const paragraphs = output.children.filter(c => c.getType() === 'PARAGRAPH').map(p => p.value)
   assert.deepEqual(paragraphs.slice(-2), ['Custom Signatory', 'Acting President'])
-  assert.deepEqual(paragraphs.slice(0, -2), body.children.filter(c => c.getType() === 'PARAGRAPH').map(p => p.value))
+  assert.ok(paragraphs.includes('TYPE OF TRAVEL: Official Time'))
+  assert.deepEqual(paragraphs.slice(0, -2).filter(p => !p.startsWith('TYPE OF TRAVEL:')),  body.children.filter(c => c.getType() === 'PARAGRAPH').map(p => p.value))
   assert.equal(outputHeader.children[0].value, header.children[0].value)
   assert.equal(outputFooter.children[0].value, footer.children[0].value)
   assert.deepEqual(output.attributes, body.getAttributes())
   assert.deepEqual(output.getTables()[1].rows[5][1][0].style, body.getTables()[1].rows[5][1][0].style)
-  f.ctx.renderOrderTemplate(doc, { ...data, reference: '2', purpose: 'Corrected' })
+  f.ctx.renderOrderTemplate(doc, { ...data, reference: '2', purpose: 'Corrected', travelType: 'Official Business' })
   assert.equal(textAt(0, 0, 0), 'TRAVEL ORDER NO. 002')
   assert.equal(textAt(1, 5, 1), 'Corrected')
-  assert.equal(output.children.length, body.children.length + 1)
+  assert.ok(output.children.some(p => p.value === 'TYPE OF TRAVEL: Official Business'))
+  assert.ok(output.children.some(p => p.value?.includes('travel on official business,')))
+  assert.equal(output.children.length, body.children.length + 2)
   assert.equal(saved, 2)
   assert.equal(body.getTables()[1].rows[0][1][0].value, '[NAME/S OF TRAVELER/S]')
   assert.throws(() => f.ctx.renderOrderTemplate({ getId: () => '1MyxhPT3pS4XL66VyJyUBPbFaIblELfVMFHNv4hXY6qU' }, data), /master/)
@@ -612,4 +617,15 @@ test('fresh creation renders the open document without reopening it or rereading
   assert.equal(f.renders, 1)
   assert.equal(f.rows.length, 0)
   assert.equal(f.log.length, 0)
+})
+
+test('Travel Order validates the travel type and stores either selection', () => {
+  for (const travelType of ['Official Business', 'Official Time']) {
+    const f = fixture()
+    const request = { token: sample.token, requestId: sample.requestId, templateVersion: 2, type: 'Travel Order', reference: '144', recipientLabel: 'To', recipientName: 'Jane', recipientPosition: 'Instructor', place: 'CHED', inclusiveDate: 'September 12, 2026', transportation: 'Bus', purpose: 'Training', remarks: 'Approved', travelType }
+    assert.equal(f.ctx.createDocument(request).success, true)
+    assert.equal(f.shortRows.Trav_Ord[1][9], travelType)
+    assert.equal(f.ctx.createdRegistryEntries()[0].metadata.form.travelType, travelType)
+    assert.throws(() => f.ctx.validateTemplateDocument({ ...request, travelType: 'Other' }, request.type), /Choose Official Business or Official Time/)
+  }
 })

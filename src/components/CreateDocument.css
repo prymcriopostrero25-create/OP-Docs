@@ -171,3 +171,9 @@
   .create-document-formal.create-document-modal .create-form-actions button { flex: 1; }
   .create-document-formal form > .create-field-error { margin-inline: 18px; }
 }
+
+.create-travel-type { border: 0; padding: 0; margin: 0; }
+.create-travel-type legend { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.create-travel-options { display: flex; flex-wrap: wrap; gap: 16px; }
+.create-travel-options label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.create-document-formal .create-travel-options input[type="radio"] { width: 16px; height: 16px; margin: 0; accent-color: #356442; }

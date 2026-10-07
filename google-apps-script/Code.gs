@@ -35,7 +35,7 @@ const CREATED_DOCUMENT_SHEETS = {
 const CREATED_DOCUMENT_HEADERS = {
   EX_Memo: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF THE INSTITUTION OR OFFICE', 'THRU', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF OFFICE'],
   Spe_Ord: ['ID', 'REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'NAME OF INSTITUTION/OFFICE', 'THRU (Optional)', 'SUBJECT', 'DATE', 'BODY', 'STATUS', 'ADDITIONAL NAME OF INSTITUTION (OPTIONAL)'],
-  Trav_Ord: ['REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'PLACE', 'INCLUSIVE DATES', 'MODE OF TRANSPORTATION', 'PURPOSE', 'REMARKS'],
+  Trav_Ord: ['REFERENCE NUMBER', 'RECIPIENT LABEL (To or For)', 'NAME OF THE RECIPIENT', 'POSITION/OFFICE', 'PLACE', 'INCLUSIVE DATES', 'MODE OF TRANSPORTATION', 'PURPOSE', 'REMARKS', 'TYPE OF TRAVEL'],
   Auth_Travel: ['ID', 'DATE (date created)', 'BODY', 'DATE (issue)', 'EMPLOYEE NAME', 'POSITION / DESIGNATION', 'SALARY GRADE', 'EMPLOYMENT STATUS', 'TRAVEL DATE FROM', 'TRAVEL DATE UNTIL', 'PURPOSE', 'DESTINATION', 'TRAVEL CLASSIFICATION', 'APPROVING AUTHORITY', 'AUTHORITY POSITION', 'COPY FURNISHED'],
   Cert_Travel: ['ID', 'DATE (date created)', 'BODY', 'DATE ISSUED', 'EMPLOYEE NAME', 'SALARY GRADE', 'EMPLOYMENT STATUS', 'TRAVEL DATE FROM', 'TRAVEL DATE UNTIL', 'DESTINATION', 'TRAVEL CLASSIFICATION', 'CERTIFYING AUTHORITY', 'AUTHORITY POSITION', 'COPY FURNISHED'],
 };
@@ -88,8 +88,10 @@ function createdDocumentSheet(type) {
 
   const acceptedTravelOrderHeader = name === 'Trav_Ord' && (
     actual.join('|') === expected.join('|') ||
-    LEGACY_TRAVEL_ORDER_HEADERS.some(candidate => candidate.map(normalizeHeader).join('|') === actual.join('|'))
+    LEGACY_TRAVEL_ORDER_HEADERS.some(candidate => candidate.map(normalizeHeader).join('|') === actual.slice(0, 9).join('|') && !actual[9])
   );
+
+  if (name === 'Trav_Ord' && acceptedTravelOrderHeader && !actual[9]) sheet.getRange(1, 10).setValue('TYPE OF TRAVEL');
 
   if (name === 'Trav_Ord' && !acceptedTravelOrderHeader) {
     throw new Error('Check the ' + name + ' sheet headers.');
@@ -120,7 +122,7 @@ function logCreatedDocument(sheet, record, data, internalId, snapshot, metadata)
   const values = record.type === 'Certificate of Travel' ? [internalId, record.date, data.body || data.content, data.issueDate, data.recipientName, data.salaryGrade, data.employmentStatus, data.travelFrom, data.travelUntil, data.place, data.travelClassification, data.signatory, data.position, data.cc]
     : record.type === 'Authority to Travel Abroad' ? [internalId, record.date, data.body || data.content, data.issueDate, data.recipientName, data.recipientPosition, data.salaryGrade, data.employmentStatus, data.travelFrom, data.travelUntil, data.purpose, data.place, data.travelClassification, data.signatory, data.signatoryPosition || data.position, data.cc]
     : record.type === 'Travel Order'
-      ? [record.id, label, data.recipientName || data.recipient, data.recipientPosition, data.place || data.destination, data.inclusiveDate || data.travelDates, data.transportation, data.purpose, data.remarks]
+      ? [record.id, label, data.recipientName || data.recipient, data.recipientPosition, data.place || data.destination, data.inclusiveDate || data.travelDates, data.transportation, data.purpose, data.remarks, data.travelType || 'Official Time']
       : record.type === 'Executive Memorandum'
         ? [internalId, record.id, label, data.recipientName, data.recipientPosition, data.institution, data.thru, record.subject, record.date, data.body || data.content, record.status, data.additionalInstitution]
       : record.type === 'Special Order'
@@ -1289,6 +1291,12 @@ function renderOrderTemplate(doc, data) {
   const values = [data.recipientName || data.recipient, data.recipientPosition, data.place || data.destination,
     data.inclusiveDate || data.travelDates, data.transportation, data.purpose, data.remarks];
   values.forEach((value, row) => fill(tables[1], row, 1, value));
+  const travelType = data.travelType || 'Official Time';
+  const typeParagraph = tables[1].getCell(0, 0).getChild(0).asParagraph().copy();
+  typeParagraph.editAsText().setText('TYPE OF TRAVEL: ' + travelType);
+  const orderBody = doc.getBody();
+  orderBody.insertParagraph(orderBody.getChildIndex(tables[1]), typeParagraph);
+  orderBody.replaceText('travel on official time,', 'travel on ' + travelType.toLowerCase() + ',');
   // Replace the master's signature block with the memorandum's paragraph format.
   const body = doc.getBody();
   const signatureName = 'EDGARDO H. ROSALES, JD, Ed.D.';
@@ -1522,6 +1530,10 @@ function validateTemplateDocument(request, type) {
     if (!optional.includes(key) && !data[key]) throw new Error('Please enter ' + key.replace(/([A-Z])/g, ' $1').toLowerCase() + '.');
     if (data[key].length > (key === 'body' ? 50000 : 2000)) throw new Error('The ' + key + ' is too long.');
   });
+  if (travel) {
+    data.travelType = request.travelType === undefined ? 'Official Time' : String(request.travelType).trim();
+    if (!['Official Business', 'Official Time'].includes(data.travelType)) throw new Error('Choose Official Business or Official Time as the type of travel.');
+  }
   if (!simple && !['To', 'For'].includes(data.recipientLabel)) throw new Error('Choose To or For as the recipient label.');
   if (!simple && !travel) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date) || isNaN(Date.parse(data.date)) || new Date(data.date).toISOString().slice(0, 10) !== data.date) throw new Error('Choose a valid document date.');

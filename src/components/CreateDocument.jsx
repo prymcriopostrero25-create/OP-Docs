@@ -9,7 +9,7 @@ import './CreateDocument.css'
 const RichTextEditor = lazy(() => import('./RichTextEditor'))
 
 const types = documentTypes.map(type => type.value)
-const emptyForm = () => ({ templateVersion: 2, type: types[0], reference: '', recipientLabel: 'For', recipientName: '', recipientPosition: '', institution: '', thru: '', subject: '', date: '', body: '', status: 'Draft', additionalInstitution: '', place: '', inclusiveDate: '', travelFrom: '', travelUntil: '', transportation: '', purpose: '', remarks: '', salaryGrade: '', employmentStatus: '', travelClassification: '', cc: '', certificateStructured: false, signatory: 'EDGARDO H. ROSALES, JD, Ed.D.', signatoryPosition: 'SUC President II', requestId: crypto.randomUUID() })
+const emptyForm = () => ({ templateVersion: 2, type: types[0], reference: '', recipientLabel: 'For', recipientName: '', recipientPosition: '', institution: '', thru: '', subject: '', date: '', body: '', status: 'Draft', additionalInstitution: '', place: '', inclusiveDate: '', travelFrom: '', travelUntil: '', transportation: '', travelType: 'Official Time', purpose: '', remarks: '', salaryGrade: '', employmentStatus: '', travelClassification: '', cc: '', certificateStructured: false, signatory: 'EDGARDO H. ROSALES, JD, Ed.D.', signatoryPosition: 'SUC President II', requestId: crypto.randomUUID() })
 
 function DocumentSuccess({ record, onContinue }) {
   const dialog = useRef(null)
@@ -54,7 +54,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, onViewCreate
   const optionalFields = ['thru', 'additionalInstitution', 'cc', ...((memo || specialOrder) ? ['recipientPosition', 'institution'] : [])]
   const fields = authority ? [['recipientName', 'Employee name'], ['recipientPosition', 'Position / designation'], ['salaryGrade', 'Salary grade'], ['employmentStatus', 'Employment status'], ['travelFrom', 'Travel dates - From'], ['travelUntil', 'Travel dates - Until'], ['purpose', 'Purpose'], ['place', 'Country / destination'], ['travelClassification', 'Approved travel classification'], ['date', 'Date issued'], ['signatory', 'Approving authority'], ['signatoryPosition', 'Authority position'], ['cc', 'Copy furnished (Optional)']] : certificate ? [['recipientName', 'Full name of employee'], ['salaryGrade', 'Salary grade'], ['employmentStatus', 'Employment status'], ['place', 'Country / destination'], ['travelFrom', 'Travel dates - From'], ['travelUntil', 'Travel dates - Until'], ['travelClassification', 'Personal leave / other approved classification'], ['date', 'Date issued'], ['signatory', 'Name of certifying authority'], ['signatoryPosition', 'Position'], ['cc', 'Copy furnished (Optional)']] : simple ? [['body', 'Body']] : [
     ...(initialForm ? [['reference', 'Reference number']] : []), ['recipientLabel', travel ? 'To / For' : 'Recipient label'], ['recipientName', travel ? 'Name/s of traveler/s' : 'Name of recipient'], ['recipientPosition', travel ? 'Position/Office' : 'Position / office'], ...(!travel ? [['institution', memoForm ? 'Name of institution or office' : 'Name of institution / office']] : []),
-    ...(travel ? [['place', 'Destination'], ['travelFrom', 'Inclusive dates - From'], ['travelUntil', 'Inclusive dates - Until'], ['transportation', 'Mode of transportation'], ['purpose', 'Purpose'], ['remarks', 'Remarks']]
+    ...(travel ? [['travelType', 'Type of Travel'], ['place', 'Destination'], ['travelFrom', 'Inclusive dates - From'], ['travelUntil', 'Inclusive dates - Until'], ['transportation', 'Mode of transportation'], ['purpose', 'Purpose'], ['remarks', 'Remarks']]
       : [['thru', 'Thru (Optional)'], ['subject', 'Subject'], ['date', 'Date'], ['body', 'Body'], ...(!memoForm ? [['additionalInstitution', 'Additional name of institution (Optional)']] : [])]),
   ]
 
@@ -120,6 +120,13 @@ export default function CreateDocument({ isOpen, onClose, onCreate, onViewCreate
   }
 
   function field(name, label) {
+    if (travel && name === 'travelType') return <fieldset key={name} className="create-field full create-travel-type" disabled={busy}>
+      <legend>{label}</legend>
+      <div className="create-travel-options">{['Official Business', 'Official Time'].map(value => <label key={value}>
+        <input type="radio" name={name} value={value} checked={form.travelType === value} onChange={updateField} required />{value}
+      </label>)}</div>
+      {errors[name] && <span className="create-field-error" role="alert">{errors[name]}</span>}
+    </fieldset>
     if (memoForm && name === 'body') return <div key={name} className="create-field full">
       <label htmlFor="document-body">Body</label>
       <Suspense fallback={<LoadingModal title="Loading editor..." />}><RichTextEditor key={form.requestId} value={form.bodyRich} plainText={form.body} disabled={busy} error={errors.body} onChange={(bodyRich, body) => {
