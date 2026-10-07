@@ -45,7 +45,7 @@ test('PDF renderer includes authority tables, letterhead, body, signature and fo
   assert.ok(paragraphs.includes('cc: HRMO'))
   assert.ok(tables.some(rows => rows[0][1] === 'Authority to Travel Abroad | Page 1 of 1'))
   assert.ok(closed)
-  assert.ok(signatureWidths.some(([column, value]) => column === 0 && value === 491.94 * 0.49))
+  assert.ok(signatureWidths.some(([column, value]) => column === 0 && value === (595.28 - 51.75 * 2) * 0.49))
   assert.ok(signatureLines.includes('APPROVED:'))
   assert.equal(data.authorityLayoutVersion, 3)
 })

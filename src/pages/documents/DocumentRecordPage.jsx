@@ -7,6 +7,7 @@ import { filterRecords, recordsCsv, downloadFile } from '../../lib/recordTools'
 import SendDocument from '../../components/SendDocument'
 import DocumentPage from '../../components/DocumentPage'
 import DocumentPages from '../../components/DocumentPages'
+import PaginatedDocumentPreview from '../../components/PaginatedDocumentPreview'
 import CreateDocument from '../../components/CreateDocument'
 import { prepareDocumentPreview, documentPage, documentDetails, updateDocumentContent } from '../../lib/appsScriptApi'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -102,8 +103,8 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     documentPage(preview.reference, preview.type).then(result => {
       if (cancelled) return
       setPageContent({ ...result, type: result.type || preview.type })
-      if (result.deploymentRequired) setPreviewError('Page preview needs the latest Apps Script deployment. Showing the registered PDF when ready. Update the existing web app to a new version, then retry.')
       if (result.form) setPreviewLoading(false)
+      if (result.deploymentRequired) setPreviewError('Page preview needs the latest Apps Script deployment. Showing the registered PDF when ready. Update the existing web app to a new version, then retry.')
     }).catch(failure => {
       if (!cancelled) { setPageContent({ form: null }); setPreviewError('Unable to load the page. ' + failure.message + ' The registered PDF will display when ready.'); setPreviewLoading(false) }
     })
@@ -119,7 +120,6 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     let cancelled = false
     let objectUrl
     let attempt = 0
-    let resizeTimer
     const refresh = refreshPreview.current
     refreshPreview.current = false
     async function prepare() {
@@ -136,29 +136,14 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
         setPreparedPreview({ file, url: objectUrl })
       } catch (failure) {
         if (!cancelled && currentAttempt === attempt) {
-          setPdfError('Unable to prepare the PDF. ' + failure.message)
+          setPdfError('Unable to prepare the PDF. ' + (failure?.message || String(failure || 'Please retry preparation.')))
           setPreviewLoading(false)
         }
       }
     }
     void prepare()
-    const paper = previewPaper.current?.querySelector('article')
-    let initialSize
-    const observer = pageContent.form && paper ? new ResizeObserver(([entry]) => {
-      const size = `${entry.contentRect.width}:${entry.contentRect.height}`
-      if (initialSize && size !== initialSize) {
-        ++attempt
-        setPreparedPreview(null)
-        clearTimeout(resizeTimer)
-        resizeTimer = setTimeout(() => { void prepare() }, 150)
-      }
-      initialSize = size
-    }) : null
-    observer?.observe(paper)
     return () => {
       cancelled = true
-      clearTimeout(resizeTimer)
-      observer?.disconnect()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [preview, pageContent])
@@ -232,6 +217,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
       {preview && <dialog ref={previewDialog} className="pdf-preview-dialog" aria-labelledby="pdf-preview-title" onCancel={closePreview} onClose={closePreview}>
         <header className="official-preview-header"><div className="official-preview-heading"><h2 id="pdf-preview-title">OFFICIAL PREVIEW</h2><p className="preview-reference">{preview.reference}</p></div>
         <div className="preview-actions official-preview-actions">
+          {pageContent?.form && <button type="button" className="preview-save" disabled={!permissions.changeStatus || preview.status === 'Out' || saving} title={preview.status === 'Out' ? 'OUT documents are locked' : !permissions.changeStatus ? 'Admin access required' : 'Adjust document details'} onClick={() => { setEditing({ record: preview, form: pageContent.form }); closePreview() }}><ActionIcon kind="edit" />Edit</button>}
           <span className="pdf-preparation-status" role="status">{pdfError ? 'PDF preparation failed' : preparedPreview ? 'PDF ready' : !pageContent ? 'Loading preview...' : 'Preparing PDF in the background...'}</span>
           <button type="button" className="preview-send" disabled={!preparedPreview || !permissions.changeStatus || !['Approved', 'Out'].includes(preview.status)} title={!permissions.changeStatus ? 'Admin access required' : !['Approved', 'Out'].includes(preview.status) ? 'Approve this document before sending' : 'Send PDF by email'} onClick={() => setEmailRecord({ ...preview, previewPdf: pageContent?.form ? preparedPreview.file : null })}><PreviewActionIcon kind="send" />Send</button>
           {preparedPreview ? <a className="preview-save" href={preparedPreview.url} download={preparedPreview.file.name}><PreviewActionIcon kind="save" />Save as PDF</a> : <button type="button" className="preview-save" disabled><PreviewActionIcon kind="save" />Save as PDF</button>}
@@ -240,8 +226,9 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
         </header>
         <div ref={previewPaper} className="preview-frame-wrap">
           {previewLoading && !pdfError && <div className="preview-loading" role="status"><span className="preview-spinner" aria-hidden="true" /><span>Loading document preview...</span></div>}
-          {pageContent?.form && <DocumentPage form={{ ...pageContent.form, status: preview.status, approvedAt: preview.approvedAt || pageContent.form.approvedAt }} type={pageContent.type} reference={preview.reference} />}
-          {pageContent && !pageContent.form && preparedPreview && <DocumentPages file={preparedPreview.file} onReady={() => setPreviewLoading(false)} onError={() => { setPreviewLoading(false); setPreviewError('Unable to display the document. You can still save it using Save as PDF.') }} />}
+          {pageContent?.form && <div className="document-preview-source" aria-hidden="true"><DocumentPage form={{ ...pageContent.form, status: preview.status, approvedAt: preview.approvedAt || pageContent.form.approvedAt }} type={pageContent.type} reference={preview.reference} /></div>}
+          {pageContent?.form && <PaginatedDocumentPreview source={previewPaper} revision={pageContent} onError={failure => setPreviewError('Unable to paginate the preview. ' + failure.message)} />}
+          {!pageContent?.form && preparedPreview && <DocumentPages file={preparedPreview.file} onReady={() => setPreviewLoading(false)} onError={() => { setPreviewLoading(false); setPreviewError('Unable to display the document. You can still save it using Save as PDF.') }} />}
         </div>
         {(previewError || pdfError) && <div className="preview-message" role="alert"><p>{[previewError, pdfError].filter(Boolean).join(' ')}</p><button type="button" className="secondary-action" onClick={() => { refreshPreview.current = true; openPreview({ ...preview }) }}>Retry preview</button></div>}
 

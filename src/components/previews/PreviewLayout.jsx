@@ -8,7 +8,7 @@ export default function PreviewLayout({ form, type, reference, fields = [], lett
     {heading || <h3>{form.reference || reference || type}</h3>}
     <dl>{fields.filter(([, value]) => value).map(([label, value], index) => <Fragment key={`${label}-${index}`}><dt>{label.toUpperCase()}:</dt><dd>{value}</dd></Fragment>)}</dl>
     <div className="document-paper-body">{bodyContent ?? (form.body || form.content || '')}</div>
-    {signature && <div className="document-signatory"><ApprovalSignature form={form} />{form.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.'}<br />{form.signatoryPosition || form.position || 'SUC President II'}</div>}
+    {signature && <div className="document-signatory"><ApprovalSignature form={form} /><div className="leading-[1.2]"><span className="block">{form.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.'}</span><span className="block">{form.signatoryPosition || form.position || 'SUC President II'}</span></div></div>}
     {form.cc && <p className="document-paper-cc">cc: {form.cc}</p>}
     <PreviewFooter />
   </article><p className="document-page-caption">Save as PDF downloads this preview layout.</p></div>

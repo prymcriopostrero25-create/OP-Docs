@@ -103,7 +103,9 @@ async function sendDocumentRequest(payload, token) {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ ...payload, token }),
-    signal: AbortSignal.timeout(payload.action === 'documentSendStatus' ? 10000 : (sharedReadActions.has(payload.action) && payload.action !== 'prepareEmailAttachment') || payload.action === 'currentUser' ? 30000 : 90000),
+    // Registry reads span MAIN Files and five form tabs; allow the same budget
+    // as the local proxy, including Apps Script startup and redirect time.
+    signal: AbortSignal.timeout(payload.action === 'documentSendStatus' ? 10000 : ['documents', 'overview', 'activityLogs'].includes(payload.action) ? 90000 : (sharedReadActions.has(payload.action) && payload.action !== 'prepareEmailAttachment') || payload.action === 'currentUser' ? 30000 : 90000),
   }, payload.action) } catch (error) {
     if (error.name === 'TimeoutError' || error.name === 'AbortError') {
       throw new Error('The document service took too long to respond. Check the Apps Script deployment and your connection, then retry.', { cause: error })

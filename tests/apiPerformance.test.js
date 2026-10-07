@@ -7,11 +7,12 @@ import { createPdfPreviewCache } from '../src/lib/pdfPreviewCache.js'
 
 function fixture() {
   const calls = []
+  const timeouts = []
   let token = 'first'
   const context = vm.createContext({
     createAccountLoader,
     createPdfPreviewCache,
-    AbortSignal, Date,
+    AbortSignal: { timeout(ms) { timeouts.push(ms); return AbortSignal.timeout(ms) } }, Date,
     window: { localStorage: { getItem: () => JSON.stringify({ token }) } },
     fetchAppsScript: async (_, options) => {
       const payload = JSON.parse(options.body)
@@ -26,8 +27,18 @@ function fixture() {
     .replace(/import\.meta\.env\.DEV/g, 'false')
     .replace(/export /g, '')
   vm.runInContext(source, context)
-  return { context, calls, setToken(value) { token = value } }
+  return { context, calls, timeouts, setToken(value) { token = value } }
 }
+
+test('registry requests allow slow spreadsheet reads while send confirmation stays short', async () => {
+  const f = fixture()
+  await f.context.fetchDocuments()
+  await f.context.documentRequest({ action: 'overview' })
+  await f.context.fetchActivityLogs()
+  await f.context.documentRequest({ action: 'currentUser' })
+  await f.context.documentRequest({ action: 'documentSendStatus' })
+  assert.deepEqual(f.timeouts, [90000, 90000, 90000, 30000, 10000])
+})
 
 test('overlapping reads share a request, later refreshes and other sessions fetch again', async () => {
   const f = fixture()

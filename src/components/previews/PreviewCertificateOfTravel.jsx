@@ -1,8 +1,10 @@
+import PreviewFooter from './PreviewFooter'
 import ApprovalSignature from './ApprovalSignature'
 import { certificateTravelDates, certificateBody } from '../../lib/travelCertificate'
 
 // Preview and downloaded PDF template. The saved Google Doc uses Apps Script.
-export default function PreviewCertificateOfTravel({ form }) {
+export default function PreviewCertificateOfTravel({ form, reference }) {
+  const certificateReference = String(reference || form.reference || '').replace(/^Certificate of Travel\s*/i, '')
   const employee = form.recipientName || form.recipient || '[FULL NAME OF EMPLOYEE]'
   const destination = form.place || '[COUNTRY / DESTINATION]'
   const travelDates = certificateTravelDates(form)
@@ -21,7 +23,7 @@ export default function PreviewCertificateOfTravel({ form }) {
       </div>
 
       <div className="mb-6 border-0 border-t-[3px] border-solid border-[#356442]">
-        <h3 className="m-0 py-2 text-[19px] font-bold">TRAVEL CERTIFICATE</h3>
+        <h3 className="m-0 py-2 text-[16px] font-bold">Travel Certificate{certificateReference && <> <span className="text-black">{certificateReference}</span></>}</h3>
       </div>
 
       <dl className="m-0 mb-7 grid grid-cols-2 text-[13px]">
@@ -34,16 +36,16 @@ export default function PreviewCertificateOfTravel({ form }) {
       <div>{paragraphs.map((paragraph, index) => <p key={index} className="m-0 mb-3 min-h-[1.2em] whitespace-pre-wrap text-justify indent-[27px]">{paragraph || '\u00a0'}</p>)}</div>
 
       <div className="mt-6 ml-[49%] whitespace-pre-wrap">
-        <p className="m-0 mb-8 text-[12px] font-bold text-[#707875]">CERTIFIED BY:</p>
+        <p className="m-0 mb-1 text-[12px] font-bold text-[#707875]">CERTIFIED BY:</p>
         <ApprovalSignature form={form} />
-        <strong>{form.signatory || '[NAME OF CERTIFYING AUTHORITY]'}</strong>
-        <p className="m-0 text-[12px] text-[#707875]">{form.signatoryPosition || form.position || '[POSITION]'}</p>
+        <div className="leading-[1.2]">
+          <strong className="block">{form.signatory || '[NAME OF CERTIFYING AUTHORITY]'}</strong>
+          <p className="m-0 text-[12px] text-[#707875]">{form.signatoryPosition || form.position || '[POSITION]'}</p>
+        </div>
       </div>
       <p className="mt-7 mb-0 whitespace-pre-wrap text-[11px] text-[#707875]"><b>cc:</b> {form.cc || '[HRMO / Records / Other concerned office]'}</p>
 
-      <footer className="mt-auto border-0 border-t border-solid border-[#e1e6e3] pt-2 text-[11px] text-[#707875]" aria-label="Document footer">
-        <div className="grid grid-cols-[40%_1fr] gap-2"><span>JHCSC | Office of the President</span><span>Travel Certificate | Page 1 of 1</span></div>
-      </footer>
+      <PreviewFooter />
     </article>
     <p className="text-center text-[13px] text-[#aeb8c8]">Save as PDF downloads this preview layout.</p>
   </div>

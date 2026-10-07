@@ -482,7 +482,7 @@
   .official-preview-actions .pdf-preparation-status { flex-basis: 100%; margin-right: 0; }
 }
 .document-page-wrap { padding: 32px 16px; }
-.document-paper { box-sizing: border-box; width: min(816px, 100%); min-height: 1056px; margin: 0 auto; padding: 48px 64px 16px; background: white; color: #202820; font: 16px/1.5 Arial, sans-serif; box-shadow: 0 8px 30px #0005; overflow-wrap: anywhere; }
+.document-paper { box-sizing: border-box; width: min(794px, 100%); min-height: 1123px; margin: 0 auto; padding: 48px 64px 16px; background: white; color: #202820; font: 16px/1.5 Arial, sans-serif; box-shadow: 0 8px 30px #0005; overflow-wrap: anywhere; }
 .document-letterhead { display: flex; align-items: center; gap: 18px; border-bottom: 3px solid #356442; padding-bottom: 14px; margin-bottom: 28px; }
 .document-letterhead img { width: 58px; height: auto; }
 .document-letterhead strong { display: block; color: #356442; font-size: 20px; }
@@ -621,3 +621,13 @@
 .create-document-formal .create-section-fields,.create-document-formal .create-field{min-width:0}
 .create-document-formal .create-field input,.create-document-formal .create-field select,.create-document-formal .create-field textarea{box-sizing:border-box;min-width:0;width:100%}
 .create-document-formal .create-section-fields{align-items:start}
+
+/* Keep export layout at A4 width; the visible preview renders those exact PDF pages. */
+.document-preview-source { position: fixed; left: -10000px; top: 0; width: 826px; pointer-events: none; }
+
+.pdf-preview-dialog .preview-frame-wrap { scrollbar-gutter: stable; }
+
+.html-preview-pages { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 32px 0; }
+.html-preview-page-slot { position: relative; flex-shrink: 0; }
+.html-preview-page { position: relative; overflow: hidden; transform-origin: top left; background: white; color: #202820; box-shadow: 0 8px 30px #0005; }
+.document-preview-source article { width: 794px; max-width: 794px; }

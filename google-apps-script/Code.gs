@@ -25,6 +25,10 @@ function checkLoginSetup() {
   console.log('Role: ' + normalizeRole(matches[0][3]));
 }
 
+// A4 portrait dimensions in points, shared by every document renderer.
+const DOCUMENT_PAGE_WIDTH = 595.28;
+const DOCUMENT_PAGE_HEIGHT = 841.89;
+
 const UPLOAD_FOLDER_ID = '1OVvmtvYjsp4WZz-RY7NkExyNIotO-Vji';
 const FILING_TYPES = ['Executive Memorandum', 'Special Order', 'Travel Order', 'Authority to Travel Abroad', 'Certificate of Travel'];
 const DOCUMENT_STATUSES = ['Draft', 'For Review', 'For Signature', 'Approved', 'Out'];
@@ -148,10 +152,12 @@ function createdRegistryEntries(documentType) {
   Object.entries(CREATED_DOCUMENT_SHEETS).forEach(([type, name]) => {
     if (documentType && type !== documentType) return;
     const sheet = spreadsheet.getSheetByName(name);
-    if (!sheet || sheet.getLastRow() < 2) return;
+    if (!sheet) return;
     const count = sheet.getLastRow() - 1;
-    const ids = sheet.getRange(2, 1, count, 1).getDisplayValues();
-    const notes = sheet.getRange(2, 1, count, 1).getNotes();
+    if (count < 1) return;
+    const range = sheet.getRange(2, 1, count, 1);
+    const ids = range.getDisplayValues();
+    const notes = range.getNotes();
     ids.forEach((value, index) => {
       if (!value[0]) return;
       let metadata;
@@ -1055,8 +1061,8 @@ function renderExecutiveMemorandum(doc, data, logo, heading) {
   const green = '#356442';
   const leftMargin = data.bodyRich ? data.bodyRich.attrs.marginLeft * 72 : 52;
   const rightMargin = data.bodyRich ? data.bodyRich.attrs.marginRight * 72 : 52;
-  const contentWidth = 612 - leftMargin - rightMargin;
-  body.setPageWidth(612).setPageHeight(792).setMarginTop(30).setMarginBottom(36).setMarginLeft(leftMargin).setMarginRight(rightMargin);
+  const contentWidth = DOCUMENT_PAGE_WIDTH - leftMargin - rightMargin;
+  body.setPageWidth(DOCUMENT_PAGE_WIDTH).setPageHeight(DOCUMENT_PAGE_HEIGHT).setMarginTop(30).setMarginBottom(36).setMarginLeft(leftMargin).setMarginRight(rightMargin);
   body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 10 });
   const header = doc.getHeader() || doc.addHeader();
   header.clear();
@@ -1083,7 +1089,7 @@ function renderExecutiveMemorandum(doc, data, logo, heading) {
       .editAsText().setFontFamily('Arial').setFontSize(10).setBold(false);
   }
   body.appendParagraph('').setSpacingAfter(12).editAsText().setFontSize(1);
-  const recipient = [data.recipientName || data.recipient, data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
+  const recipient = data.recipients && data.recipients.length ? data.recipients.map(item => [item.name, item.position, item.institution].filter(Boolean).join('\n')).join('\n\n') : [data.recipientName || data.recipient, data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
   const details = [[(data.recipientLabel || 'For').toUpperCase() + ':', recipient]];
   if (data.thru) details.push(['THRU:', data.thru]);
   details.push(['SUBJECT:', String(data.subject || '').toUpperCase()], ['DATE:', executiveMemoDate(data.date).toUpperCase()]);
@@ -1112,6 +1118,7 @@ function createExecutiveMemorandum(request) {
 
 function validateCreatedDocument(request, type) {
   const data = {};
+
   const required = ['title', 'reference', 'year', 'date', 'content'];
   if (type === 'Travel Order') required.push('to');
   ['title', 'reference', 'year', 'date', 'content', 'owner', 'to', 'recipient', 'destination', 'travelDates', 'transportation', 'purpose', 'remarks'].forEach(key => {
@@ -1144,7 +1151,7 @@ function renderCreatedDocument(doc, data, type, logo) {
   if (type === 'Travel Order') return renderOrderTemplate(doc, data, type, data.logo || '');
   const body = doc.getBody();
   body.clear();
-  body.setPageWidth(595.28).setPageHeight(841.89).setMarginTop(54).setMarginBottom(54).setMarginLeft(64.8).setMarginRight(64.8);
+  body.setPageWidth(DOCUMENT_PAGE_WIDTH).setPageHeight(DOCUMENT_PAGE_HEIGHT).setMarginTop(54).setMarginBottom(54).setMarginLeft(64.8).setMarginRight(64.8);
   body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 11 });
   body.appendParagraph(type).editAsText().setBold(true);
   if (data.reference) body.appendParagraph(data.reference).editAsText().setBold(false);
@@ -1182,8 +1189,8 @@ function renderTravelCertificate(doc, data, logo, authority) {
   const body = doc.getBody();
   body.clear();
   if (doc.getHeader()) doc.getHeader().clear();
-  const width = 491.94;
-  body.setPageWidth(595.44).setPageHeight(841.68).setMarginLeft(51.75).setMarginRight(51.75).setMarginTop(30).setMarginBottom(36);
+  const width = DOCUMENT_PAGE_WIDTH - 51.75 * 2;
+  body.setPageWidth(DOCUMENT_PAGE_WIDTH).setPageHeight(DOCUMENT_PAGE_HEIGHT).setMarginLeft(51.75).setMarginRight(51.75).setMarginTop(30).setMarginBottom(36);
   body.setAttributes({ [DocumentApp.Attribute.FONT_FAMILY]: 'Arial', [DocumentApp.Attribute.FONT_SIZE]: 10.5, [DocumentApp.Attribute.FOREGROUND_COLOR]: '#202820' });
   function style(paragraph, size, bold, color) {
     paragraph.setSpacingBefore(0).setSpacingAfter(0).setLineSpacing(1.2);
@@ -1275,6 +1282,8 @@ function renderOrderTemplate(doc, data) {
   const sourceTables = sourceBody.getTables();
   if (sourceTables.length < 2) throw new Error('Travel Order template is missing its heading or details table.');
   copySection(sourceBody, doc.getBody());
+  // Override the master paper size for the generated copy only.
+  doc.getBody().setPageWidth(DOCUMENT_PAGE_WIDTH).setPageHeight(DOCUMENT_PAGE_HEIGHT);
   if (master.getHeader()) copySection(master.getHeader(), doc.getHeader() || doc.addHeader());
   if (master.getFooter()) copySection(master.getFooter(), doc.getFooter() || doc.addFooter());
   const tables = doc.getBody().getTables();
@@ -1519,13 +1528,27 @@ function renderRichBody(body, source) {
       }
     });
   }
-  render(body, source.content || [], { width: 612 - 72 * (source.attrs.marginLeft + source.attrs.marginRight) });
+  render(body, source.content || [], { width: DOCUMENT_PAGE_WIDTH - 72 * (source.attrs.marginLeft + source.attrs.marginRight) });
 }
 
 function validateTemplateDocument(request, type) {
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(type);
   const travel = type === 'Travel Order';
   const data = {};
+  if (['Executive Memorandum', 'Special Order'].includes(type) && request.recipients !== undefined) {
+    if (!Array.isArray(request.recipients) || !request.recipients.length) throw new Error('Please add at least one recipient.');
+    data.recipients = request.recipients.map(item => {
+      if (!item || typeof item !== 'object') throw new Error('Invalid recipient.');
+      const recipient = {};
+      ['name', 'position', 'institution'].forEach(key => {
+        recipient[key] = String(item[key] || '').trim();
+        if (recipient[key].length > 2000) throw new Error('Recipient ' + key + ' is too long.');
+      });
+      if (!recipient.name) throw new Error('Please enter a name for every recipient.');
+      return recipient;
+    });
+    request = { ...request, recipientName: data.recipients.map(item => item.name).join('\n'), recipientPosition: data.recipients.map(item => item.position).join('\n'), institution: data.recipients.map(item => item.institution).join('\n'), additionalInstitution: '' };
+  }
   if (['Executive Memorandum', 'Special Order'].includes(type) && request.bodyRich) {
     data.bodyRich = validateRichBody(request.bodyRich);
     request = { ...request, body: richBodyPlainText(data.bodyRich) };

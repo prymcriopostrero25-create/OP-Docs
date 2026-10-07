@@ -11,6 +11,13 @@ test('a short preview fits on one page', () => {
   assert.deepEqual(previewPageSegments(800, 1056), [{ start: 0, end: 800 }])
 })
 
+test('A4 rounding does not leave an empty canvas slice at the end', () => {
+  const a4Height = 794 * 841.89 / 595.28
+  assert.deepEqual(previewPageSegments(1123, a4Height), [{ start: 0, end: 1123 }])
+  const pages = previewPageSegments(2246, a4Height)
+  assert.deepEqual(pages, [{ start: 0, end: 1123 }, { start: 1123, end: 2246 }])
+})
+
 test('overlapping text and oversized images cannot stall pagination', () => {
   const pages = previewPageSegments(3000, 1056, [{ top: 1040, bottom: 1070 }, { top: 1030, bottom: 1050 }, { top: 1200, bottom: 2900 }])
   assert.equal(pages[0].end, 1030)

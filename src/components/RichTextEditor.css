@@ -11,7 +11,7 @@
 .rich-body-content { font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.15; color: #202820; overflow-wrap: anywhere; }
 .rich-body-content .tiptap { min-height: 340px; padding: 26px; outline: none; }
 .rich-editor-paper { overflow-x: auto; }
-.rich-editor-paper .tiptap { box-sizing: border-box; width: 8.5in; padding-left: var(--body-left-margin); padding-right: var(--body-right-margin); }
+.rich-editor-paper .tiptap { box-sizing: border-box; width: 210mm; padding-left: var(--body-left-margin); padding-right: var(--body-right-margin); }
 .rich-body-content .tiptap:focus { box-shadow: inset 0 0 0 2px #a52a4040; }
 .rich-body-content p { margin: 0 0 6pt; white-space: pre-wrap; min-height: 1.15em; }
 .rich-body-content h1, .rich-body-content h2, .rich-body-content h3 { margin: 12pt 0 6pt; font-weight: bold; line-height: 1.15; }

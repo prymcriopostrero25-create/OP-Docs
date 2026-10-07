@@ -37,6 +37,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, onViewCreate
       values.institution = [values.institution, values.additionalInstitution].filter(Boolean).join('\n')
       values.additionalInstitution = ''
     }
+    if (['Executive Memorandum', 'Special Order'].includes(values.type)) values.recipients = values.recipients?.length ? values.recipients : [{ name: values.recipientName || values.recipient || '', position: values.recipientPosition, institution: values.institution }]
     return values
   })
   const [busy, setBusy] = useState(false)
@@ -51,7 +52,7 @@ export default function CreateDocument({ isOpen, onClose, onCreate, onViewCreate
   const authority = form.type === 'Authority to Travel Abroad'
   const simple = ['Authority to Travel Abroad', 'Certificate of Travel'].includes(form.type)
   const travel = form.type === 'Travel Order'
-  const optionalFields = ['thru', 'additionalInstitution', 'cc', ...((memo || specialOrder) ? ['recipientPosition', 'institution'] : [])]
+  const optionalFields = ['thru', 'additionalInstitution', 'cc', ...(travel ? ['remarks'] : []), ...((memo || specialOrder) ? ['recipientPosition', 'institution'] : [])]
   const fields = authority ? [['recipientName', 'Employee name'], ['recipientPosition', 'Position / designation'], ['salaryGrade', 'Salary grade'], ['employmentStatus', 'Employment status'], ['travelFrom', 'Travel dates - From'], ['travelUntil', 'Travel dates - Until'], ['purpose', 'Purpose'], ['place', 'Country / destination'], ['travelClassification', 'Approved travel classification'], ['date', 'Date issued'], ['signatory', 'Approving authority'], ['signatoryPosition', 'Authority position'], ['cc', 'Copy furnished (Optional)']] : certificate ? [['recipientName', 'Full name of employee'], ['salaryGrade', 'Salary grade'], ['employmentStatus', 'Employment status'], ['place', 'Country / destination'], ['travelFrom', 'Travel dates - From'], ['travelUntil', 'Travel dates - Until'], ['travelClassification', 'Personal leave / other approved classification'], ['date', 'Date issued'], ['signatory', 'Name of certifying authority'], ['signatoryPosition', 'Position'], ['cc', 'Copy furnished (Optional)']] : simple ? [['body', 'Body']] : [
     ...(initialForm ? [['reference', 'Reference number']] : []), ['recipientLabel', travel ? 'To / For' : 'Recipient label'], ['recipientName', travel ? 'Name/s of traveler/s' : 'Name of recipient'], ['recipientPosition', travel ? 'Position/Office' : 'Position / office'], ...(!travel ? [['institution', memoForm ? 'Name of institution or office' : 'Name of institution / office']] : []),
     ...(travel ? [['travelType', 'Type of Travel'], ['place', 'Destination'], ['travelFrom', 'Inclusive dates - From'], ['travelUntil', 'Inclusive dates - Until'], ['transportation', 'Mode of transportation'], ['purpose', 'Purpose'], ['remarks', 'Remarks']]
@@ -79,11 +80,18 @@ export default function CreateDocument({ isOpen, onClose, onCreate, onViewCreate
     setErrors(current => ({ ...current, [name]: '' }))
   }
 
+  const recipients = form.recipients || [{ name: form.recipientName, position: form.recipientPosition, institution: form.institution }]
+  function updateRecipients(next) {
+    setForm(current => ({ ...current, recipients: next, recipientName: next.map(item => item.name).join('\n'), recipientPosition: next.map(item => item.position).join('\n'), institution: next.map(item => item.institution).join('\n') }))
+    setErrors(current => ({ ...current, recipientName: '' }))
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
     if (busy) return
     const validation = {}
     fields.forEach(([name, label]) => { if (!optionalFields.includes(name) && !String(form[name] || '').trim()) validation[name] = `Please enter ${label.toLowerCase()}.` })
+    if (memoForm && recipients.some(item => !item.name.trim())) validation.recipientName = 'Please enter a name for every recipient.'
     if ((!simple || certificate || authority) && !travel && form.date && (!/^\d{4}-\d{2}-\d{2}$/.test(form.date) || isNaN(Date.parse(form.date)) || new Date(form.date).toISOString().slice(0, 10) !== form.date)) validation.date = 'Choose a valid date.'
     if (travel || certificate || authority) {
       for (const name of ['travelFrom', 'travelUntil']) {
@@ -120,6 +128,16 @@ export default function CreateDocument({ isOpen, onClose, onCreate, onViewCreate
   }
 
   function field(name, label) {
+    if (memoForm && ['recipientPosition', 'institution'].includes(name)) return null
+    if (memoForm && name === 'recipientName') return <div key={name} className="create-field full create-recipient-list">
+      {recipients.map((recipient, index) => <div className="create-recipient-card" key={index}>
+        <div className="create-recipient-name"><label htmlFor={`recipient-${index}-name`}>Recipient {index + 1} name *</label><input id={`recipient-${index}-name`} value={recipient.name} required disabled={busy} maxLength={2000} aria-invalid={!!errors.recipientName} onChange={event => updateRecipients(recipients.map((item, row) => row === index ? { ...item, name: event.target.value } : item))} /></div>
+        <div className="create-recipient-details">{[['position', 'Position'], ['institution', 'Institution or office']].map(([key, caption]) => <div key={key}><label htmlFor={`recipient-${index}-${key}`}>Recipient {index + 1} {caption.toLowerCase()}<small>Optional</small></label><textarea id={`recipient-${index}-${key}`} rows={2} value={recipient[key] || ''} placeholder={`Optional ${caption.toLowerCase()}`} disabled={busy} maxLength={2000} onChange={event => updateRecipients(recipients.map((item, row) => row === index ? { ...item, [key]: event.target.value } : item))} /></div>)}</div>
+        {recipients.length > 1 && <button type="button" disabled={busy} aria-label={`Remove recipient ${index + 1}`} onClick={() => updateRecipients(recipients.filter((_, row) => row !== index))}>Remove recipient</button>}
+      </div>)}
+      {errors.recipientName && <span className="create-field-error" role="alert">{errors.recipientName}</span>}
+      <div className="create-recipient-actions"><span>{recipients.length} recipient(s)</span><button type="button" disabled={busy} onClick={() => updateRecipients([...recipients, { name: '', position: '', institution: '' }])}>+ Add another recipient</button></div>
+    </div>
     if (travel && name === 'travelType') return <fieldset key={name} className="create-field full create-travel-type" disabled={busy}>
       <legend>{label}</legend>
       <div className="create-travel-options">{['Official Business', 'Official Time'].map(value => <label key={value}>

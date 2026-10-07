@@ -7,6 +7,7 @@ import { previewPdfFile } from '../../src/lib/previewPdf'
 import '../../src/index.css'
 import '../../src/pages/Dashboard.css'
 const form = { type: 'Executive Memorandum', reference: 'Executive Memorandum No. 001, s. 2026', recipientName: 'Test Recipient', recipientLabel: 'For', subject: 'PREVIEW PDF CHECK', date: '2026-10-06', body: 'This document verifies the actual preview PDF. The signature and approval timestamp must match the preview.', status: 'Approved', approvedAt: '2026-10-06T06:30:00Z' }
+if (location.search.includes('long')) form.body = 'Long pagination test.\n'.repeat(100)
 const integration = location.search.includes('integration')
 if (integration) {
  const fetchOriginal = window.fetch.bind(window)
@@ -43,3 +44,5 @@ window.renderExport = async () => {
  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
  return canvas.toDataURL('image/png')
 }
+
+

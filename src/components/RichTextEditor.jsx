@@ -18,6 +18,29 @@ const PageBreak = Node.create({
 })
 const ParagraphLayout = Extension.create({
   name: 'paragraphLayout',
+  // Table shortcuts run first so Tab still moves between cells.
+  priority: 50,
+  addKeyboardShortcuts() {
+    const indent = amount => {
+      if (!this.editor.isEditable) return false
+      if (this.editor.isActive('listItem')) {
+        if (amount > 0) this.editor.commands.sinkListItem('listItem')
+        else this.editor.commands.liftListItem('listItem')
+        return true
+      }
+      const type = this.editor.isActive('heading') ? 'heading' : 'paragraph'
+      if (!this.editor.isActive(type)) return false
+      const current = this.editor.getAttributes(type).indent || 0
+      this.editor.commands.updateAttributes(type, { indent: Math.min(8, Math.max(0, current + amount)) })
+      return true
+    }
+    return {
+      Tab: () => indent(1),
+      'Shift-Tab': () => indent(-1),
+      // Allow keyboard users to leave the body without changing its content.
+      Escape: () => { this.editor.commands.blur(); return true },
+    }
+  },
   addGlobalAttributes: () => [{ types: ['doc'], attributes: { marginLeft: { default: 0.75 }, marginRight: { default: 0.75 } } }, { types: ['paragraph', 'heading'], attributes: {
     indent: { default: 0, parseHTML: element => Math.min(8, Math.max(0, parseFloat(element.style.marginLeft) / 32 || 0)), renderHTML: attrs => ({ style: `margin-left:${attrs.indent * 24}pt` }) },
     lineSpacing: { default: 1.15, parseHTML: element => parseFloat(element.style.lineHeight) || 1.15, renderHTML: attrs => ({ style: `line-height:${attrs.lineSpacing}` }) },

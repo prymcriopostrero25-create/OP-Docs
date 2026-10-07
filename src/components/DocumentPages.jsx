@@ -1,16 +1,29 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // Render the original pages without invoking the browser's PDF viewer/download settings.
 export default function DocumentPages({ file, onReady, onError }) {
   const container = useRef(null)
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   const callbacks = useRef({ onReady, onError })
   useEffect(() => { callbacks.current = { onReady, onError } }, [onReady, onError])
+
+  useEffect(() => {
+    // Scrollbar appearance changes content width during rendering. Observe the
+    // viewport instead so that adding pages cannot restart the PDF renderer.
+    let timer
+    const resize = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => setViewportWidth(window.innerWidth), 150)
+    }
+    window.addEventListener('resize', resize)
+    return () => { clearTimeout(timer); window.removeEventListener('resize', resize) }
+  }, [])
 
   useEffect(() => {
     const host = container.current
     let cancelled = false
     let task
-    let observer, renderTask, pdf, running = false
+    let observer, renderTask, pdf, running = false, ready = false
     const slots = [], visible = new Set(), queue = new Set()
     async function drain() {
       if (running || cancelled) return
@@ -25,7 +38,7 @@ export default function DocumentPages({ file, onReady, onError }) {
           const page = await pdf.getPage(number)
           if (cancelled) return
           const natural = page.getViewport({ scale: 1 })
-          const width = Math.min(natural.width * 1.5, Math.max(1, host.clientWidth - 40))
+          const width = Math.min(natural.width * 4 / 3, Math.max(1, host.clientWidth - 40))
           const cssScale = width / natural.width
           const scale = Math.min(cssScale * Math.min(2, window.devicePixelRatio || 1), Math.sqrt(4000000 / (natural.width * natural.height)))
           const viewport = page.getViewport({ scale })
@@ -43,7 +56,7 @@ export default function DocumentPages({ file, onReady, onError }) {
           if (cancelled) return
           if (visible.has(number)) slot.appendChild(canvas)
           else { canvas.width = 0; canvas.height = 0 }
-          if (number === 1) callbacks.current.onReady?.()
+          if (!ready && visible.has(number)) { ready = true; callbacks.current.onReady?.() }
           page.cleanup()
         }
       } catch (error) { if (!cancelled) callbacks.current.onError?.(error) }
@@ -62,7 +75,7 @@ export default function DocumentPages({ file, onReady, onError }) {
         const first = await pdf.getPage(1)
         if (cancelled) return
         const natural = first.getViewport({ scale: 1 })
-        const width = Math.min(natural.width * 1.5, Math.max(1, host.clientWidth - 40))
+        const width = Math.min(natural.width * 4 / 3, Math.max(1, host.clientWidth - 40))
         const fragment = document.createDocumentFragment()
         for (let number = 1; number <= pdf.numPages; number++) {
           const slot = document.createElement('div')
@@ -102,7 +115,7 @@ export default function DocumentPages({ file, onReady, onError }) {
       host.querySelectorAll('canvas').forEach(canvas => { canvas.width = 0; canvas.height = 0 })
       host.replaceChildren()
     }
-  }, [file])
+  }, [file, viewportWidth])
 
   return <div ref={container} className="document-preview-pages" />
 }

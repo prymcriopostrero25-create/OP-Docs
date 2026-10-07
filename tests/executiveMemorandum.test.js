@@ -6,6 +6,17 @@ import { createHash } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 
 const sample = { token: 'session', requestId: 'acceptance-request-203', number: '203', year: '2026', recipient: 'MS. FEBE KEITH JUMOC\nCurriculum and Instruction Director', subject: 'Submission of Complete U-Forms for All Campuses', date: '2026-09-09', body: 'In reference to Executive Memorandum No. 198, s. 2026, all concerned are directed to submit the complete and updated U-Forms for all campuses, together with the corresponding progress report.\n\nPlease ensure that all submitted information is accurate, complete, and properly validated.\n\nFor guidance and compliance.', signatory: 'EDGARDO H. ROSALES, JD, Ed.D.', position: 'SUC President II', logo: 'logo' }
+for (const type of ['Executive Memorandum', 'Special Order']) test(`multiple ${type} recipients survive saving and reject unnamed entries`, () => {
+  const f = fixture()
+  const request = { ...sample, type, templateVersion: 2, reference: '203', recipientLabel: 'For', recipients: [{ name: ' Jane ', position: 'Director', institution: 'College' }, { name: 'John', position: '', institution: 'Other office' }] }
+  assert.equal(f.ctx.createDocument(request).success, true)
+  const saved = f.ctx.createdRegistryEntries()[0].metadata.form
+  assert.equal(saved.recipients.length, 2)
+  assert.equal(saved.recipients[0].name, 'Jane')
+  assert.equal(saved.recipients[1].institution, 'Other office')
+  assert.equal(f.rendered.recipients[1].name, 'John')
+  assert.throws(() => f.ctx.validateTemplateDocument({ ...request, recipients: [{ name: '' }] }, request.type), /name for every recipient/)
+})
 function fixture() {
   const rows = [], notes = {}, properties = {}, log = [], destinations = []
   const shortRows = { EX_Memo: [], Trav_Ord: [], Spe_Ord: [], Auth_Travel: [], Cert_Travel: [] }
@@ -185,7 +196,7 @@ test('memo and special order share the horizontal letterhead and aligned layout'
     assert.equal(body.tables[1].cells[0][0].text, 'TO:')
     assert.equal(body.tables[1].cells[1][1].text, 'Director')
     assert.equal(body.tables[1].cells[3][1].text, 'SEPTEMBER 9, 2026')
-    assert.deepEqual(body.paragraphs.find(p => p.text === sample.signatory).called_setIndentStart, [266])
+    assert.deepEqual(body.paragraphs.find(p => p.text === sample.signatory).called_setIndentStart, [(595.28 - 52 * 2) * 266 / 508])
     assert.ok(body.paragraphs.some(p => p.text === sample.body.split('\n')[0]))
     assert.equal(saved, true)
   }
@@ -487,7 +498,9 @@ test('Travel Order fills the supplied native template and restores it on retry',
     getTables() { return this.children.filter(c => c.getType() === 'TABLE') },
     getText() { return this.getTables().flatMap(t => t.rows.flat(2).map(p => p.value)).join('\n') },
     getAttributes: () => ({ PAGE_WIDTH: 612, PAGE_HEIGHT: 792, MARGIN_LEFT: 51.85 }),
-    getPageWidth: () => 612, getMarginLeft: () => 51.85, getMarginRight: () => 51.85,
+    setPageWidth(value) { this.pageWidth = value; return this },
+    setPageHeight(value) { this.pageHeight = value; return this },
+    getPageWidth() { return this.pageWidth || 612 }, getMarginLeft: () => 51.85, getMarginRight: () => 51.85,
     appendParagraph(value) { const child = paragraph(value); this.children.push(child); return child },
     setAttributes(attributes) { this.attributes = attributes },
     clear() { this.children = [paragraph('')] },
@@ -519,6 +532,9 @@ test('Travel Order fills the supplied native template and restores it on retry',
   const doc = { getId: () => 'output', getBody: () => output, getHeader: () => outputHeader, getFooter: () => outputFooter, saveAndClose() { saved++ } }
   const data = { reference: '143', year: '2026', date: '2026-09-10', recipientName: 'Jane Doe', recipientPosition: 'Instructor', recipientLabel: 'For', place: 'CHED', inclusiveDate: 'September 12, 2026 to September 18, 2026', transportation: 'Plane, bus, van, and taxi.', purpose: 'Training\n\n[Name/s of Traveler/s] $1', remarks: 'Official time', signatory: 'Custom Signatory', position: 'Acting President' }
   f.ctx.renderOrderTemplate(doc, data)
+  assert.equal(output.pageWidth, 595.28)
+  assert.equal(output.pageHeight, 841.89)
+  assert.equal(body.pageWidth, undefined)
   const textAt = (t, r, c, p = 0) => output.getTables()[t].rows[r][c][p].value
   assert.equal(textAt(0, 0, 0), 'TRAVEL ORDER NO. 143')
   assert.equal(textAt(1, 0, 0), 'FOR:')
