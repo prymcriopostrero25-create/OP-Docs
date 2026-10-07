@@ -150,12 +150,18 @@ export const updateDocumentContent = async (id, form) => {
 let editorSupport
 async function requireRichBodySupport(form) {
   if (!form.bodyRich) return
+  const hasColumnWidths = node => Boolean(node?.attrs?.colwidth) || (node?.content || []).some(hasColumnWidths)
+  const hasRowHeight = node => (node?.type === 'tableRow' && node.attrs?.height != null) || (node?.content || []).some(hasRowHeight)
+  const needsRowHeight = hasRowHeight(form.bodyRich)
+  const needsLayout = hasColumnWidths(form.bodyRich)
   const token = getSessionToken()
-  if (editorSupport?.token === token && editorSupport.expires > Date.now()) return
+  if (editorSupport?.token === token && editorSupport.expires > Date.now() && (!needsLayout || editorSupport.layout) && (!needsRowHeight || editorSupport.rowHeight)) return
   try {
     const result = await documentRequest({ action: 'editorCapabilities' })
+    if (needsRowHeight && result.richBodyRowHeightVersion !== 1) throw new Error('Unsupported action.')
+    if (needsLayout && result.richBodyLayoutVersion !== 1) throw new Error('Unsupported action.')
     if (result.richBodyVersion !== 1) throw new Error('Unsupported action.')
-    editorSupport = { token, expires: Date.now() + 5 * 60 * 1000 }
+    editorSupport = { token, layout: result.richBodyLayoutVersion === 1, rowHeight: result.richBodyRowHeightVersion === 1, expires: Date.now() + 5 * 60 * 1000 }
   } catch (error) {
     if (/Unsupported action/i.test(error.message)) throw new Error('Formatted documents need the updated Apps Script deployment. Ask the administrator to deploy the latest Code.gs, then retry. Your body is still here.', { cause: error })
     throw error

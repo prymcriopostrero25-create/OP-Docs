@@ -32,3 +32,10 @@
 .rich-link-form label { flex: 1; min-width: 200px; }.rich-editor-error { margin: 10px 14px; color: #b4233d; font-size: 12px; }
 @media(max-width:600px) { .rich-toolbar { padding: 6px; }.rich-tool-group { padding: 4px; } }
 @media print { .rich-page-break { border: 0; margin: 0; }.rich-page-break::after { display: none; } }
+
+.rich-editor .tableWrapper { overflow-x: auto; }
+.rich-editor .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: -2px; width: 4px; background: #6c8cc8; pointer-events: none; }
+.rich-editor .resize-cursor { cursor: col-resize; }
+.rich-editor .ProseMirror-selectednode { outline: 2px solid #6c8cc8; }
+
+.rich-editor .row-resize-cursor, .rich-editor .row-resize-cursor * { cursor: row-resize !important; }

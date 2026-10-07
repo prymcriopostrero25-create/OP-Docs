@@ -14,7 +14,7 @@ const sample = doc(
   { type: 'heading', attrs: { level: 2 }, content: [text('Heading')] },
   { ...paragraph(text('Bold', [{ type: 'bold' }]), text(' normal '), text('Link', [{ type: 'link', attrs: { href: 'https://example.com' } }])), attrs: { textAlign: 'center', indent: 1, lineSpacing: 1.5 } },
   { type: 'orderedList', attrs: { start: 3 }, content: [{ type: 'listItem', content: [paragraph(text('First'))] }, { type: 'listItem', content: [paragraph(text('Second'))] }] },
-  { type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableHeader', content: [paragraph(text('Header'))] }, { type: 'tableCell', content: [paragraph(text('Cell'))] }] }] },
+  { type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableHeader', attrs: { colwidth: [120] }, content: [paragraph(text('Header'))] }, { type: 'tableCell', attrs: { colwidth: [360] }, content: [paragraph(text('Cell'))] }] }] },
   image, { type: 'pageBreak' }, paragraph(text('New page')),
 )
 
@@ -65,7 +65,7 @@ function renderFixture() {
     const runs = { calls: [] }; runs.proxy = styled(runs)
     const p = { value, runs, editAsText: () => runs.proxy, appendInlineImage() { const img = { getWidth: () => 640, getHeight: () => 320, calls: [] }; img.proxy = styled(img); images.push(img); return img.proxy } }; p.proxy = styled(p); paragraphs.push(p); return p.proxy
   }
-  function section() { const children = []; return { children, appendParagraph(value) { const p = makeParagraph(value); children.push(p); return p }, appendPageBreak: () => breaks.push('page'), appendHorizontalRule: () => breaks.push('rule'), appendTable(rows) { const cells = rows.map(row => row.map(() => { const cell = section(); cell.appendParagraph(''); cell.proxy = styled(cell); return cell.proxy })); const table = { cells, getCell: (r, c) => cells[r][c] }; table.proxy = styled(table); tables.push(table); return table.proxy }, getNumChildren: () => children.length, getChild: i => children[i], removeChild: p => children.splice(children.indexOf(p), 1) } }
+  function section() { const children = []; return { children, appendParagraph(value) { const p = makeParagraph(value); children.push(p); return p }, appendPageBreak: () => breaks.push('page'), appendHorizontalRule: () => breaks.push('rule'), appendTable(rows) { const cells = rows.map(row => row.map(() => { const cell = section(); cell.appendParagraph(''); cell.proxy = styled(cell); return cell.proxy })); const rowStyles = rows.map(() => { const row = {}; row.proxy = styled(row); return row }); const table = { cells, rowStyles, getRow: r => rowStyles[r].proxy, getCell: (r, c) => cells[r][c] }; table.proxy = styled(table); tables.push(table); return table.proxy }, getNumChildren: () => children.length, getChild: i => children[i], removeChild: p => children.splice(children.indexOf(p), 1) } }
   const attrs = Object.fromEntries(['FONT_FAMILY', 'FONT_SIZE', 'BOLD', 'ITALIC', 'UNDERLINE', 'STRIKETHROUGH', 'FOREGROUND_COLOR', 'BACKGROUND_COLOR', 'LINK_URL'].map(key => [key, key]))
   const ctx = context({ DocumentApp: { Attribute: attrs, HorizontalAlignment: { LEFT: 'left', CENTER: 'center', RIGHT: 'right', JUSTIFY: 'justify' } }, Utilities: { newBlob: value => value, base64Decode: value => value } })
   return { ctx, body: section(), paragraphs, tables, images, breaks }
@@ -86,4 +86,49 @@ test('Docs rendering preserves text ranges, paragraph layout, numbering, tables,
   assert.equal(f.tables[0].cells[0][1].children[0].value, 'Cell')
   assert.ok(f.images[0].calls.some(call => call[0] === 'setWidth' && call[1] === 360))
   assert.deepEqual(f.breaks, ['page'])
+})
+
+
+test('resized body tables retain widths through validation and Docs export', () => {
+  const table = { type: 'table', content: [{ type: 'tableRow', content: [
+    { type: 'tableCell', attrs: { colwidth: [120] }, content: [paragraph(text('Left'))] },
+    { type: 'tableCell', attrs: { colwidth: [360] }, content: [paragraph(text('Right'))] },
+  ] }] }
+  const f = renderFixture()
+  const clean = f.ctx.validateRichBody(doc(table))
+  assert.equal(clean.content[0].content[0].content[1].attrs.colwidth[0], 360)
+  f.ctx.renderRichBody(f.body, clean)
+  const widthCalls = f.tables[0].calls.filter(call => call[0] === 'setColumnWidth')
+  assert.equal(widthCalls[1][2] / widthCalls[0][2], 3)
+  for (const width of [-1, 0, 39, 2001, '100', Infinity]) {
+    const invalid = structuredClone(table)
+    invalid.content[0].content[0].attrs.colwidth = [width]
+    assert.throws(() => f.ctx.validateRichBody(doc(invalid)))
+  }
+})
+
+test('memo and special order bodies preserve leading spaces and trailing blank paragraphs', () => {
+  const ctx = context()
+  const bodyRich = doc(paragraph(text('   Indented text  ')), paragraph(), paragraph())
+  for (const type of ['Executive Memorandum', 'Special Order']) {
+    const data = ctx.validateTemplateDocument({ reference: '001', recipientLabel: 'For', recipientName: 'Recipient', subject: 'Subject', date: '2026-10-07', bodyRich }, type)
+    assert.equal(data.body, richBodyText(bodyRich))
+    assert.equal(data.bodyRich.content.length, 3)
+  }
+})
+
+
+test('table row heights survive save/reload validation and use pixel-to-point conversion in Docs', () => {
+  const f = renderFixture()
+  const value = structuredClone(sample)
+  value.content[3].content[0].attrs = { height: 128 }
+  const clean = f.ctx.validateRichBody(value)
+  const reloaded = f.ctx.validateRichBody(JSON.parse(JSON.stringify(clean)))
+  assert.equal(reloaded.content[3].content[0].attrs.height, 128)
+  f.ctx.renderRichBody(f.body, reloaded)
+  assert.ok(f.tables[0].rowStyles[0].calls.some(call => call[0] === 'setMinimumHeight' && call[1] === 96))
+  for (const height of [-1, 0, 23, 1001, '128', Infinity]) {
+    value.content[3].content[0].attrs.height = height
+    assert.throws(() => f.ctx.validateRichBody(value))
+  }
 })

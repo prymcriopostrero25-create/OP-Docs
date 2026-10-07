@@ -29,8 +29,12 @@ function renderNode(node, key) {
     case 'horizontalRule': return <hr key={key} />
     case 'pageBreak': return <div key={key} className="rich-page-break" data-page-break="true" aria-label="Page break" />
     case 'image': return /^data:image\/(png|jpeg|gif);base64,/.test(attrs.src || '') ? <img key={key} src={attrs.src} alt={attrs.alt || ''} width={attrs.width || undefined} /> : null
-    case 'table': return <table key={key}><tbody>{children}</tbody></table>
-    case 'tableRow': return <tr key={key}>{children}</tr>
+    case 'table': {
+      const widths = (node.content?.[0]?.content || []).map(cell => cell.attrs?.colwidth?.[0] || 100)
+      const total = widths.reduce((sum, width) => sum + width, 0)
+      return <table key={key}><colgroup>{widths.map((width, index) => <col key={index} style={{ width: `${width / total * 100}%` }} />)}</colgroup><tbody>{children}</tbody></table>
+    }
+    case 'tableRow': return <tr key={key} style={attrs.height ? { height: `${attrs.height}px` } : undefined}>{children}</tr>
     case 'tableCell': return <td key={key}>{children}</td>
     case 'tableHeader': return <th key={key}>{children}</th>
     default: return <div key={key}>{children}</div>

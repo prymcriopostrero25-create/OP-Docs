@@ -6,6 +6,7 @@ import { TextStyle, Color, FontFamily, FontSize } from '@tiptap/extension-text-s
 import TextAlign from '@tiptap/extension-text-align'
 import Highlight from '@tiptap/extension-highlight'
 import Image from '@tiptap/extension-image'
+import { TableRowResize } from '../lib/tableRowResize'
 import { TableKit } from '@tiptap/extension-table'
 import { plainBodyDocument, richBodyText, safeBodyLink } from '../lib/richBody'
 import './RichTextEditor.css'
@@ -22,13 +23,16 @@ const ParagraphLayout = Extension.create({
     lineSpacing: { default: 1.15, parseHTML: element => parseFloat(element.style.lineHeight) || 1.15, renderHTML: attrs => ({ style: `line-height:${attrs.lineSpacing}` }) },
   } }],
 })
-const extensions = [StarterKit.configure({ heading: { levels: [1, 2, 3] }, codeBlock: false, code: false, link: { openOnClick: false, protocols: ['http', 'https', 'mailto'] } }), TextStyle, Color, FontFamily, FontSize, TextAlign.configure({ types: ['heading', 'paragraph'] }), Highlight.configure({ multicolor: true }), Image.configure({ allowBase64: true }), TableKit.configure({ table: { resizable: false } }), PageBreak, ParagraphLayout]
+const extensions = [StarterKit.configure({ heading: { levels: [1, 2, 3] }, codeBlock: false, code: false, link: { openOnClick: false, protocols: ['http', 'https', 'mailto'] } }), TextStyle, Color, FontFamily, FontSize, TextAlign.configure({ types: ['heading', 'paragraph'] }), Highlight.configure({ multicolor: true }), Image.configure({ allowBase64: true }), TableKit.configure({ table: { resizable: true, cellMinWidth: 40 } }), PageBreak, ParagraphLayout, TableRowResize]
 
 export default function RichTextEditor({ value, plainText, onChange, disabled, error }) {
   const upload = useRef(null)
   const [message, setMessage] = useState('')
   const [linkOpen, setLinkOpen] = useState(false)
   const [link, setLink] = useState('')
+  const [tableOpen, setTableOpen] = useState(false)
+  const [tableRows, setTableRows] = useState(3)
+  const [tableColumns, setTableColumns] = useState(3)
   const editor = useEditor({
     extensions,
     content: value || plainBodyDocument(plainText),
@@ -44,6 +48,8 @@ export default function RichTextEditor({ value, plainText, onChange, disabled, e
     bold: current.isActive('bold'), italic: current.isActive('italic'), underline: current.isActive('underline'), strike: current.isActive('strike'),
     bulletList: current.isActive('bulletList'), orderedList: current.isActive('orderedList'), blockquote: current.isActive('blockquote'),
     heading: current.getAttributes('heading').level || 0, table: current.isActive('table'),
+    rowHeight: current.getAttributes('tableRow').height || 24,
+    image: current.isActive('image'), imageWidth: current.getAttributes('image').width || 480,
     font: current.getAttributes('textStyle').fontFamily || 'Arial', size: current.getAttributes('textStyle').fontSize || '12pt',
     align: current.getAttributes(current.isActive('heading') ? 'heading' : 'paragraph').textAlign || 'left',
     spacing: current.getAttributes(current.isActive('heading') ? 'heading' : 'paragraph').lineSpacing || 1.15,
@@ -78,7 +84,7 @@ export default function RichTextEditor({ value, plainText, onChange, disabled, e
         {button('↷ Redo', () => run(chain => chain.redo()), undefined, !state.redo)}
         {button('Page break', () => run(chain => chain.insertContent({ type: 'pageBreak' })))}
         {button('Insert image', () => upload.current.click())}
-        {button('Insert table', () => run(chain => chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true })), undefined, state.table)}
+        {button('Insert table', () => setTableOpen(value => !value), tableOpen, state.table)}
       </div>
       <div className="rich-tool-group">
         {['bold', 'italic', 'underline', 'strike'].map((mark, index) => button(['Bold', 'Italic', 'Underline', 'Strikethrough'][index], () => run(chain => chain.toggleMark(mark)), state[mark]))}
@@ -109,10 +115,13 @@ export default function RichTextEditor({ value, plainText, onChange, disabled, e
         {['marginLeft', 'marginRight'].map(name => <label key={name}>{name === 'marginLeft' ? 'Left margin' : 'Right margin'}<select aria-label={name === 'marginLeft' ? 'Left margin' : 'Right margin'} value={state[name]} disabled={disabled} onChange={event => run(chain => chain.command(({ tr }) => { tr.setDocAttribute(name, Number(event.target.value)); return true }))}>{[0.5, 0.75, 1, 1.25, 1.5].map(margin => <option key={margin} value={margin}>{margin}″</option>)}</select></label>)}
       </div>
       {state.table && <div className="rich-tool-group" aria-label="Table editing">
+        <label>Row height: {state.rowHeight}px<input type="range" min="24" max="1000" value={state.rowHeight} disabled={disabled} onChange={event => run(chain => chain.updateAttributes('tableRow', { height: Number(event.target.value) }))} /></label>{button('Auto height', () => run(chain => chain.resetAttributes('tableRow', ['height'])))}
         {button('Add row', () => run(chain => chain.addRowAfter()))}{button('Add column', () => run(chain => chain.addColumnAfter()))}
         {button('Delete row', () => run(chain => chain.deleteRow()))}{button('Delete column', () => run(chain => chain.deleteColumn()))}{button('Delete table', () => run(chain => chain.deleteTable()))}
       </div>}
     </div>
+    {state.image && <div className="rich-link-form"><label>Image width: {state.imageWidth}px<input type="range" min="24" max="640" value={state.imageWidth} disabled={disabled} onChange={event => { const width = Number(event.target.value); if (width >= 24 && width <= 640) run(chain => chain.updateAttributes('image', { width, height: null })) }} /></label>{button('Delete image', () => run(chain => chain.deleteSelection()))}</div>}
+    {tableOpen && <div className="rich-link-form"><label>Rows<input type="number" min="1" max="100" value={tableRows} disabled={disabled} onChange={event => setTableRows(event.target.value)} /></label><label>Columns<input type="number" min="1" max="12" value={tableColumns} disabled={disabled} onChange={event => setTableColumns(event.target.value)} /></label>{button('Add table', () => { const rows = Number(tableRows), cols = Number(tableColumns); if (!Number.isInteger(rows) || rows < 1 || rows > 100 || !Number.isInteger(cols) || cols < 1 || cols > 12) { setMessage('Choose 1?100 rows and 1?12 columns.'); return } run(chain => chain.insertTable({ rows, cols, withHeaderRow: true })); setTableOpen(false); setMessage('') })}{button('Cancel table', () => setTableOpen(false))}</div>}
     {linkOpen && <div className="rich-link-form"><label>Link address<input type="url" value={link} placeholder="https://example.com" onChange={event => setLink(event.target.value)} /></label>{button('Apply link', () => { if (!safeBodyLink(link)) { setMessage('Enter a link starting with https://, http://, or mailto:.'); return } run(chain => chain.extendMarkRange('link').setLink({ href: link })); setLinkOpen(false); setMessage('') })}{button('Cancel', () => setLinkOpen(false))}</div>}
     <input ref={upload} type="file" accept="image/png,image/jpeg,image/gif" hidden onChange={insertImage} disabled={disabled} />
     <EditorContent editor={editor} className="rich-body-content rich-editor-paper" style={{ '--body-left-margin': `${state.marginLeft}in`, '--body-right-margin': `${state.marginRight}in` }} />

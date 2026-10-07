@@ -436,7 +436,7 @@ function doPost(e) {
     overviewMayChange = ['createDocument', 'createExecutiveMemorandum', 'uploadDocument', 'editDocument', 'deleteDocument', 'updateDocumentStatus', 'updateDocumentContent', 'sendDocument', 'documentSendStatus', 'prepareDocumentPreview'].includes(request.action);
     if (request.action === 'editorCapabilities') {
       if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
-      return jsonResponse({ success: true, richBodyVersion: 1, previewEmailPdfVersion: 1 });
+      return jsonResponse({ success: true, richBodyVersion: 1, richBodyLayoutVersion: 1, richBodyRowHeightVersion: 1, previewEmailPdfVersion: 1 });
     }
     if (['currentUser', 'createUser', 'updateUser', 'deleteUser', 'verificationLink', 'verify', 'sendDocument', 'documentSendStatus', 'documentDetails', 'updateDocumentContent'].includes(request.action)) return workflowRequest(request);
     if (request.action === 'documentPage') return documentPage(request);
@@ -1408,9 +1408,17 @@ function validateRichBody(value) {
       if (node.type === 'heading') clean.attrs.level = [1, 2, 3].includes(attrs.level) ? attrs.level : 1;
     }
     if (node.type === 'orderedList') clean.attrs = { start: Math.max(1, Math.min(9999, Number(attrs.start) || 1)) };
+    if (node.type === 'tableRow' && attrs.height != null) {
+      if (!Number.isFinite(attrs.height) || attrs.height < 24 || attrs.height > 1000) throw new Error('Invalid table row height.');
+      clean.attrs = { height: Math.round(attrs.height) };
+    }
     if (node.type === 'table' && (!node.content?.length || node.content.length > 100)) throw new Error('Tables must have between 1 and 100 rows.');
     if (node.type === 'tableRow' && (!node.content?.length || node.content.length > 12)) throw new Error('Tables must have between 1 and 12 columns.');
     if (['tableCell', 'tableHeader'].includes(node.type) && ((attrs.colspan || 1) !== 1 || (attrs.rowspan || 1) !== 1)) throw new Error('Merged table cells are not supported. Split the cells before saving.');
+    if (['tableCell', 'tableHeader'].includes(node.type) && attrs.colwidth != null) {
+      if (!Array.isArray(attrs.colwidth) || attrs.colwidth.length !== 1 || !Number.isFinite(attrs.colwidth[0]) || attrs.colwidth[0] < 40 || attrs.colwidth[0] > 2000) throw new Error('Invalid table column width.');
+      clean.attrs = { colwidth: [attrs.colwidth[0]] };
+    }
     if (node.type === 'image') {
       if (!/^data:image\/(png|jpeg|gif);base64,[A-Za-z0-9+/=]+$/.test(attrs.src || '') || attrs.src.length > 1400000) throw new Error('Insert a PNG, JPEG, or GIF image up to 1 MB using the image button.');
       clean.attrs = { src: attrs.src, alt: String(attrs.alt || '').slice(0, 200), width: Math.max(24, Math.min(640, Number(attrs.width) || 480)) };
@@ -1494,12 +1502,17 @@ function renderRichBody(body, source) {
         const columns = node.content[0].content.length;
         const table = parent.appendTable(node.content.map(row => row.content.map(() => '')));
         table.setBorderWidth(0.75).setBorderColor('#b7bec8');
-        for (let col = 0; col < columns; col++) table.setColumnWidth(col, (opts.width || 508) / columns);
+        const widths = node.content[0].content.map(cell => cell.attrs?.colwidth?.[0] || 100);
+        const totalWidth = widths.reduce((total, width) => total + width, 0);
+        for (let col = 0; col < columns; col++) table.setColumnWidth(col, (opts.width || 508) * widths[col] / totalWidth);
+        node.content.forEach((row, r) => {
+          if (row.attrs?.height) table.getRow(r).setMinimumHeight(row.attrs.height * 0.75);
+        });
         node.content.forEach((row, r) => row.content.forEach((cell, c) => {
           const target = table.getCell(r, c);
           target.setPaddingTop(6).setPaddingBottom(6).setPaddingLeft(6).setPaddingRight(6);
           if (cell.type === 'tableHeader') target.setBackgroundColor('#f1f3f5');
-          render(target, cell.content || [], { header: cell.type === 'tableHeader', width: (opts.width || 508) / columns - 12 });
+          render(target, cell.content || [], { header: cell.type === 'tableHeader', width: (opts.width || 508) * widths[c] / totalWidth - 12 });
           // appendTable creates one empty paragraph per cell; remove it after filling.
           if (target.getNumChildren() > 1) target.removeChild(target.getChild(0));
         }));
@@ -1530,6 +1543,7 @@ function validateTemplateDocument(request, type) {
     if (!optional.includes(key) && !data[key]) throw new Error('Please enter ' + key.replace(/([A-Z])/g, ' $1').toLowerCase() + '.');
     if (data[key].length > (key === 'body' ? 50000 : 2000)) throw new Error('The ' + key + ' is too long.');
   });
+  if (data.bodyRich) data.body = richBodyPlainText(data.bodyRich);
   if (travel) {
     data.travelType = request.travelType === undefined ? 'Official Time' : String(request.travelType).trim();
     if (!['Official Business', 'Official Time'].includes(data.travelType)) throw new Error('Choose Official Business or Official Time as the type of travel.');
