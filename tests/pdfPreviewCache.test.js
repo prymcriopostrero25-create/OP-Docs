@@ -2,6 +2,33 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createPdfPreviewCache } from '../src/lib/pdfPreviewCache.js'
 
+test('rendered PDF files are reused and bounded by their byte size', async () => {
+  let calls = 0
+  const load = createPdfPreviewCache(async (_id, _type, _session, input) => { calls++; return new Blob([input]) }, { maxBytes: 5 })
+  const first = await load('s', 'id', 'type', 'rev', 'PDF')
+  assert.equal(await load('s', 'id', 'type', 'rev', 'PDF'), first)
+  assert.equal(calls, 1)
+  await load('s', 'large', 'type', 'rev', '123456')
+  await load('s', 'large', 'type', 'rev', '123456')
+  assert.equal(calls, 3)
+})
+
+test('reopening replaces aborted rendering without an old failure removing the new result', async () => {
+  let rejectOld
+  const controller = new AbortController()
+  const load = createPdfPreviewCache((_id, _type, _session, input) => input.signal.aborted
+    ? new Promise((_resolve, reject) => { rejectOld = reject }) : Promise.resolve(new Blob(['PDF'])))
+  const old = load('s', 'id', 'type', 'rev', { signal: controller.signal })
+  controller.abort()
+  await Promise.resolve()
+  const next = load('s', 'id', 'type', 'rev', { signal: new AbortController().signal })
+  const file = await next
+  const rejected = assert.rejects(old, /cancelled/)
+  rejectOld(Error('cancelled'))
+  await rejected
+  assert.equal(await load('s', 'id', 'type', 'rev'), file)
+})
+
 test('reopening and concurrent previews reuse preparation for the same revision', async () => {
   let calls = 0
   const load = createPdfPreviewCache(async () => { calls++; return { data: 'PDF' } })

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from 'react'
 import './LoadingModal.css'
 import { lockBodyScroll } from '../lib/scrollLock'
+import { isApprovalPromptOpen } from '../lib/approvalPassword'
 
 export default function LoadingModal({ title = 'Loading...', description = 'Please wait.' }) {
   const dialog = useRef(null)
@@ -11,13 +12,28 @@ export default function LoadingModal({ title = 'Loading...', description = 'Plea
     const element = dialog.current
     const trigger = document.activeElement
     let active = true
-    const unlockScroll = lockBodyScroll()
+    let unlockScroll
+    function hide() {
+      element.close()
+      unlockScroll?.()
+      unlockScroll = undefined
+    }
+    function show() {
+      if (!active || !element.isConnected || element.open || isApprovalPromptOpen()) return
+      unlockScroll = lockBodyScroll()
+      element.showModal()
+    }
+    function promptChanged(event) {
+      if (event.detail.open) hide()
+      else if (event.detail.authorized) queueMicrotask(show)
+    }
+    window.addEventListener('approval-prompt', promptChanged)
     // Open after any containing dialog so the loader stays above it.
-    queueMicrotask(() => { if (active && element.isConnected) element.showModal() })
+    queueMicrotask(show)
     return () => {
       active = false
-      element.close()
-      unlockScroll()
+      window.removeEventListener('approval-prompt', promptChanged)
+      hide()
       if (trigger?.isConnected) trigger.focus()
     }
   }, [])

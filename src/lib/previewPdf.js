@@ -51,18 +51,23 @@ export function measurePreviewPages(paper) {
 }
 
 // Capture the rendered paper, including Tailwind styles, signature and timestamp.
-export async function previewPdfFile(paper, name = 'Document.pdf') {
+export async function previewPdfFile(paper, name = 'Document.pdf', signal) {
+  signal?.throwIfAborted()
   if (!paper) throw new Error('The document preview is not ready.')
   const [{ toCanvas }, { PDFDocument, rgb }] = await Promise.all([import('html-to-image'), import('pdf-lib')])
   await document.fonts.ready
+  signal?.throwIfAborted()
   await Promise.all(Array.from(paper.querySelectorAll('img'), async image => {
     await image.decode()
     if (!image.naturalWidth) throw new Error('A preview image could not be loaded.')
   }))
+  signal?.throwIfAborted()
   const pageWidth = previewPageWidth, pageHeight = previewPageHeight
   const { width, height, footer, footerTop, footerHeight, bottomPadding, numberLayout, segments } = measurePreviewPages(paper)
   const canvas = await toCanvas(paper, { pixelRatio: 2, backgroundColor: '#ffffff', width, height,
     style: { margin: '0', boxShadow: 'none' }, onImageErrorHandler: () => { throw new Error('A preview image could not be embedded.') } })
+  try {
+  signal?.throwIfAborted()
   const pdf = await PDFDocument.create()
   let footerImage
   if (footer) {
@@ -80,8 +85,10 @@ export async function previewPdfFile(paper, name = 'Document.pdf') {
         numberLayout.width * scale + 4, numberLayout.height * scale + 4)
     }
     footerImage = await pdf.embedPng(footerCanvas.toDataURL('image/png'))
+    footerCanvas.width = footerCanvas.height = 0
   }
   for (const [index, { start, end }] of segments.entries()) {
+    signal?.throwIfAborted()
     const slice = document.createElement('canvas')
     slice.width = canvas.width
     const scale = canvas.height / height
@@ -91,6 +98,7 @@ export async function previewPdfFile(paper, name = 'Document.pdf') {
     if (!context) throw new Error('PDF rendering is unavailable in this browser.')
     context.drawImage(canvas, 0, sourceTop, canvas.width, slice.height, 0, 0, slice.width, slice.height)
     const image = await pdf.embedPng(slice.toDataURL('image/png'))
+    slice.width = slice.height = 0
     const drawnHeight = (end - start) * pageWidth / width
     const page = pdf.addPage([pageWidth, pageHeight])
     const topPadding = footer && index > 0 ? 24 : 0
@@ -109,6 +117,9 @@ export async function previewPdfFile(paper, name = 'Document.pdf') {
     }
   }
   return new File([await pdf.save()], name.replace(/\.pdf$/i, '') + '.pdf', { type: 'application/pdf' })
+  } finally {
+    canvas.width = canvas.height = 0
+  }
 }
 
 export function previewPageSegments(height, pageHeight, protectedRects = []) {

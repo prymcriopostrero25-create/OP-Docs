@@ -88,6 +88,17 @@ test('Docs rendering preserves text ranges, paragraph layout, numbering, tables,
   assert.deepEqual(f.breaks, ['page'])
 })
 
+test('first-line indentation survives saving and keeps wrapped lines at the paragraph margin', () => {
+  const f = renderFixture()
+  const value = doc({ ...paragraph(text('Indented first line')), attrs: { indent: 2, firstLineIndent: 1 } })
+  const clean = f.ctx.validateRichBody(JSON.parse(JSON.stringify(f.ctx.validateRichBody(value))))
+  assert.equal(clean.content[0].attrs.firstLineIndent, 1)
+  f.ctx.renderRichBody(f.body, clean)
+  assert.ok(f.paragraphs[0].calls.some(call => call[0] === 'setIndentStart' && call[1] === 48))
+  assert.ok(f.paragraphs[0].calls.some(call => call[0] === 'setIndentFirstLine' && call[1] === 72))
+  assert.equal(f.ctx.validateRichBody(doc(paragraph(text('Existing paragraph')))).content[0].attrs.firstLineIndent, 0)
+})
+
 
 test('resized body tables retain widths through validation and Docs export', () => {
   const table = { type: 'table', content: [{ type: 'tableRow', content: [

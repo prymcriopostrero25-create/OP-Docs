@@ -3,7 +3,9 @@ import { fetchAppsScript } from './appsScriptFetch'
 import { readAppsScriptResponse } from './appsScriptResponse'
 import { loadDocumentPage } from './documentPageLoader'
 import { createPdfPreviewCache } from './pdfPreviewCache'
+import { previewPdfFile } from './previewPdf'
 import { sendWithConfirmation } from './documentSendConfirmation'
+import { requestApprovalPassword } from './approvalPassword'
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL
 const requestTarget = () => import.meta.env.DEV ? '/apps-script' : APPS_SCRIPT_URL
 
@@ -96,8 +98,11 @@ function documentRequest(payload) {
   return pendingReads.get(key)
 }
 
-async function sendDocumentRequest(payload, token) {
+async function sendDocumentRequest(payload, token, approvalAuthorized = false) {
   if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
+  if (!approvalAuthorized && ['updateDocumentStatus', 'createDocument', 'createExecutiveMemorandum', 'updateDocumentContent'].includes(payload.action) && ['Approved', 'Out'].includes(payload.status)) {
+    return requestApprovalPassword(password => sendDocumentRequest({ ...payload, approvalPassword: password }, token, true))
+  }
   let response
   try { response = await fetchAppsScript(requestTarget(), {
     method: 'POST',
@@ -171,6 +176,12 @@ async function requireRichBodySupport(form) {
 }
 
 const cachedPdfPreview = createPdfPreviewCache(preparePdfPreview)
+const cachedRenderedPreview = createPdfPreviewCache((id, _type, _session, input) => previewPdfFile(input.paper, id, input.signal))
+export function prepareRenderedDocumentPreview(paper, record, form, signal, refresh = false) {
+  if (refresh) cachedRenderedPreview.clear()
+  const revision = JSON.stringify([record.updated, record.status, record.approvedAt, form])
+  return cachedRenderedPreview(getSessionToken(), record.reference, record.type, revision, { paper, signal })
+}
 export function prepareDocumentPreview(id, type, revision, refresh = false) {
   if (refresh) cachedPdfPreview.clear()
   return cachedPdfPreview(getSessionToken(), id, type, revision)

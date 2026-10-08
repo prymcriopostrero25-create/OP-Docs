@@ -433,12 +433,22 @@ function deleteDocumentFiles(record, mainSheet, mainRow, bodyRichFileId, created
   }
 }
 
+function requireApprovalPassword(request) {
+  if (!['updateDocumentStatus', 'createDocument', 'createExecutiveMemorandum', 'updateDocumentContent'].includes(request.action) || !['Approved', 'Out'].includes(request.status)) return;
+  const expected = PropertiesService.getScriptProperties().getProperty('PRESIDENT_APPROVAL_PASSWORD') || 'JHCSC-president';
+  if (request.approvalPassword !== expected) throw new Error('Incorrect approval password. The e-signature was not attached.');
+  // Do not persist the submitted password in document metadata or recovery state.
+  delete request.approvalPassword;
+}
+
 function doPost(e) {
   requestAccounts = new Map();
   requestCredentialRows = undefined;
   let overviewMayChange = false;
   try {
     const request = JSON.parse(e.postData.contents || '{}');
+    try { requireApprovalPassword(request); }
+    catch (error) { return jsonResponse({ success: false, message: error.message }); }
     overviewMayChange = ['createDocument', 'createExecutiveMemorandum', 'uploadDocument', 'editDocument', 'deleteDocument', 'updateDocumentStatus', 'updateDocumentContent', 'sendDocument', 'documentSendStatus', 'prepareDocumentPreview'].includes(request.action);
     if (request.action === 'editorCapabilities') {
       if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
@@ -1413,7 +1423,7 @@ function validateRichBody(value) {
       });
     }
     if (['paragraph', 'heading'].includes(node.type)) {
-      clean.attrs = { textAlign: ['left', 'center', 'right', 'justify'].includes(attrs.textAlign) ? attrs.textAlign : 'left', indent: Math.max(0, Math.min(8, Number(attrs.indent) || 0)), lineSpacing: [1, 1.15, 1.5, 2].includes(Number(attrs.lineSpacing)) ? Number(attrs.lineSpacing) : 1.15 };
+      clean.attrs = { textAlign: ['left', 'center', 'right', 'justify'].includes(attrs.textAlign) ? attrs.textAlign : 'left', indent: Math.max(0, Math.min(8, Number(attrs.indent) || 0)), firstLineIndent: Math.max(0, Math.min(8, Number(attrs.firstLineIndent) || 0)), lineSpacing: [1, 1.15, 1.5, 2].includes(Number(attrs.lineSpacing)) ? Number(attrs.lineSpacing) : 1.15 };
       if (node.type === 'heading') clean.attrs.level = [1, 2, 3].includes(attrs.level) ? attrs.level : 1;
     }
     if (node.type === 'orderedList') clean.attrs = { start: Math.max(1, Math.min(9999, Number(attrs.start) || 1)) };
@@ -1454,7 +1464,7 @@ function renderRichBody(body, source) {
     const prefix = opts.prefix || '';
     const p = parent.appendParagraph(prefix + (node.content || []).map(child => child.type === 'hardBreak' ? '\n' : child.text).join(''));
     const size = node.type === 'heading' ? ({ 1: 24, 2: 18, 3: 14 }[attrs.level] || 24) : 12;
-    p.setAlignment(alignment[attrs.textAlign] || alignment.left).setIndentStart((attrs.indent || 0) * 24 + (opts.indent || 0)).setIndentFirstLine((attrs.indent || 0) * 24 + (opts.indent || 0))
+    p.setAlignment(alignment[attrs.textAlign] || alignment.left).setIndentStart((attrs.indent || 0) * 24 + (opts.indent || 0)).setIndentFirstLine(((attrs.indent || 0) + (attrs.firstLineIndent || 0)) * 24 + (opts.indent || 0))
       .setLineSpacing(attrs.lineSpacing || 1.15).setSpacingBefore(node.type === 'heading' ? 12 : 0).setSpacingAfter(6);
     p.setAttributes({ [A.FONT_FAMILY]: 'Arial', [A.FONT_SIZE]: size, [A.BOLD]: node.type === 'heading' || !!opts.header, [A.ITALIC]: !!opts.quote, [A.UNDERLINE]: false, [A.STRIKETHROUGH]: false, [A.FOREGROUND_COLOR]: '#202820' });
     const text = p.editAsText();

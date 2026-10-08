@@ -59,3 +59,20 @@ test('bundled backend signature matches public/esign.png', () => {
   const bundled = vm.runInContext('PRESIDENT_SIGNATURE_PNG', f.ctx)
   assert.deepEqual(Buffer.from(bundled, 'base64'), fs.readFileSync(new URL('../public/esign.png', import.meta.url)))
 })
+
+test('signature authorization rejects missing or incorrect passwords and removes valid credentials', () => {
+  const f = fixture()
+  f.ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null }) }
+  for (const status of ['Approved', 'Out']) {
+    for (const approvalPassword of [undefined, '', 'incorrect']) {
+      assert.throws(() => f.ctx.requireApprovalPassword({ action: 'updateDocumentStatus', status, approvalPassword }), /Incorrect approval password/)
+    }
+    const request = { action: 'createDocument', status, approvalPassword: 'JHCSC-president' }
+    f.ctx.requireApprovalPassword(request)
+    assert.equal('approvalPassword' in request, false)
+  }
+  assert.doesNotThrow(() => f.ctx.requireApprovalPassword({ action: 'updateDocumentStatus', status: 'Draft' }))
+  f.ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'custom-password' }) }
+  assert.throws(() => f.ctx.requireApprovalPassword({ action: 'updateDocumentStatus', status: 'Approved', approvalPassword: 'JHCSC-president' }), /Incorrect approval password/)
+  assert.doesNotThrow(() => f.ctx.requireApprovalPassword({ action: 'updateDocumentStatus', status: 'Approved', approvalPassword: 'custom-password' }))
+})

@@ -4,7 +4,7 @@ import './RichTextEditor.css'
 function renderNode(node, key) {
   const attrs = node.attrs || {}
   const children = (node.content || []).map((child, index) => renderNode(child, index))
-  const style = { textAlign: attrs.textAlign || undefined, lineHeight: attrs.lineSpacing || undefined, marginLeft: attrs.indent ? `${attrs.indent * 24}pt` : undefined }
+  const style = { textAlign: attrs.textAlign || undefined, lineHeight: attrs.lineSpacing || undefined, marginLeft: attrs.indent ? `${attrs.indent * 24}pt` : undefined, textIndent: attrs.firstLineIndent ? `${attrs.firstLineIndent * 24}pt` : undefined }
   switch (node.type) {
     case 'text': return <span key={key}>{(node.marks || []).reduce((value, mark, index) => {
       const properties = mark.attrs || {}

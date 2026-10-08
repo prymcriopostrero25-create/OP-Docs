@@ -1,6 +1,5 @@
 import { lockBodyScroll } from '../../lib/scrollLock'
 import { preparedPdfFile } from '../../lib/pdfFile'
-import { previewPdfFile } from '../../lib/previewPdf'
 import LoadingModal from '../../components/LoadingModal'
 import { DocumentContext } from '../../lib/documentContext'
 import { filterRecords, recordsCsv, downloadFile } from '../../lib/recordTools'
@@ -9,7 +8,7 @@ import DocumentPage from '../../components/DocumentPage'
 import DocumentPages from '../../components/DocumentPages'
 import PaginatedDocumentPreview from '../../components/PaginatedDocumentPreview'
 import CreateDocument from '../../components/CreateDocument'
-import { prepareDocumentPreview, documentPage, documentDetails, updateDocumentContent } from '../../lib/appsScriptApi'
+import { prepareDocumentPreview, prepareRenderedDocumentPreview, documentPage, documentDetails, updateDocumentContent } from '../../lib/appsScriptApi'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 
@@ -119,6 +118,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     if (!preview || !pageContent) return
     let cancelled = false
     let objectUrl
+    const controller = new AbortController()
     let attempt = 0
     const refresh = refreshPreview.current
     refreshPreview.current = false
@@ -128,7 +128,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
       setPdfError('')
       try {
         const file = pageContent.form
-          ? await previewPdfFile(previewPaper.current?.querySelector('article'), preview.reference)
+          ? await prepareRenderedDocumentPreview(previewPaper.current?.querySelector('article'), preview, pageContent.form, controller.signal, refresh)
           : preparedPdfFile({ ...await prepareDocumentPreview(preview.reference, preview.type, preview.updated, refresh), name: preview.reference.replace(/\.pdf$/i, '') + '.pdf' })
         if (cancelled || currentAttempt !== attempt) return
         if (objectUrl) URL.revokeObjectURL(objectUrl)
@@ -144,6 +144,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     void prepare()
     return () => {
       cancelled = true
+      controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [preview, pageContent])

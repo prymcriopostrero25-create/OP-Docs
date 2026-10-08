@@ -30,8 +30,8 @@ const ParagraphLayout = Extension.create({
       }
       const type = this.editor.isActive('heading') ? 'heading' : 'paragraph'
       if (!this.editor.isActive(type)) return false
-      const current = this.editor.getAttributes(type).indent || 0
-      this.editor.commands.updateAttributes(type, { indent: Math.min(8, Math.max(0, current + amount)) })
+      const current = this.editor.getAttributes(type).firstLineIndent || 0
+      this.editor.commands.updateAttributes(type, { firstLineIndent: Math.min(8, Math.max(0, current + amount)) })
       return true
     }
     return {
@@ -43,6 +43,7 @@ const ParagraphLayout = Extension.create({
   },
   addGlobalAttributes: () => [{ types: ['doc'], attributes: { marginLeft: { default: 0.75 }, marginRight: { default: 0.75 } } }, { types: ['paragraph', 'heading'], attributes: {
     indent: { default: 0, parseHTML: element => Math.min(8, Math.max(0, parseFloat(element.style.marginLeft) / 32 || 0)), renderHTML: attrs => ({ style: `margin-left:${attrs.indent * 24}pt` }) },
+    firstLineIndent: { default: 0, parseHTML: element => Math.min(8, Math.max(0, parseFloat(element.style.textIndent) / (element.style.textIndent.endsWith('pt') ? 24 : 32) || 0)), renderHTML: attrs => ({ style: `text-indent:${attrs.firstLineIndent * 24}pt` }) },
     lineSpacing: { default: 1.15, parseHTML: element => parseFloat(element.style.lineHeight) || 1.15, renderHTML: attrs => ({ style: `line-height:${attrs.lineSpacing}` }) },
   } }],
 })
@@ -131,7 +132,7 @@ export default function RichTextEditor({ value, plainText, onChange, disabled, e
         {button('Clear color', () => run(chain => chain.unsetColor()))}
         <label>Highlight<input type="color" defaultValue="#fff3a3" disabled={disabled} onChange={event => run(chain => chain.setHighlight({ color: event.target.value }))} /></label>
         {button('Clear highlight', () => run(chain => chain.unsetHighlight()))}
-        {button('Clear formatting', () => run(chain => chain.unsetAllMarks().clearNodes().resetAttributes('paragraph', ['indent', 'lineSpacing', 'textAlign'])))}
+        {button('Clear formatting', () => run(chain => chain.unsetAllMarks().clearNodes().resetAttributes('paragraph', ['indent', 'firstLineIndent', 'lineSpacing', 'textAlign'])))}
         <label>Font<select value={state.font} disabled={disabled} onChange={event => run(chain => chain.setFontFamily(event.target.value))}>{['Arial', 'Times New Roman', 'Calibri', 'Georgia', 'Verdana'].map(font => <option key={font}>{font}</option>)}</select></label>
         <label>Size<select value={state.size} disabled={disabled} onChange={event => run(chain => chain.setFontSize(event.target.value))}>{[8, 9, 10, 11, 12, 14, 16, 18, 24, 30, 36].map(size => <option key={size} value={`${size}pt`}>{size}</option>)}</select></label>
         <label>Line spacing<select value={state.spacing} disabled={disabled} onChange={event => layout('lineSpacing', Number(event.target.value))}>{[1, 1.15, 1.5, 2].map(spacing => <option key={spacing}>{spacing}</option>)}</select></label>
