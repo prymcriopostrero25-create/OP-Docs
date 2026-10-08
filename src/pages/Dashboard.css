@@ -631,3 +631,15 @@
 .html-preview-page-slot { position: relative; flex-shrink: 0; }
 .html-preview-page { position: relative; overflow: hidden; transform-origin: top left; background: white; color: #202820; box-shadow: 0 8px 30px #0005; }
 .document-preview-source article { width: 794px; max-width: 794px; }
+.upload-queue { display:grid; gap:12px; margin-top:16px; }
+.upload-queue-item { padding:12px 14px; border:1px solid #e9e1e3; border-radius:9px; background:#fcfbfa; }
+.upload-queue-copy { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:9px; font-size:12px; }
+.upload-queue-copy strong { min-width:0; overflow-wrap:anywhere; color:#554147; }
+.upload-queue-copy span { flex-shrink:0; color:#827579; }
+.upload-progress { height:7px; overflow:hidden; border-radius:8px; background:#eee7e9; }
+.upload-progress > div { height:100%; border-radius:inherit; background:#7b1023; transition:width .4s ease; }
+.upload-queue-item.is-complete .upload-progress > div { background:#2c8054; }
+.upload-queue-item.is-failed { border-color:#d79891; }
+.upload-progress-note { margin:0; color:#827579; font-size:12px; line-height:1.5; }
+@media(prefers-reduced-motion:reduce) { .upload-progress > div { transition:none; } }
+@media(max-width:540px) { .upload-queue-copy { flex-direction:column; align-items:flex-start; gap:5px; } }
