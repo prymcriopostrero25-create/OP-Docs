@@ -103,15 +103,21 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
     let cancelled = false
     documentPage(preview.reference, preview.type, JSON.stringify([preview.updated, preview.status, preview.approvedAt]), refreshPreview.current).then(async result => {
       if (cancelled) return
-      if (result.form) {
-        const code = await verificationLink(preview.reference)
-        const { qr } = await generateDocumentQr(code, new URL(window.location.pathname, window.location.origin).href)
-        result = { ...result, verificationQr: qr }
-      }
-      if (cancelled) return
+      // Display the document before waiting for its verification service.
       setPageContent({ ...result, type: result.type || preview.type })
       if (result.form) setPreviewLoading(false)
       if (result.deploymentRequired) setPreviewError('Page preview needs the latest Apps Script deployment. Showing the registered PDF when ready. Update the existing web app to a new version, then retry.')
+      if (result.form) {
+        try {
+          const code = await verificationLink(preview.reference)
+          if (cancelled) return
+          const { qr } = await generateDocumentQr(code, new URL(window.location.pathname, window.location.origin).href)
+          if (cancelled) return
+          setPageContent({ ...result, type: result.type || preview.type, verificationQr: qr })
+        } catch (failure) {
+          if (!cancelled) setPdfError('Unable to prepare document verification. ' + failure.message)
+        }
+      }
     }).catch(failure => {
       if (!cancelled) { setPageContent({ form: null }); setPreviewError('Unable to load the page. ' + failure.message + ' The registered PDF will display when ready.'); setPreviewLoading(false) }
     })
@@ -124,6 +130,8 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
 
   useEffect(() => {
     if (!preview || !pageContent) return
+    // Downloads and email attachments must include the verification QR.
+    if (pageContent.form && !pageContent.verificationQr) return
     let cancelled = false
     let objectUrl
     const controller = new AbortController()
@@ -227,7 +235,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
         <header className="official-preview-header"><div className="official-preview-heading"><h2 id="pdf-preview-title">OFFICIAL PREVIEW</h2><p className="preview-reference">{preview.reference}</p></div>
         <div className="preview-actions official-preview-actions">
           {pageContent?.form && <button type="button" className="preview-save" disabled={!permissions.changeStatus || preview.status === 'Out' || saving} title={preview.status === 'Out' ? 'OUT documents are locked' : !permissions.changeStatus ? 'Admin access required' : 'Adjust document details'} onClick={() => { setEditing({ record: preview, form: pageContent.form }); closePreview() }}><ActionIcon kind="edit" />Edit</button>}
-          <span className="pdf-preparation-status" role="status">{pdfError ? 'PDF preparation failed' : preparedPreview ? 'PDF ready' : !pageContent ? 'Loading preview...' : 'Preparing PDF in the background...'}</span>
+          <span className="pdf-preparation-status" role="status">{pdfError ? 'PDF preparation failed' : preparedPreview ? 'PDF ready' : !pageContent ? 'Loading preview...' : pageContent.form && !pageContent.verificationQr ? 'Preparing document verification...' : 'Preparing PDF in the background...'}</span>
           <button type="button" className="preview-send" disabled={!preparedPreview || !permissions.changeStatus || !['Approved', 'Out'].includes(preview.status)} title={!permissions.changeStatus ? 'Admin access required' : !['Approved', 'Out'].includes(preview.status) ? 'Approve this document before sending' : 'Send PDF by email'} onClick={() => setEmailRecord({ ...preview, previewPdf: preparedPreview.file })}><PreviewActionIcon kind="send" />Send</button>
           {preparedPreview ? <a className="preview-save" href={preparedPreview.url} download={preparedPreview.file.name}><PreviewActionIcon kind="save" />Save as PDF</a> : <button type="button" className="preview-save" disabled><PreviewActionIcon kind="save" />Save as PDF</button>}
           <button type="button" className="preview-close" aria-label="Close preview" title="Close preview" autoFocus onClick={closePreview}><PreviewActionIcon kind="close" /></button>
