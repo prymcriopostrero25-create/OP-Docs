@@ -367,3 +367,5 @@ input:focus { border-color: var(--green-500); background: #fff; box-shadow: 0 0 
   .wordmark-logo { flex-shrink: 0; }
   .portal-footer nav a { display: inline-flex; align-items: center; min-height: 44px; }
 }
+
+.verify-login-button { display: block; margin-top: 16px; padding: 12px; text-align: center; border: 1px solid #356442; border-radius: 8px; color: #356442; font-weight: 600; text-decoration: none; }

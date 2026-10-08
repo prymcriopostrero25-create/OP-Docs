@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Login from './pages/login'
 import Dashboard from './pages/Dashboard'
-import VerifyPage from './pages/VerifyPage'
+import VerifyScanner from './pages/VerifyScanner'
 import { logoutUser, currentUser } from './lib/appsScriptApi'
 
 export default function App() {
@@ -59,7 +59,7 @@ export default function App() {
     })
   }
 
-  if (verificationCode) return <VerifyPage code={verificationCode} />
+  if (new URLSearchParams(window.location.search).has('verify')) return <VerifyScanner code={verificationCode} />
 
   return user
     ? <Dashboard key={user.token} user={user} onLogout={handleLogout} />

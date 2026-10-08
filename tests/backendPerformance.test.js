@@ -45,6 +45,29 @@ test('document list cache skips repeat sheet scans, refreshes, and invalidates a
   assert.equal(reads, 4)
 })
 
+test('separate authenticated users see shared registry changes and expired sessions are rejected', () => {
+  const cache = new Map()
+  const context = vm.createContext({ CacheService: { getScriptCache: () => ({
+    get: key => cache.get(key), put: (key, value) => cache.set(key, value), remove: key => cache.delete(key),
+  }) } })
+  vm.runInContext(source, context)
+  context.jsonResponse = value => value
+  context.getDocumentSession = token => ['user-a', 'user-b'].includes(token)
+  let status = 'Draft'
+  let reads = 0
+  context.registeredDocuments = () => { reads++; return [{ id: 'shared-doc', status }] }
+  context.updateDocumentStatus = () => { status = 'For Review'; return { success: true } }
+  const post = payload => context.doPost({ postData: { contents: JSON.stringify(payload) } })
+  assert.equal(post({ action: 'documents', token: 'user-a' }).documents[0].status, 'Draft')
+  assert.equal(post({ action: 'documents', token: 'user-b' }).documents[0].status, 'Draft')
+  assert.equal(reads, 1)
+  post({ action: 'updateDocumentStatus', token: 'user-a', id: 'shared-doc', status: 'For Review' })
+  assert.equal(post({ action: 'documents', token: 'user-b' }).documents[0].status, 'For Review')
+  assert.equal(reads, 2)
+  assert.equal(post({ action: 'documents', token: 'expired' }).success, false)
+  assert.equal(reads, 2)
+})
+
 test('unsigned status changes reuse the created row and never open Drive or Docs', () => {
   const context = vm.createContext({
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },

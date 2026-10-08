@@ -186,7 +186,7 @@ const cachedPdfPreview = createPdfPreviewCache(preparePdfPreview)
 const cachedRenderedPreview = createPdfPreviewCache((id, _type, _session, input) => previewPdfFile(input.paper, id, input.signal))
 export function prepareRenderedDocumentPreview(paper, record, form, signal, refresh = false) {
   if (refresh) cachedRenderedPreview.clear()
-  const revision = JSON.stringify([record.updated, record.status, record.approvedAt, form])
+  const revision = JSON.stringify([record.updated, record.status, record.approvedAt, form, paper?.textContent, paper?.querySelector('img[alt="Verify this document"]')?.getAttribute('src')])
   return cachedRenderedPreview(getSessionToken(), record.reference, record.type, revision, { paper, signal })
 }
 export function prepareDocumentPreview(id, type, revision, refresh = false) {

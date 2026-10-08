@@ -195,7 +195,7 @@ test('memo and special order share the horizontal letterhead and aligned layout'
     assert.equal(body.tables[0].cells[0][1].text, 'Series of 2026')
     assert.equal(body.tables[1].cells[0][0].text, 'TO:')
     assert.equal(body.tables[1].cells[1][1].text, 'Director')
-    assert.equal(body.tables[1].cells[3][1].text, 'SEPTEMBER 9, 2026')
+    assert.equal(body.tables[1].cells[3][1].text, '09 SEPTEMBER 2026')
     assert.deepEqual(body.paragraphs.find(p => p.text === sample.signatory).called_setIndentStart, [(595.28 - 52 * 2) * 266 / 508])
     assert.ok(body.paragraphs.some(p => p.text === sample.body.split('\n')[0]))
     assert.equal(saved, true)

@@ -29,6 +29,7 @@ export default defineConfig(({ mode }) => {
         'react',
         'react-dom/client',
         'qrcode',
+        'jsqr',
         'pdf-lib',
         'pdfjs-dist',
         '@tiptap/react',

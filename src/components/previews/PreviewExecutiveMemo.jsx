@@ -8,7 +8,8 @@ function displayDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return value || ''
   const date = new Date(`${value}T00:00:00Z`)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  const month = date.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' }).toUpperCase()
+  return `${value.slice(8, 10)} ${month} ${value.slice(0, 4)}`
 }
 
 export default function PreviewExecutiveMemo({ form, reference }) {

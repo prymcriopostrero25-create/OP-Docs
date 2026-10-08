@@ -1,5 +1,7 @@
 import { lockBodyScroll } from '../../lib/scrollLock'
 import { preparedPdfFile } from '../../lib/pdfFile'
+import { generateDocumentQr } from '../../lib/documentQrGenerator'
+import { DocumentQrContext } from '../../lib/documentQrContext'
 import LoadingModal from '../../components/LoadingModal'
 import { DocumentContext } from '../../lib/documentContext'
 import { filterRecords, recordsCsv, downloadFile } from '../../lib/recordTools'
@@ -8,7 +10,7 @@ import DocumentPage from '../../components/DocumentPage'
 import DocumentPages from '../../components/DocumentPages'
 import PaginatedDocumentPreview from '../../components/PaginatedDocumentPreview'
 import CreateDocument from '../../components/CreateDocument'
-import { prepareDocumentPreview, prepareRenderedDocumentPreview, documentPage, documentDetails, updateDocumentContent } from '../../lib/appsScriptApi'
+import { prepareDocumentPreview, prepareRenderedDocumentPreview, documentPage, documentDetails, updateDocumentContent, verificationLink } from '../../lib/appsScriptApi'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 
@@ -99,7 +101,13 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
 
     previewDialog.current.showModal()
     let cancelled = false
-    documentPage(preview.reference, preview.type, JSON.stringify([preview.updated, preview.status, preview.approvedAt]), refreshPreview.current).then(result => {
+    documentPage(preview.reference, preview.type, JSON.stringify([preview.updated, preview.status, preview.approvedAt]), refreshPreview.current).then(async result => {
+      if (cancelled) return
+      if (result.form) {
+        const code = await verificationLink(preview.reference)
+        const { qr } = await generateDocumentQr(code, new URL(window.location.pathname, window.location.origin).href)
+        result = { ...result, verificationQr: qr }
+      }
       if (cancelled) return
       setPageContent({ ...result, type: result.type || preview.type })
       if (result.form) setPreviewLoading(false)
@@ -220,14 +228,14 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
         <div className="preview-actions official-preview-actions">
           {pageContent?.form && <button type="button" className="preview-save" disabled={!permissions.changeStatus || preview.status === 'Out' || saving} title={preview.status === 'Out' ? 'OUT documents are locked' : !permissions.changeStatus ? 'Admin access required' : 'Adjust document details'} onClick={() => { setEditing({ record: preview, form: pageContent.form }); closePreview() }}><ActionIcon kind="edit" />Edit</button>}
           <span className="pdf-preparation-status" role="status">{pdfError ? 'PDF preparation failed' : preparedPreview ? 'PDF ready' : !pageContent ? 'Loading preview...' : 'Preparing PDF in the background...'}</span>
-          <button type="button" className="preview-send" disabled={!preparedPreview || !permissions.changeStatus || !['Approved', 'Out'].includes(preview.status)} title={!permissions.changeStatus ? 'Admin access required' : !['Approved', 'Out'].includes(preview.status) ? 'Approve this document before sending' : 'Send PDF by email'} onClick={() => setEmailRecord({ ...preview, previewPdf: pageContent?.form ? preparedPreview.file : null })}><PreviewActionIcon kind="send" />Send</button>
+          <button type="button" className="preview-send" disabled={!preparedPreview || !permissions.changeStatus || !['Approved', 'Out'].includes(preview.status)} title={!permissions.changeStatus ? 'Admin access required' : !['Approved', 'Out'].includes(preview.status) ? 'Approve this document before sending' : 'Send PDF by email'} onClick={() => setEmailRecord({ ...preview, previewPdf: preparedPreview.file })}><PreviewActionIcon kind="send" />Send</button>
           {preparedPreview ? <a className="preview-save" href={preparedPreview.url} download={preparedPreview.file.name}><PreviewActionIcon kind="save" />Save as PDF</a> : <button type="button" className="preview-save" disabled><PreviewActionIcon kind="save" />Save as PDF</button>}
           <button type="button" className="preview-close" aria-label="Close preview" title="Close preview" autoFocus onClick={closePreview}><PreviewActionIcon kind="close" /></button>
         </div>
         </header>
         <div ref={previewPaper} className="preview-frame-wrap">
           {previewLoading && !pdfError && <div className="preview-loading" role="status"><span className="preview-spinner" aria-hidden="true" /><span>Loading document preview...</span></div>}
-          {pageContent?.form && <div className="document-preview-source" aria-hidden="true"><DocumentPage form={{ ...pageContent.form, status: preview.status, approvedAt: preview.approvedAt || pageContent.form.approvedAt }} type={pageContent.type} reference={preview.reference} /></div>}
+          {pageContent?.form && <div className="document-preview-source" aria-hidden="true"><DocumentQrContext.Provider value={pageContent.verificationQr}><DocumentPage form={{ ...pageContent.form, status: preview.status, approvedAt: preview.approvedAt || pageContent.form.approvedAt }} type={pageContent.type} reference={preview.reference} /></DocumentQrContext.Provider></div>}
           {pageContent?.form && <PaginatedDocumentPreview source={previewPaper} revision={pageContent} onError={failure => setPreviewError('Unable to paginate the preview. ' + failure.message)} />}
           {!pageContent?.form && preparedPreview && <DocumentPages file={preparedPreview.file} onReady={() => setPreviewLoading(false)} onError={() => { setPreviewLoading(false); setPreviewError('Unable to display the document. You can still save it using Save as PDF.') }} />}
         </div>

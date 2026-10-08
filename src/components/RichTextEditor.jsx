@@ -11,10 +11,70 @@ import { TableKit } from '@tiptap/extension-table'
 import { plainBodyDocument, richBodyText, safeBodyLink } from '../lib/richBody'
 import './RichTextEditor.css'
 
+const toolbarIcons = {
+  Undo: 'M9 5 4 10l5 5M4 10h10a6 6 0 0 1 6 6',
+  Redo: 'm15 5 5 5-5 5M20 10H10a6 6 0 0 0-6 6',
+  'Page break': 'M6 9V3h12v6M6 15v6h12v-6M3 12h3m3 0h3m3 0h3m3 0h1',
+  'Insert image': 'M3 3h18v18H3ZM3 17l6-6 4 4 3-3 5 5M7 7h.01',
+  'Insert table': 'M3 3h18v18H3ZM3 9h18M3 15h18M9 3v18M15 3v18',
+  Bold: 'M6 4h7a4 4 0 0 1 0 8H6Zm0 8h8a4 4 0 0 1 0 8H6Z',
+  Italic: 'M10 4h10M4 20h10M15 4 9 20',
+  Underline: 'M6 3v8a6 6 0 0 0 12 0V3M4 21h16',
+  Strikethrough: 'M18 5c-2-3-11-3-11 2 0 3 4 4 5 5s5 2 5 5c0 5-9 5-12 2M3 12h18',
+  Link: 'm10 13 4-4M9 15l-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0M15 9l2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0',
+  Unlink: 'm8 16-1 1a4 4 0 0 1-6-6l3-3M16 8l1-1a4 4 0 0 1 6 6l-3 3M3 3l18 18',
+  Left: 'M3 4h18M3 9h12M3 14h18M3 19h12',
+  Center: 'M3 4h18M6 9h12M3 14h18M6 19h12',
+  Right: 'M3 4h18M9 9h12M3 14h18M9 19h12',
+  Justify: 'M3 4h18M3 9h18M3 14h18M3 19h18',
+  Bullets: 'M3 5h.01M3 12h.01M3 19h.01M8 5h13M8 12h13M8 19h13',
+  Numbered: 'M2 3h2v6M2 9h4M2 14c0-3 4-3 4 0l-4 5h4M9 5h12M9 12h12M9 19h12',
+  'Decrease indent': 'M3 4h18M10 9h11M10 14h11M3 19h18m3-10-3 3 3 3',
+  'Increase indent': 'M3 4h18M10 9h11M10 14h11M3 19h18m0-10 3 3-3 3',
+  Paragraph: 'M12 4H9a4 4 0 0 0 0 8h3M12 4v16M17 4v16M9 4h11',
+  H1: 'M3 5v14M12 5v14M3 12h9m5-1 3-2v10',
+  H2: 'M3 5v14M12 5v14M3 12h9m4 0c0-4 6-4 6 0l-6 7h6',
+  H3: 'M3 5v14M12 5v14M3 12h9m4-3h5l-3 4c5 0 5 6 0 6h-2',
+  Quote: 'M4 6h6v7H4ZM4 13v5l6-5M14 6h6v7h-6ZM14 13v5l6-5',
+  'Horizontal line': 'M3 12h18',
+  'Clear color': 'm4 17 6-13 6 13M6 12h8M3 21h12m3-4 4 4m0-4-4 4',
+  'Clear highlight': 'm5 14 8-8 5 5-8 8ZM13 6l3-3 5 5-3 3M3 21h8m5-4 5 5m0-5-5 5',
+  'Clear formatting': 'M3 4h14M10 4 6 17m6-1 5-5 5 5-5 5h-2Zm5 5h5',
+  'Auto height': 'M4 4h16M4 20h16M12 7v10m-3-7 3-3 3 3m-6 4 3 3 3-3',
+  'Add row': 'M3 3h18v12H3ZM3 9h18M12 17v6M9 20h6',
+  'Add column': 'M3 3h12v18H3ZM9 3v18M17 12h6M20 9v6',
+  'Delete row': 'M3 3h18v12H3ZM3 9h18M9 20h6',
+  'Delete column': 'M3 3h12v18H3ZM9 3v18M17 12h6',
+  'Delete table': 'M3 3h18v18H3ZM3 9h18M9 3v18m5-4 5 5m0-5-5 5',
+}
+
+function ToolbarIcon({ label }) {
+  return <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={toolbarIcons[label]} /></svg>
+}
+
 const PageBreak = Node.create({
   name: 'pageBreak', group: 'block', atom: true,
   parseHTML: () => [{ tag: 'div[data-page-break]' }],
   renderHTML: () => ['div', { 'data-page-break': 'true', class: 'rich-page-break' }],
+})
+const IndentBackspace = Extension.create({
+  name: 'indentBackspace',
+  // Remove paragraph indentation before StarterKit joins or deletes blocks.
+  priority: 110,
+  addKeyboardShortcuts() {
+    return {
+      Backspace: () => {
+        if (!this.editor.isEditable) return false
+        const { selection } = this.editor.state
+        if (!selection.empty || !selection.$cursor || selection.$cursor.parentOffset !== 0) return false
+        const node = selection.$cursor.parent
+        if (!['paragraph', 'heading'].includes(node.type.name)) return false
+        const amount = node.attrs.firstLineIndent || 0
+        if (amount <= 0) return false
+        return this.editor.commands.updateAttributes(node.type.name, { firstLineIndent: Math.max(0, amount - 1) })
+      },
+    }
+  },
 })
 const ParagraphLayout = Extension.create({
   name: 'paragraphLayout',
@@ -47,7 +107,7 @@ const ParagraphLayout = Extension.create({
     lineSpacing: { default: 1.15, parseHTML: element => parseFloat(element.style.lineHeight) || 1.15, renderHTML: attrs => ({ style: `line-height:${attrs.lineSpacing}` }) },
   } }],
 })
-const extensions = [StarterKit.configure({ heading: { levels: [1, 2, 3] }, codeBlock: false, code: false, link: { openOnClick: false, protocols: ['http', 'https', 'mailto'] } }), TextStyle, Color, FontFamily, FontSize, TextAlign.configure({ types: ['heading', 'paragraph'] }), Highlight.configure({ multicolor: true }), Image.configure({ allowBase64: true }), TableKit.configure({ table: { resizable: true, cellMinWidth: 40 } }), PageBreak, ParagraphLayout, TableRowResize]
+const extensions = [StarterKit.configure({ heading: { levels: [1, 2, 3] }, codeBlock: false, code: false, link: { openOnClick: false, protocols: ['http', 'https', 'mailto'] } }), TextStyle, Color, FontFamily, FontSize, TextAlign.configure({ types: ['heading', 'paragraph'] }), Highlight.configure({ multicolor: true }), Image.configure({ allowBase64: true }), TableKit.configure({ table: { resizable: true, cellMinWidth: 40 } }), PageBreak, ParagraphLayout, IndentBackspace, TableRowResize]
 
 export default function RichTextEditor({ value, plainText, onChange, disabled, error }) {
   const upload = useRef(null)
@@ -82,7 +142,7 @@ export default function RichTextEditor({ value, plainText, onChange, disabled, e
   } : null })
   if (!editor || !state) return null
   const run = callback => callback(editor.chain().focus()).run()
-  const button = (label, action, active, unavailable = false) => <button key={label} type="button" disabled={disabled || unavailable} aria-pressed={active} onMouseDown={event => event.preventDefault()} onClick={action}>{label}</button>
+  const button = (label, action, active, unavailable = false) => <button key={label} type="button" className={toolbarIcons[label] ? 'rich-icon-button' : undefined} title={label} aria-label={label} disabled={disabled || unavailable} aria-pressed={active} onMouseDown={event => event.preventDefault()} onClick={action}>{toolbarIcons[label] ? <ToolbarIcon label={label} /> : label}</button>
   function layout(name, value) { run(chain => chain.updateAttributes('paragraph', { [name]: value }).updateAttributes('heading', { [name]: value })) }
   function indent(amount) {
     if (editor.isActive('listItem')) { run(chain => amount > 0 ? chain.sinkListItem('listItem') : chain.liftListItem('listItem')); return }
@@ -104,8 +164,8 @@ export default function RichTextEditor({ value, plainText, onChange, disabled, e
   return <div className="rich-editor" aria-invalid={!!error}>
     <div className="rich-toolbar" role="toolbar" aria-label="Body formatting">
       <div className="rich-tool-group">
-        {button('↶ Undo', () => run(chain => chain.undo()), undefined, !state.undo)}
-        {button('↷ Redo', () => run(chain => chain.redo()), undefined, !state.redo)}
+        {button('Undo', () => run(chain => chain.undo()), undefined, !state.undo)}
+        {button('Redo', () => run(chain => chain.redo()), undefined, !state.redo)}
         {button('Page break', () => run(chain => chain.insertContent({ type: 'pageBreak' })))}
         {button('Insert image', () => upload.current.click())}
         {button('Insert table', () => setTableOpen(value => !value), tableOpen, state.table)}

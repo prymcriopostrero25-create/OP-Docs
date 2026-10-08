@@ -131,6 +131,7 @@ export default function Login({ onLogin }) {
                 {status !== 'loading' && <span className="button-arrow" aria-hidden="true">→</span>}
               </button>
             </form>
+            <a className="verify-login-button" href="?verify=">Verify a document</a>
 
             <p className="support-note">
               Sign in with your authorized institutional account.

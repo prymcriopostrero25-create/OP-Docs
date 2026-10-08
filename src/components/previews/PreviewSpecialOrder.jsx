@@ -3,11 +3,19 @@ import PreviewFooter from './PreviewFooter'
 import RichBodyPreview from '../RichBodyPreview'
 import { Fragment } from 'react'
 
+function formatOrderDate(value) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const date = new Date(`${value}T00:00:00Z`)
+  if (Number.isNaN(date.getTime())) return value
+  const month = date.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' }).toUpperCase()
+  return `${value.slice(8, 10)} ${month} ${value.slice(0, 4)}`
+}
+
 // Edit the on-screen special order layout and Tailwind classes here.
 // Save as PDF captures this layout. The saved Google Doc uses Apps Script.
 export default function PreviewSpecialOrder({ form, reference }) {
   const recipient = form.recipients?.length ? form.recipients.map(item => [item.name, item.position, item.institution].filter(Boolean).join('\n')).join('\n\n') : [form.recipientName || form.recipient, form.recipientPosition, form.institution, form.additionalInstitution].filter(Boolean).join('\n')
-  const fields = [[form.recipientLabel || 'For', recipient], ['Thru', form.thru], ['Subject', form.subject], ['Date', form.date]]
+  const fields = [[form.recipientLabel || 'For', recipient], ['Thru', form.thru], ['Subject', form.subject], ['Date', formatOrderDate(form.date)]]
   const fullReference = form.reference || reference || 'Special Order'
   const title = fullReference.replace(/,?\s*s\.\s*\d{4}\s*$/i, '')
   const year = form.year || form.date?.slice(0, 4) || fullReference.match(/s\.\s*(\d{4})\s*$/i)?.[1]

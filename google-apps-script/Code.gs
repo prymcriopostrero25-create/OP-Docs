@@ -1141,7 +1141,9 @@ function renderExecutiveMemorandum(doc, data, logo, heading) {
   const recipient = data.recipients && data.recipients.length ? data.recipients.map(item => [item.name, item.position, item.institution].filter(Boolean).join('\n')).join('\n\n') : [data.recipientName || data.recipient, data.recipientPosition, data.institution, data.additionalInstitution].filter(Boolean).join('\n');
   const details = [[(data.recipientLabel || 'For').toUpperCase() + ':', recipient]];
   if (data.thru) details.push(['THRU:', data.thru]);
-  details.push(['SUBJECT:', String(data.subject || '').toUpperCase()], ['DATE:', executiveMemoDate(data.date).toUpperCase()]);
+  const orderDateParts = String(data.date || '').split('-');
+  const orderMonth = executiveMemoDate(data.date).split(' ')[0].toUpperCase();
+  details.push(['SUBJECT:', String(data.subject || '').toUpperCase()], ['DATE:', orderDateParts[2] + ' ' + orderMonth + ' ' + orderDateParts[0]]);
   const info = body.appendTable(details);
   info.setBorderWidth(0).setColumnWidth(0, contentWidth * 140 / 508).setColumnWidth(1, contentWidth * 368 / 508);
   for (let row = 0; row < details.length; row++) {
@@ -2028,13 +2030,19 @@ function verifyRegisteredDocument(code) {
     const created = createdRegistryEntries().find(entry => entry.metadata.verificationCode === code);
     if (!created) throw new Error('No registered document matches this code.');
     const record = created.record;
-    return jsonResponse({ success: true, document: { id: record.id, type: record.type, date: record.date, status: record.status } });
+    return jsonResponse({ success: true, document: publicVerificationRecord(record) });
   }
   const row = sheet.getRange(index + 2, 1, 1, 5).getDisplayValues()[0];
   const record = documentFromRow(row, notes[index][0]);
   if (record.deleted) throw new Error('This record is no longer available.');
-  // Public verification reveals registry facts, never the Drive URL or full body.
-  return jsonResponse({ success: true, document: { id: record.id, type: record.type, date: record.date, status: record.status } });
+  return jsonResponse({ success: true, document: publicVerificationRecord(record) });
+}
+
+function publicVerificationRecord(record) {
+  const match = /^https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)\/(view|preview)$/.exec(record.url || '');
+  // Drive enforces the registered file's existing access permissions.
+  return { id: record.id, type: record.type, date: record.date, status: record.status,
+    ...(match ? { previewUrl: 'https://drive.google.com/file/d/' + match[1] + '/preview' } : {}) };
 }
 
 function updateDocumentContent(request) {
@@ -2098,14 +2106,13 @@ function prepareEmailAttachment(request) {
   } catch (error) { return jsonResponse({ success: false, message: error.message }); }
 }
 
-// An authenticated admin may email the exact PDF rendered from the saved form.
+// An authenticated admin may email the preview PDF, including its registry QR.
 // Bind it to the current registered revision and enforce the attachment limit.
 function previewPdfHash(preview) {
   if (!preview || typeof preview.data !== 'string' || !preview.data.length || preview.data.length > Math.ceil(20 * 1024 * 1024 / 3) * 4 || !/^[A-Za-z0-9+/=]+$/.test(preview.data)) throw new Error('Invalid or oversized preview PDF.');
   return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, preview.data));
 }
 function previewEmailPdf(preview, entry) {
-  if (!entry.metadata.form) throw new Error('This record does not support a rendered preview attachment.');
   if (!preview.revision || preview.revision !== entry.record.updated) throw new Error('The document changed after this preview was prepared. Close and reopen the preview.');
   const bytes = Utilities.base64Decode(preview.data);
   if (bytes.length > 20 * 1024 * 1024 || bytes.slice(0, 5).map(byte => String.fromCharCode(byte)).join('') !== '%PDF-') throw new Error('The preview attachment is not a valid PDF.');

@@ -647,3 +647,8 @@
 .upload-success-icon { display:grid; place-items:center; width:64px; height:64px; border-radius:50%; background:#e7f4ec; color:#2c8054; font-size:32px; }
 .upload-success h3 { margin:0; color:#2c8054; font-size:20px; }
 .upload-success p { margin:0; color:#76626a; line-height:1.6; overflow-wrap:anywhere; }
+
+.verification-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+.verification-actions button, .verification-upload { padding: 12px 16px; border: 1px solid #356442; border-radius: 8px; background: white; color: #356442; cursor: pointer; }
+.verification-upload input { display: block; max-width: 100%; margin-top: 8px; }
+.verification-camera { display: block; width: 100%; max-width: 560px; border-radius: 12px; background: #111; }

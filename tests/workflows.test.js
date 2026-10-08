@@ -229,15 +229,19 @@ test('send status recovers a successful Gmail send without sending again', () =>
   assert.equal(f.activities.length, 1)
   assert.throws(() => f.context.documentSendStatus(request, { ...user, email: 'other@example.com' }), /does not match/)
 })
-test('verification exposes only registry facts and rejects missing or deleted entries', () => {
+test('verification exposes registry facts and a Drive preview and rejects missing or deleted entries', () => {
   const f = fixture(), code = 'a'.repeat(72)
-  let deleted = false
+  let deleted = false, url = 'private-url'
   f.context.mainFilesSheet = () => ({ getLastRow: () => 2, getRange: () => ({
     getNotes: () => [[JSON.stringify({ verificationCode: code, deleted, type: 'Travel Order', status: 'Approved' })]],
-    getDisplayValues: () => [['Created', 'TO-1', '2026-09-28', 'Private subject', 'private-url']],
+    getDisplayValues: () => [['Created', 'TO-1', '2026-09-28', 'Private subject', url]],
   }) })
   const result = f.context.verifyRegisteredDocument(code)
   assert.deepEqual(Object.keys(result.document).sort(), ['date', 'id', 'status', 'type'])
+  url = 'https://drive.google.com/file/d/registered-file/view'
+  const matched = f.context.verifyRegisteredDocument(code).document
+  assert.equal(matched.previewUrl, 'https://drive.google.com/file/d/registered-file/preview')
+  assert.deepEqual(Object.keys(matched).sort(), ['date', 'id', 'previewUrl', 'status', 'type'])
   assert.throws(() => f.context.verifyRegisteredDocument('x'), /Invalid/)
   assert.throws(() => f.context.verifyRegisteredDocument('b'.repeat(72)), /No registered/)
   deleted = true
