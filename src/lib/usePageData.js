@@ -8,7 +8,7 @@ export function usePageData(enabled, fetchData, version = 0, refreshInterval = 0
     if (!enabled || state.version === version) return
     let current = true
     if (!request.current || request.current.version !== version || request.current.fetchData !== fetchData) {
-      request.current = { version, fetchData, promise: fetchData(), updates: [], applied: false }
+      request.current = { version, fetchData, promise: fetchData(), updates: [], applied: false, started: Date.now() }
     }
     const pending = request.current
     pending.promise.then(data => {
@@ -31,10 +31,10 @@ export function usePageData(enabled, fetchData, version = 0, refreshInterval = 0
     if (!enabled || !refreshInterval) return
     let current = true
     async function refresh() {
-      if (document.visibilityState === 'hidden' || !request.current?.applied) return
+      if (document.visibilityState === 'hidden' || !request.current?.applied || Date.now() - request.current.started < refreshInterval) return
       // Background reads may reuse the server's short-lived shared cache.
       // Manual refreshes still bypass it through the loader's version.
-      const pending = { version, fetchData, promise: fetchData(false), updates: [], applied: false }
+      const pending = { version, fetchData, promise: fetchData(false), updates: [], applied: false, started: Date.now() }
       request.current = pending
       try {
         const data = await pending.promise

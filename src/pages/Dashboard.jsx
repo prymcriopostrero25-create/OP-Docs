@@ -140,7 +140,7 @@ export default function Dashboard({ user, onLogout }) {
           : active === 'User management' ? <UserManagementPage />
           : active === 'User logs' ? <UserLogsPage />
           : active === 'Settings' ? <SettingsPage />
-          : <LiveOverview user={user} onDocuments={() => setActive('Documents')} onCreate={() => { setMenuOpen(false); setActive('Create document') }} />}
+          : <LiveOverview user={user} onDocuments={type => { setDocumentType(type || null); setActive('Documents') }} onCreate={() => { setMenuOpen(false); setActive('Create document') }} />}
         </Suspense></PageLoadBoundary>
       </div>
       {menuOpen && <button className="menu-backdrop" onClick={() => setMenuOpen(false)} aria-label="Close menu" />}

@@ -138,3 +138,46 @@
 /* Summary reads do not block navigation or document actions. */
 .overview-summary-loading { display: flex; align-items: center; gap: 14px; padding: 24px; margin: 16px 0; border: 1px solid #eadfe2; border-radius: 14px; background: #fff; color: #6d4851; }
 .overview-summary-loading .preview-spinner { width: 24px; height: 24px; flex-shrink: 0; border-width: 3px; }
+
+/* Keep the overview compact, with categories that lead into the workspace. */
+.overview-charts .overview-hero { padding: 28px 32px; border-radius: 16px; }
+.overview-charts .overview-hero h1 { font-size: clamp(25px, 2.6vw, 34px); }
+.overview-hero-actions { margin-top: 20px; }
+.overview-charts .overview-hero-aside { padding: 18px 22px; }
+.overview-charts .overview-hero-aside > strong { font-size: 21px; }
+.overview-metric { position: relative; overflow: hidden; }
+.overview-metric > strong { font-size: clamp(28px, 3vw, 38px); }
+.overview-type-link { display: inline-flex; align-items: center; gap: 8px; padding: 6px 0; border: 0; background: transparent; color: #633141; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.overview-type-link > span { color: #a05b6d; transition: transform .15s ease; }
+.overview-type-link:hover { color: #7b1023; text-decoration: underline; text-underline-offset: 4px; }
+.overview-type-link:hover > span { transform: translateX(3px); }
+.overview-charts .overview-type-bar > div:first-child { align-items: center; margin-bottom: 6px; }
+.overview-charts .overview-horizontal-bars { gap: 18px; }
+.overview-period-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; }
+.overview-period-toggle { display: inline-flex; padding: 4px; border: 1px solid #e7dfe2; border-radius: 9px; background: #f8f5f6; }
+.overview-period-toggle button { min-height: 34px; padding: 7px 12px; border: 0; border-radius: 6px; background: transparent; color: #71626a; font: inherit; font-size: 12px; cursor: pointer; }
+.overview-period-toggle button[aria-pressed=true] { background: #fff; color: #7b1023; box-shadow: 0 1px 5px #39262915; font-weight: 700; }
+.overview-columns-year { gap: clamp(8px, 2vw, 26px); }
+.overview-column-fill strong, .overview-status-legend strong { font-variant-numeric: tabular-nums; }
+.overview-stale-note { margin: 14px 0; color: #795222; font-size: 13px; }
+.overview-empty { font-size: 14px; line-height: 1.7; border: 1px dashed #d8b7c1; }
+.overview-charts .overview-type-values small, .overview-charts .overview-status-legend small { color: #73636b; }
+@media (max-width: 760px) {
+  .overview-charts .overview-hero { gap: 22px; padding: 26px; }
+  .overview-charts .overview-hero-aside { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; padding: 16px 20px; }
+  .overview-hero-aside > span, .overview-hero-aside > strong, .overview-charts .overview-hero-aside p { grid-column: 1 / -1; }
+  .overview-chart-card header { flex-wrap: wrap; }
+  .overview-period-controls { justify-content: flex-start; }
+}
+@media (max-width: 520px) {
+  .overview-charts .overview-hero { padding: 24px 20px; }
+  .overview-charts .overview-hero-aside { gap: 0 12px; padding: 16px; }
+  .overview-priority-row { font-size: 12px; gap: 8px; }
+  .overview-metric p { font-size: 11px; }
+  .overview-columns-year { overflow-x: auto; padding-top: 8px; padding-bottom: 10px; }
+  .overview-columns-year .overview-column { flex: 0 0 40px; }
+  .overview-type-link { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .overview-type-link > span { transition: none; }
+}

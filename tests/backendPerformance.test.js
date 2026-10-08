@@ -2,8 +2,54 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import vm from 'node:vm'
+import { createHash } from 'node:crypto'
 
 const source = fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8')
+
+test('conditional document reads omit unchanged rows and refresh returns the full list', () => {
+  const context = vm.createContext({ Utilities: {
+    DigestAlgorithm: { SHA_256: 'sha256' },
+    computeDigest: (algorithm, value) => createHash(algorithm).update(value).digest(),
+    base64EncodeWebSafe: value => value.toString('base64url'),
+  } })
+  vm.runInContext(source, context)
+  context.jsonResponse = value => value
+  let documents = [{ id: 'one', subject: 'Original' }]
+  context.cachedRegisteredDocuments = () => documents
+  const initial = context.getDocuments({ conditional: true })
+  const unchanged = context.getDocuments({ conditional: true, revision: initial.revision })
+  assert.equal(unchanged.unchanged, true)
+  assert.equal(unchanged.documents, undefined)
+  assert.equal(context.getDocuments({ conditional: true, revision: initial.revision, refresh: true }).documents.length, 1)
+  documents = [{ id: 'one', subject: 'Edited' }]
+  assert.equal(context.getDocuments({ conditional: true, revision: initial.revision }).documents[0].subject, 'Edited')
+  documents = []
+  assert.equal(context.getDocuments({ conditional: true, revision: initial.revision }).documents.length, 0)
+})
+
+test('large registries use generation chunks and missing chunks fall back to live data', () => {
+  const entries = new Map()
+  let generation = 0, reads = 0
+  const cache = {
+    get: key => entries.get(key), put: (key, value) => entries.set(key, value),
+    getAll: keys => Object.fromEntries(keys.filter(key => entries.has(key)).map(key => [key, entries.get(key)])),
+    putAll: values => Object.entries(values).forEach(([key, value]) => entries.set(key, value)),
+  }
+  const context = vm.createContext({ CacheService: { getScriptCache: () => cache }, Utilities: { getUuid: () => String(++generation) } })
+  vm.runInContext(source, context)
+  context.registeredDocuments = () => { reads++; return [{ id: 'large', subject: '文'.repeat(30000) }] }
+  assert.equal(context.cachedRegisteredDocuments().length, 1)
+  assert.equal(context.cachedRegisteredDocuments()[0].subject.length, 30000)
+  assert.equal(reads, 1)
+  entries.delete('documents:chunk:1:0')
+  assert.equal(context.cachedRegisteredDocuments().length, 1)
+  assert.equal(reads, 2)
+  context.cachedRegisteredDocuments({ refresh: true })
+  assert.equal(reads, 3)
+  entries.delete('documents:v1')
+  context.cachedRegisteredDocuments()
+  assert.equal(reads, 4)
+})
 
 test('typed memo lookup transfers only the matching note from a large form tab', () => {
   const context = vm.createContext({})
@@ -257,7 +303,7 @@ test('overview returns counts without document details, activity history or Driv
   assert.equal(result.summary.months['2026-10'], 1)
   assert.equal(result.summary.months['2026-09'], 1)
   assert.equal(JSON.stringify(result).includes('Private body'), false)
-  assert.deepEqual(reads.slice(0, 2), [[2, 1, 4, 3], [2, 2, 4, 1]])
+  assert.deepEqual(reads.slice(0, 2), [[2, 1, 4, 5], [2, 2, 4, 1]])
   f.context.getDocumentSession = () => false
   assert.equal(f.post('overview').success, false)
 })

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import Login from './pages/login'
 import Dashboard from './pages/Dashboard'
-import VerifyScanner from './pages/VerifyScanner'
-import { logoutUser, currentUser } from './lib/appsScriptApi'
+import { logoutUser, currentUser, fetchDashboardAccount } from './lib/appsScriptApi'
+
+const VerifyScanner = lazy(() => import('./pages/VerifyScanner'))
 
 export default function App() {
   const freshLoginToken = useRef(null)
@@ -25,10 +26,12 @@ export default function App() {
     if (!user?.token || verificationCode) return
     let active = true
     let pending = false
-    const refresh = () => {
-      if (pending) return
+    let lastCheck = freshLoginToken.current === user.token ? Date.now() : 0
+    const refresh = (startup = false) => {
+      if (pending || document.visibilityState === 'hidden' || Date.now() - lastCheck < 60000) return
+      lastCheck = Date.now()
       pending = true
-      return currentUser().then(account => {
+      return (startup === true ? fetchDashboardAccount() : currentUser()).then(account => {
       if (active) { window.localStorage.setItem('op-dms-user', JSON.stringify(account)); setUser(previous => JSON.stringify(previous) === JSON.stringify(account) ? previous : account) }
     }).catch(error => {
       if (active && /session expired/i.test(error.message)) { window.localStorage.removeItem('op-dms-user'); setUser(null) }
@@ -36,7 +39,7 @@ export default function App() {
     }
     // Login just authenticated this account. Avoid an immediate second backend
     // execution competing with the initial overview request.
-    if (freshLoginToken.current !== user.token) refresh()
+    if (freshLoginToken.current !== user.token) refresh(true)
     window.addEventListener('focus', refresh)
     const timer = setInterval(refresh, 60000)
     return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refresh) }
@@ -59,7 +62,7 @@ export default function App() {
     })
   }
 
-  if (new URLSearchParams(window.location.search).has('verify')) return <VerifyScanner code={verificationCode} />
+  if (new URLSearchParams(window.location.search).has('verify')) return <Suspense fallback={<p role="status">Loading verification…</p>}><VerifyScanner code={verificationCode} /></Suspense>
 
   return user
     ? <Dashboard key={user.token} user={user} onLogout={handleLogout} />

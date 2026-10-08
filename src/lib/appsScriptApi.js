@@ -35,10 +35,16 @@ export async function authenticateUser(email, password) {
     throw new Error(result.message || 'Incorrect email or password.')
   }
 
+  if (result.summary && result.user?.token) {
+    overviewReadSequence++
+    overviewSnapshot = { token: result.user.token, result, expires: Date.now() + 30000 }
+  }
   return result.user
 }
 
 export async function logoutUser(token) {
+  overviewSnapshot = null
+  registrySnapshot = null
   cachedPdfPreview.clear()
   cachedDocumentPage.clear()
   cachedRenderedPreview.clear()
@@ -87,6 +93,10 @@ function getSessionToken() {
 }
 
 const pendingReads = new Map()
+let registrySnapshot = null
+let overviewSnapshot = null
+let overviewReadSequence = 0
+let registryReadSequence = 0
 const sharedReadActions = new Set(['documents', 'overview', 'activityLogs', 'documentPage', 'documentDetails', 'editorCapabilities', 'prepareEmailAttachment'])
 
 function documentRequest(payload) {
@@ -125,6 +135,12 @@ async function sendDocumentRequest(payload, token, approvalAuthorized = false) {
   }
   const result = await readAppsScriptResponse(response)
   if (!result.success) throw new Error(result.message || 'Unable to process the document.')
+  if (['createDocument', 'createExecutiveMemorandum', 'uploadDocument', 'updateDocumentContent', 'updateDocumentStatus', 'editDocument', 'deleteDocument', 'sendDocument', 'documentSendStatus'].includes(payload.action)) {
+    registrySnapshot = null
+    registryReadSequence++
+    overviewSnapshot = null
+    overviewReadSequence++
+  }
   if (['createUser', 'updateUser', 'deleteUser'].includes(payload.action)) accountLoader.invalidate(token)
   if (['updateDocumentContent', 'updateDocumentStatus', 'editDocument', 'deleteDocument', 'sendDocument', 'documentSendStatus'].includes(payload.action)) {
     cachedDocumentPage.clear()
@@ -135,12 +151,30 @@ async function sendDocumentRequest(payload, token, approvalAuthorized = false) {
 }
 
 export async function fetchDocuments(refresh = false) {
-  const files = (await documentRequest({ action: 'documents', ...(refresh ? { refresh: true } : {}) })).documents || []
+  const token = getSessionToken()
+  const previous = registrySnapshot?.token === token ? registrySnapshot : null
+  const sequence = ++registryReadSequence
+  const result = await documentRequest({ action: 'documents', conditional: true, ...(previous?.revision && !refresh ? { revision: previous.revision } : {}), ...(refresh ? { refresh: true } : {}) })
+  if (result.unchanged && !previous) throw new Error('The document list could not be refreshed. Please retry.')
+  const files = result.unchanged ? previous.files : result.documents || []
+  if (sequence === registryReadSequence && token === getSessionToken()) registrySnapshot = { token, files, revision: result.revision }
   // Exclude the specific sample upload while its owner completes Drive cleanup.
   return files.filter(file => file.id !== '1cb7ca84-b1d8-420a-a4ce-84dc89f79281')
 }
 
-export const fetchOverview = async (refresh = false) => (await documentRequest({ action: 'overview', refresh })).summary
+async function overviewResponse(refresh = false) {
+  const token = getSessionToken()
+  if (!refresh && overviewSnapshot?.token === token && overviewSnapshot.expires > Date.now()) return overviewSnapshot.result
+  const sequence = ++overviewReadSequence
+  const result = await documentRequest({ action: 'overview', refresh, includeUser: true })
+  if (sequence === overviewReadSequence && token === getSessionToken()) overviewSnapshot = { token, result, expires: Date.now() + 30000 }
+  return result
+}
+
+export const fetchOverview = async (refresh = false) => (await overviewResponse(refresh)).summary
+// Restored sessions and the dashboard share one authenticated startup request.
+// Older deployments still work, using the existing account endpoint as fallback.
+export const fetchDashboardAccount = async () => (await overviewResponse()).user || await currentUser()
 
 export const currentUser = async () => (await documentRequest({ action: 'currentUser' })).user
 export const saveUser = (form, creating) => documentRequest({ ...form, action: creating ? 'createUser' : 'updateUser' })
@@ -202,7 +236,7 @@ async function preparePdfPreview(id, type, token) {
     const bytes = new Uint8Array(await response.arrayBuffer())
     logo = btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''))
   }
-  const result = await sendDocumentRequest({ action: 'prepareDocumentPreview', id, logo }, token)
+  const result = await sendDocumentRequest({ action: 'prepareDocumentPreview', id, type, logo }, token)
   if (type === 'Authority to Travel Abroad' && result.native && result.authorityLayoutVersion !== 3) {
     throw new Error('Deploy the latest Code.gs as a new version of the existing Apps Script web app to download the restored CERTIFY wording. Then close and reopen this preview.')
   }

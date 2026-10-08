@@ -560,6 +560,8 @@ function doPost(e) {
 
     return jsonResponse({
       success: true,
+      // A warm summary costs only a cache read; never scan documents during login.
+      summary: cachedOverviewSummary(),
       user: {
         email: String(account[0]).trim(),
         name: String(account[1]).trim(),
@@ -629,7 +631,7 @@ function preparedDocumentPdf(file) {
 function prepareDocumentPreview(request) {
   if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
   try {
-    const entry = workflowDocument(request.id, true);
+    const entry = workflowDocument(request.id, true, request.type);
     const match = /^https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)\/(view|preview)$/.exec(entry.record.url);
     if (!match) throw new Error('Invalid document link.');
     const file = DriveApp.getFileById(match[1]);
@@ -646,7 +648,7 @@ function prepareDocumentPreview(request) {
         const lock = LockService.getScriptLock();
         lock.waitLock(30000);
         try {
-          const cell = workflowDocument(request.id, true).cell;
+          const cell = workflowDocument(request.id, true, request.type).cell;
           const current = JSON.parse(cell.getNote() || '{}');
           if (current.form.authorityLayoutVersion !== 3) {
             const doc = DocumentApp.openById(file.getId());
@@ -664,7 +666,7 @@ function prepareDocumentPreview(request) {
         const lock = LockService.getScriptLock();
         lock.waitLock(30000);
         try {
-          const cell = workflowDocument(request.id, true).cell;
+          const cell = workflowDocument(request.id, true, request.type).cell;
           const current = JSON.parse(cell.getNote() || '{}');
           if (current.form.certificateLayoutVersion !== 3) {
             if (!request.logo || typeof request.logo !== 'string' || request.logo.length > 1500000) throw new Error('The college logo is required to update the certificate PDF. Refresh the app and retry.');
@@ -880,38 +882,82 @@ function getActivityLogs() {
   return jsonResponse({ success: true, activities: current.concat(events) });
 }
 
-function getDocuments(request) {
+// Share the registry between overview and document-list requests. Navigation
+// should not scan all six tabs again just to return the same records.
+function cachedRegisteredDocuments(request) {
   let cache;
   try {
     cache = CacheService.getScriptCache();
     const stored = !(request && request.refresh) && cache.get('documents:v1');
     if (stored) {
       const documents = JSON.parse(stored);
-      if (Array.isArray(documents)) return jsonResponse({ success: true, documents: documents });
+      if (Array.isArray(documents)) return documents;
+      if (documents && typeof documents.generation === 'string' && Number.isInteger(documents.chunks) && documents.chunks > 0 && documents.chunks <= 100) {
+        const keys = Array.from({ length: documents.chunks }, (_, i) => 'documents:chunk:' + documents.generation + ':' + i);
+        const chunks = cache.getAll(keys);
+        if (keys.every(key => typeof chunks[key] === 'string')) {
+          const restored = JSON.parse(keys.map(key => chunks[key]).join(''));
+          if (Array.isArray(restored)) return restored;
+        }
+      }
     }
   } catch (error) { /* Cache is optional. */ }
   const documents = registeredDocuments().reverse();
   try {
     const serialized = JSON.stringify(documents);
     // Stay below CacheService's 100 KB per-key limit, including Unicode text.
-    if (cache && serialized.length < 24000) cache.put('documents:v1', serialized, 15);
+    if (cache && serialized.length < 24000) cache.put('documents:v1', serialized, 30);
+    else if (cache && serialized.length <= 2400000) {
+      // Unique generations prevent concurrent writers from mixing chunks.
+      // Publish the manifest last; evicted chunks simply trigger a live read.
+      const generation = Utilities.getUuid();
+      const count = Math.ceil(serialized.length / 24000);
+      const chunks = {};
+      for (let i = 0; i < count; i++) chunks['documents:chunk:' + generation + ':' + i] = serialized.slice(i * 24000, (i + 1) * 24000);
+      cache.putAll(chunks, 30);
+      cache.put('documents:v1', JSON.stringify({ generation: generation, chunks: count }), 30);
+    }
   } catch (error) { /* Large registers and cache failures use live reads. */ }
+  return documents;
+}
+
+function getDocuments(request) {
+  const documents = cachedRegisteredDocuments(request);
+  // Older clients still receive the original response. New clients keep their
+  // list when its exact serialized contents have not changed.
+  if (request && request.conditional === true) {
+    const revision = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(documents)));
+    if (!request.refresh && request.revision === revision) return jsonResponse({ success: true, unchanged: true, revision: revision });
+    return jsonResponse({ success: true, documents: documents, revision: revision });
+  }
   return jsonResponse({ success: true, documents: documents });
 }
 
 // Return chart counts only. No activity history, document bodies or Drive reads.
+function cachedOverviewSummary() {
+  try {
+    const stored = CacheService.getScriptCache().get('overview:v1');
+    const summary = stored && JSON.parse(stored);
+    if (summary && typeof summary.total === 'number' && summary.types && summary.statuses && summary.months) return summary;
+  } catch (error) { /* Optional startup shortcut. */ }
+  return undefined;
+}
+
 function getOverview(request) {
+  // doPost already authenticated this token; reuse that account within this
+  // execution instead of making the browser start a second Apps Script call.
+  const user = request && request.includeUser ? authenticatedAccount(request.token) : undefined;
   let cache;
   try {
     cache = CacheService.getScriptCache();
     const stored = !(request && request.refresh) && cache.get('overview:v1');
     if (stored) {
       const summary = JSON.parse(stored);
-      if (summary && typeof summary.total === 'number' && summary.types && summary.statuses && summary.months) return jsonResponse({ success: true, summary: summary });
+      if (summary && typeof summary.total === 'number' && summary.types && summary.statuses && summary.months) return jsonResponse({ success: true, summary: summary, user: user });
     }
   } catch (error) { /* Cache failures fall back to reading the register. */ }
   const summary = { total: 0, types: {}, statuses: {}, months: {} };
-  registeredDocuments(3).forEach(record => {
+  cachedRegisteredDocuments(request).forEach(record => {
     if (!record.id || record.deleted || record.id === '1cb7ca84-b1d8-420a-a4ce-84dc89f79281') return;
     summary.total++;
     const type = record.type || 'Unclassified';
@@ -924,7 +970,7 @@ function getOverview(request) {
     }
   });
   try { if (cache) cache.put('overview:v1', JSON.stringify(summary), 30); } catch (error) { /* Summary remains available. */ }
-  return jsonResponse({ success: true, summary: summary });
+  return jsonResponse({ success: true, summary: summary, user: user });
 }
 
 function uploadDocument(request) {

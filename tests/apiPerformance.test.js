@@ -55,6 +55,28 @@ test('overlapping reads share a request, later refreshes and other sessions fetc
   assert.equal(f.calls.at(-1).token, 'second')
 })
 
+test('conditional lists reuse rows, bypass revisions on refresh and clear them after mutation or session change', async () => {
+  const f = fixture()
+  let next = { success: true, documents: [{ id: 'doc' }], revision: 'first' }
+  f.context.fetchAppsScript = async (_, options) => {
+    f.calls.push(JSON.parse(options.body))
+    return { ok: true, result: next }
+  }
+  assert.equal((await f.context.fetchDocuments())[0].id, 'doc')
+  next = { success: true, unchanged: true, revision: 'first' }
+  assert.equal((await f.context.fetchDocuments())[0].id, 'doc')
+  assert.equal(f.calls.at(-1).revision, 'first')
+  next = { success: true, documents: [], revision: 'empty' }
+  assert.equal((await f.context.fetchDocuments(true)).length, 0)
+  assert.equal(f.calls.at(-1).revision, undefined)
+  await f.context.documentRequest({ action: 'editDocument', id: 'doc' })
+  await f.context.fetchDocuments()
+  assert.equal(f.calls.at(-1).revision, undefined)
+  f.setToken('other')
+  await f.context.fetchDocuments()
+  assert.equal(f.calls.at(-1).revision, undefined)
+})
+
 test('formatted saves reuse editor capabilities while every mutation remains separate', async () => {
   const f = fixture()
   await f.context.createDocument({ bodyRich: {}, requestId: 'one' })
@@ -84,4 +106,41 @@ test('preview forms reuse revisions, isolate sessions, and refresh after status 
   f.setToken('second')
   await f.context.documentPage('doc', 'Special Order', 'revision2')
   assert.equal(f.calls.length, 6)
+})
+
+test('dashboard startup shares account and totals, caches briefly, and invalidates on refresh, mutation and session changes', async () => {
+  const f = fixture()
+  const fetchOverview = vm.runInContext('fetchOverview', f.context)
+  const fetchAccount = vm.runInContext('fetchDashboardAccount', f.context)
+  f.context.fetchAppsScript = async (_, options) => {
+    const payload = JSON.parse(options.body)
+    f.calls.push(payload)
+    return { ok: true, result: { success: true, summary: { total: 7 }, user: { token: payload.token } } }
+  }
+  const [summary, account] = await Promise.all([fetchOverview(), fetchAccount()])
+  assert.equal(summary.total, 7)
+  assert.equal(account.token, 'first')
+  assert.equal(f.calls.length, 1)
+  await fetchOverview()
+  assert.equal(f.calls.length, 1)
+  await fetchOverview(true)
+  assert.equal(f.calls.length, 2)
+  await f.context.documentRequest({ action: 'editDocument' })
+  await fetchOverview()
+  assert.equal(f.calls.length, 4)
+  f.setToken('second')
+  assert.equal((await fetchAccount()).token, 'second')
+  assert.equal(f.calls.length, 5)
+})
+
+test('older overview deployments fall back to account endpoint and failures remain retryable', async () => {
+  const f = fixture()
+  const fetchAccount = vm.runInContext('fetchDashboardAccount', f.context)
+  await fetchAccount()
+  assert.deepEqual(f.calls.map(call => call.action), ['overview', 'currentUser'])
+  const fetchOverview = vm.runInContext('fetchOverview', f.context)
+  f.context.fetchAppsScript = async () => { throw Error('Offline') }
+  await assert.rejects(fetchOverview(true), /Offline/)
+  f.context.fetchAppsScript = async () => ({ ok: true, result: { success: true, summary: { total: 8 } } })
+  assert.equal((await fetchOverview(true)).total, 8)
 })

@@ -73,6 +73,13 @@ restored sessions are checked immediately. Server overview totals are cached for
 30 seconds after authorization, invalidated by document mutations, and bypassed
 by Refresh overview. Existing charts remain visible during refresh.
 
+Overview and Documents share a 30-second server registry cache so navigating
+between them does not repeat the six-tab spreadsheet scan. Authorization still
+runs before serving cached records, and document mutations invalidate both caches.
+Manual refresh bypasses the cache. Registers too large for the cache use live
+reads. Publish the updated `Code.gs` as a **new version of the existing Apps Script
+deployment** to activate this optimization; redeploying Vercel alone cannot do so.
+
 - Saved form previews and PDF export load independently. Closing a preview
   releases its object URL and cancels rendering; it does not cancel a shared export.
 - Browser PDF caching lasts two minutes, holds at most five entries and caps
@@ -130,3 +137,19 @@ Local tests and browser checks do not establish live Google delivery. Complete
 these checks on the deployed frontend and backend before using real recipients.
 For rollback, restore the previous Apps Script deployment version and matching
 frontend artifact; retain the spreadsheet and Drive records.
+
+Document fetching optimizations require rebuilding the frontend and deploying
+`google-apps-script/Code.gs` as a new version of the existing web app. Document
+polls authenticate as usual but return only a revision when the list is unchanged.
+Manual Refresh always retrieves the full list. Older backends remain compatible
+but continue sending all rows. Registry cache chunks expire after 30 seconds;
+missing chunks fall back to live spreadsheet reads. The first list load still
+reads the complete registry for existing search, filters and CSV export.
+
+Dashboard startup optimizations require deploying the updated Code.gs and frontend.
+The overview can now include the authenticated account, so restoring a session
+shares one request for account validation and chart totals. Login includes an
+already-cached summary when available, without scanning the registry on a cache
+miss. The frontend reuses that result for up to 30 seconds; manual refresh and
+document mutations invalidate it. Older deployments fall back to the separate
+account request. A cold Google Apps Script execution can still take time.

@@ -52,3 +52,40 @@ test('a corrupt or unavailable cache cannot prevent loading totals', () => {
   f.context.CacheService.getScriptCache = () => { throw Error('Unavailable') }
   assert.equal(f.context.getOverview().summary.total, 1)
 })
+
+test('opening documents after overview reuses the registry scan in either navigation order', () => {
+  for (const first of ['getOverview', 'getDocuments']) {
+    const f = fixture()
+    f.context[first]()
+    assert.equal(f.context.getOverview().summary.total, 1)
+    assert.equal(f.context.getDocuments().documents[0].id, 'TEST')
+    assert.equal(f.reads(), 1)
+    f.context.getDocuments({ refresh: true })
+    assert.equal(f.reads(), 2)
+    f.context.getOverview({ refresh: true })
+    assert.equal(f.reads(), 3)
+  }
+})
+
+test('overview account data stays out of shared cache and uses the current authenticated account', () => {
+  const f = fixture()
+  f.context.getDocumentSession = () => true
+  f.context.authenticatedAccount = token => ({ token, name: token })
+  const post = token => f.context.doPost({ postData: { contents: JSON.stringify({ action: 'overview', includeUser: true, token }) } })
+  assert.equal(post('first').user.name, 'first')
+  assert.equal(post('second').user.name, 'second')
+  assert.equal(f.reads(), 1)
+  assert.equal(f.cache.get('overview:v1').includes('first'), false)
+})
+
+test('login summary shortcut never scans the registry on cache miss or corruption', () => {
+  const f = fixture()
+  assert.equal(f.context.cachedOverviewSummary(), undefined)
+  assert.equal(f.reads(), 0)
+  f.context.getOverview()
+  assert.equal(f.context.cachedOverviewSummary().total, 1)
+  assert.equal(f.reads(), 1)
+  f.cache.set('overview:v1', 'broken')
+  assert.equal(f.context.cachedOverviewSummary(), undefined)
+  assert.equal(f.reads(), 1)
+})
