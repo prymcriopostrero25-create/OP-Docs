@@ -635,6 +635,18 @@ test('fresh creation renders the open document without reopening it or rereading
   assert.equal(f.log.length, 0)
 })
 
+test('Travel Order creation accepts omitted, empty, or whitespace remarks', () => {
+  for (const remarks of [undefined, '', '   ']) {
+    const f = fixture()
+    const request = { token: sample.token, requestId: sample.requestId, templateVersion: 2, type: 'Travel Order', reference: '144', recipientLabel: 'To', recipientName: 'Jane', recipientPosition: 'Instructor', place: 'CHED', inclusiveDate: 'September 12, 2026', transportation: 'Bus', purpose: 'Training' }
+    if (remarks !== undefined) request.remarks = remarks
+    assert.equal(f.ctx.createDocument(request).success, true)
+    assert.equal(f.shortRows.Trav_Ord[1][8], '')
+    assert.equal(f.ctx.createdRegistryEntries()[0].metadata.form.remarks, '')
+    assert.throws(() => f.ctx.validateTemplateDocument({ ...request, purpose: '' }, request.type), /Please enter purpose/)
+  }
+})
+
 test('Travel Order validates the travel type and stores either selection', () => {
   for (const travelType of ['Official Business', 'Official Time']) {
     const f = fixture()

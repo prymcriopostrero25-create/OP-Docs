@@ -1657,7 +1657,7 @@ function validateTemplateDocument(request, type) {
     : ['Executive Memorandum', 'Special Order'].includes(type)
       ? ['reference', 'recipientLabel', 'recipientName', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution']
       : ['reference', 'recipientLabel', 'recipientPosition', 'institution', 'thru', 'subject', 'date', 'body', 'additionalInstitution'];
-  const optional = ['thru', 'additionalInstitution', 'cc', ...(['Executive Memorandum', 'Special Order'].includes(type) ? ['recipientPosition', 'institution'] : [])];
+  const optional = ['thru', 'additionalInstitution', 'cc', ...(travel ? ['remarks'] : []), ...(['Executive Memorandum', 'Special Order'].includes(type) ? ['recipientPosition', 'institution'] : [])];
   fields.forEach(key => {
     data[key] = String(request[key] || '').trim();
     if (!optional.includes(key) && !data[key]) throw new Error('Please enter ' + key.replace(/([A-Z])/g, ' $1').toLowerCase() + '.');
