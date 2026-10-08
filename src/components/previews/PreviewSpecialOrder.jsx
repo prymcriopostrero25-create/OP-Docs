@@ -42,7 +42,7 @@ export default function PreviewSpecialOrder({ form, reference }) {
         <ApprovalSignature form={form} />
         <div className="leading-[1.2]">
           {/* Adjust text-[15px] below to change the president name font size. */}
-          <span className="block text-[15px]">{form.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.'}</span>
+          <span className="block font-bold text-[15px]">{form.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.'}</span>
           {/* Adjust text-[13px] below to change the designation font size. */}
           <span className="block text-[13px]">{form.signatoryPosition || form.position || 'SUC President II'}</span>
         </div>

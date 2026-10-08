@@ -41,7 +41,7 @@ export default function PreviewTravelOrder({ form, reference }) {
         <ApprovalSignature form={form} />
         <div className="leading-[1.2]">
           {/* Adjust text-[16px] below to change the signatory name font size. */}
-          <span className="block text-[15px]">{form.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.'}</span>
+          <span className="block font-bold text-[15px]">{form.signatory || 'EDGARDO H. ROSALES, JD, Ed.D.'}</span>
           {/* Adjust text-[16px] below to change the signatory position font size. */}
           <span className="block text-[14px]">{form.signatoryPosition || form.position || 'SUC President II'}</span>
         </div>

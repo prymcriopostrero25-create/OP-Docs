@@ -30,6 +30,11 @@ export default function PaginatedDocumentPreview({ source, revision, onError }) 
         await Promise.all(Array.from(paper.querySelectorAll('img'), image => image.decode()))
         if (cancelled) return
         const { width, height, footer, footerHeight, bottomPadding, pagePixels, segments } = measurePreviewPages(paper)
+        // Read computed styles once, then reuse the detached templates per page.
+        const contentTemplate = cloneStyledPaper(paper)
+        const styledFooter = contentTemplate.querySelector('footer[aria-label="Document footer"]')
+        const footerTemplate = footer ? contentTemplate.cloneNode(false) : null
+        if (styledFooter && footerTemplate) footerTemplate.append(styledFooter)
         const fragment = document.createDocumentFragment()
         for (const [index, { start, end }] of segments.entries()) {
           const slot = document.createElement('section')
@@ -41,8 +46,7 @@ export default function PaginatedDocumentPreview({ source, revision, onError }) 
           page.style.height = `${pagePixels}px`
           const clip = document.createElement('div')
           Object.assign(clip.style, { position: 'absolute', top: `${footer && index > 0 ? 24 * width / 595.28 : 0}px`, width: '100%', height: `${end - start}px`, overflow: 'hidden' })
-          const content = cloneStyledPaper(paper)
-          content.querySelector('footer[aria-label="Document footer"]')?.remove()
+          const content = contentTemplate.cloneNode(true)
           Object.assign(content.style, { position: 'absolute', top: `${-start}px`, width: `${width}px`, maxWidth: 'none', height: `${height}px`, margin: '0', boxShadow: 'none' })
           clip.append(content)
           page.append(clip)
@@ -50,8 +54,7 @@ export default function PaginatedDocumentPreview({ source, revision, onError }) 
             const footerClip = document.createElement('div')
             Object.assign(footerClip.style, { position: 'absolute', bottom: `${bottomPadding}px`, width: '100%', height: `${footerHeight}px`, overflow: 'hidden' })
             // Preserve the article's typography and horizontal footer padding.
-            const footerPaper = cloneStyledPaper(paper)
-            for (const child of Array.from(footerPaper.children)) if (child.tagName !== 'FOOTER') child.remove()
+            const footerPaper = footerTemplate.cloneNode(true)
             Object.assign(footerPaper.style, { width: `${width}px`, maxWidth: 'none', height: `${footerHeight}px`, minHeight: '0', paddingTop: '0', paddingBottom: '0', margin: '0', boxShadow: 'none' })
             const footerClone = footerPaper.querySelector('footer')
             footerClone.style.marginTop = '0'
