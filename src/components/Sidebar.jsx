@@ -2,7 +2,7 @@ import { canAccessPage } from '../lib/permissions'
 
 const navItems = [
   ['Overview', '▦'], ['Documents', '▤'], ['Archive', '▣'], ['Activity log', '⌁'],
-  ['User management', '♙'], ['User logs', '◷'], ['Settings', '⚙'],
+  ['Verification', '✓'], ['User management', '♙'], ['User logs', '◷'], ['Settings', '⚙'],
 ]
 
 export default function Sidebar({ active, isOpen, onNavigate, onLogout, onClose, user }) {
@@ -18,8 +18,8 @@ export default function Sidebar({ active, isOpen, onNavigate, onLogout, onClose,
       </div>
       <nav className="main-nav" aria-label="Main navigation">
         <p>Workspace</p>
-        {navItems.map(([label, icon], index) => canAccessPage(user, label) && <div key={label}>
-          {index === 4 && <p>Administration</p>}
+        {navItems.map(([label, icon]) => canAccessPage(user, label) && <div key={label}>
+          {label === 'User management' && <p>Administration</p>}
           <button className={active === label ? 'active' : ''} onClick={() => onNavigate(label)}>
             <i>{icon}</i><span>{label}</span>{label === 'Documents'}
           </button>

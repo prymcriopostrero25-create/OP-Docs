@@ -68,13 +68,13 @@ export default function VerifyScanner({ code }) {
       <div className="verify-methods">
         <div className="verify-method">
           <span className="verify-method-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><path d="M7 7h3v3H7zm7 0h3v3h-3zM7 14h3v3H7zm7 0h3v3h-3z"/></svg></span>
-          <h3>Scan QR code</h3><p>Use your camera to scan the QR code on the first page of your document.</p>
+          <h3>Scan QR Code</h3><p>Use your camera to scan the QR code on the first page of your document.</p>
           <button className="verify-button verify-button-primary" type="button" disabled={busy} onClick={() => { setError(''); setCamera(value => !value) }}>{camera ? 'Stop Camera' : 'Open Camera'}</button>
         </div>
         <div className="verify-method">
           <span className="verify-method-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14 3H5v18h14V8l-5-5Zm0 0v5h5M8 15l4-4 4 4m-4-4v7"/></svg></span>
           <h3>Upload PDF</h3><p>Select your document to read its unique verification QR code.</p>
-          <label className={`verify-file-button${busy ? ' is-disabled' : ''}`}><input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={upload} /><span>{busy ? 'Reading PDF…' : 'Choose PDF file'}</span></label>
+          <label className={`verify-file-button${busy ? ' is-disabled' : ''}`}><input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={upload} /><span>{busy ? 'Reading PDF…' : 'Choose PDF File'}</span></label>
         </div>
       </div>
       {camera && <div className="verify-camera-panel"><video ref={video} autoPlay playsInline muted className="verify-camera" aria-label="QR code camera preview" /><p role="status">Point your camera at the document QR code.</p></div>}

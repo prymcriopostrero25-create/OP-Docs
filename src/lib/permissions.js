@@ -11,5 +11,5 @@ export function permissionsFor(user) {
 }
 
 export function canAccessPage(user, page) {
-  return ['Overview', 'Documents'].includes(page) || permissionsFor(user).fullAccess
+  return ['Overview', 'Documents', 'Verification'].includes(page) || permissionsFor(user).fullAccess
 }

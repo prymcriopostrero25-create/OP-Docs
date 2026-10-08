@@ -114,6 +114,13 @@ export default function Dashboard({ user, onLogout }) {
         active={active === 'Create document' ? 'Documents' : active}
         isOpen={menuOpen}
         onNavigate={(label) => {
+          if (label === 'Verification') {
+            const url = new URL(window.location.href)
+            url.searchParams.set('verify', '')
+            url.hash = ''
+            window.location.assign(url.href)
+            return
+          }
           if (canAccessPage(user, label)) setActive(label)
           setMenuOpen(false)
         }}
