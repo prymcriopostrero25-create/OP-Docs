@@ -12,6 +12,7 @@ function fixture() {
   const context = vm.createContext({
     createAccountLoader,
     createPdfPreviewCache,
+    loadDocumentPage: async () => { calls.push({ action: 'loadedPage' }); return { form: { body: 'saved' } } },
     AbortSignal: { timeout(ms) { timeouts.push(ms); return AbortSignal.timeout(ms) } }, Date,
     window: { localStorage: { getItem: () => JSON.stringify({ token }) } },
     fetchAppsScript: async (_, options) => {
@@ -27,6 +28,7 @@ function fixture() {
     .replace(/import\.meta\.env\.DEV/g, 'false')
     .replace(/export /g, '')
   vm.runInContext(source, context)
+  context.documentPage = vm.runInContext('documentPage', context)
   return { context, calls, timeouts, setToken(value) { token = value } }
 }
 
@@ -65,4 +67,21 @@ test('formatted saves reuse editor capabilities while every mutation remains sep
   f.setToken('second')
   await f.context.createDocument({ bodyRich: {}, requestId: 'four' })
   assert.equal(f.calls.filter(call => call.action === 'editorCapabilities').length, 2)
+})
+
+test('preview forms reuse revisions, isolate sessions, and refresh after status saves', async () => {
+  const f = fixture()
+  await f.context.documentPage('doc', 'Special Order', 'revision1')
+  await f.context.documentPage('doc', 'Special Order', 'revision1')
+  assert.equal(f.calls.length, 1)
+  await f.context.documentPage('doc', 'Special Order', 'revision2')
+  assert.equal(f.calls.length, 2)
+  await f.context.documentPage('doc', 'Special Order', 'revision2', true)
+  assert.equal(f.calls.length, 3)
+  await f.context.documentRequest({ action: 'updateDocumentStatus', id: 'doc', status: 'For Review' })
+  await f.context.documentPage('doc', 'Special Order', 'revision2')
+  assert.equal(f.calls.length, 5)
+  f.setToken('second')
+  await f.context.documentPage('doc', 'Special Order', 'revision2')
+  assert.equal(f.calls.length, 6)
 })

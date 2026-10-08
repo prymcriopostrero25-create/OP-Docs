@@ -40,6 +40,8 @@ export async function authenticateUser(email, password) {
 
 export async function logoutUser(token) {
   cachedPdfPreview.clear()
+  cachedDocumentPage.clear()
+  cachedRenderedPreview.clear()
   if (!APPS_SCRIPT_URL) throw new Error('The Apps Script web app URL is not configured.')
   const response = await fetch(requestTarget(), {
     method: 'POST',
@@ -124,11 +126,16 @@ async function sendDocumentRequest(payload, token, approvalAuthorized = false) {
   const result = await readAppsScriptResponse(response)
   if (!result.success) throw new Error(result.message || 'Unable to process the document.')
   if (['createUser', 'updateUser', 'deleteUser'].includes(payload.action)) accountLoader.invalidate(token)
+  if (['updateDocumentContent', 'updateDocumentStatus', 'editDocument', 'deleteDocument', 'sendDocument', 'documentSendStatus'].includes(payload.action)) {
+    cachedDocumentPage.clear()
+    cachedPdfPreview.clear()
+    cachedRenderedPreview.clear()
+  }
   return result
 }
 
-export async function fetchDocuments() {
-  const files = (await documentRequest({ action: 'documents' })).documents || []
+export async function fetchDocuments(refresh = false) {
+  const files = (await documentRequest({ action: 'documents', ...(refresh ? { refresh: true } : {}) })).documents || []
   // Exclude the specific sample upload while its owner completes Drive cleanup.
   return files.filter(file => file.id !== '1cb7ca84-b1d8-420a-a4ce-84dc89f79281')
 }
@@ -223,8 +230,8 @@ export async function fetchActivityLogs() {
   return (await documentRequest({ action: 'activityLogs' })).activities || []
 }
 
-export async function updateDocumentStatus(id, status) {
-  const record = (await documentRequest({ action: 'updateDocumentStatus', id, status })).document
+export async function updateDocumentStatus(id, status, type) {
+  const record = (await documentRequest({ action: 'updateDocumentStatus', id, status, ...(type ? { type } : {}) })).document
   if (!record || record.id !== id || record.status !== status) {
     throw new Error('The server did not confirm the selected status. Deploy the latest Code.gs and refresh the document list.')
   }
@@ -255,4 +262,8 @@ export async function uploadPdf(file, uploadId, filing) {
   return (await documentRequest({ action: 'uploadDocument', name: file.name, data, uploadId, type: filing.type, year: filing.year })).document
 }
 
-export const documentPage = (id, type) => loadDocumentPage(id, documentRequest, type)
+const cachedDocumentPage = createPdfPreviewCache((id, type) => loadDocumentPage(id, documentRequest, type))
+export const documentPage = (id, type, revision, refresh = false) => {
+  if (refresh) cachedDocumentPage.clear()
+  return cachedDocumentPage(getSessionToken(), id, type, revision)
+}

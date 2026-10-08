@@ -99,7 +99,7 @@ export default function DocumentRecordPage({ title, type, initialStatus = 'All s
 
     previewDialog.current.showModal()
     let cancelled = false
-    documentPage(preview.reference, preview.type).then(result => {
+    documentPage(preview.reference, preview.type, JSON.stringify([preview.updated, preview.status, preview.approvedAt]), refreshPreview.current).then(result => {
       if (cancelled) return
       setPageContent({ ...result, type: result.type || preview.type })
       if (result.form) setPreviewLoading(false)

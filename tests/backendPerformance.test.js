@@ -5,6 +5,67 @@ import vm from 'node:vm'
 
 const source = fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8')
 
+test('typed memo lookup transfers only the matching note from a large form tab', () => {
+  const context = vm.createContext({})
+  vm.runInContext(source, context)
+  const reads = []
+  const sheet = { getLastRow: () => 10001, getRange(row, column, count) {
+    if (column === 2) return { createTextFinder: () => ({
+      matchEntireCell() { return this }, matchCase() { return this }, useRegularExpression() { return this }, findNext: () => ({ getRow: () => 9000 }),
+    }) }
+    reads.push([row, column, count])
+    return { getDisplayValues: () => [['internal']], getNotes: () => [[JSON.stringify({ registry: ['Created', 'memo', 'date', 'subject', 'url'], type: 'Executive Memorandum' })]] }
+  } }
+  context.appSpreadsheet = () => ({ getSheetByName: () => sheet })
+  const entries = context.createdRegistryEntries('Executive Memorandum', 'memo')
+  assert.equal(entries[0].row, 9000)
+  assert.deepEqual(reads, [[9000, 1, 1]])
+})
+
+test('document list cache skips repeat sheet scans, refreshes, and invalidates after mutations', () => {
+  const cache = new Map()
+  const context = vm.createContext({ CacheService: { getScriptCache: () => ({
+    get: key => cache.get(key), put: (key, value) => cache.set(key, value), remove: key => cache.delete(key),
+  }) } })
+  vm.runInContext(source, context)
+  let reads = 0
+  context.registeredDocuments = () => { reads++; return [{ id: 'doc', status: 'Draft' }] }
+  context.jsonResponse = value => value
+  context.getDocuments()
+  context.getDocuments()
+  assert.equal(reads, 1)
+  context.getDocuments({ refresh: true })
+  assert.equal(reads, 2)
+  context.updateDocumentStatus = () => ({ success: true })
+  context.doPost({ postData: { contents: JSON.stringify({ action: 'updateDocumentStatus', status: 'For Review' }) } })
+  context.getDocuments()
+  assert.equal(reads, 3)
+  cache.set('documents:v1', 'invalid json')
+  assert.equal(context.getDocuments().success, true)
+  assert.equal(reads, 4)
+})
+
+test('unsigned status changes reuse the created row and never open Drive or Docs', () => {
+  const context = vm.createContext({
+    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    SpreadsheetApp: { flush() {} },
+    DriveApp: { getFileById() { throw Error('Unsigned transition must not open Drive') } },
+  })
+  vm.runInContext(source, context)
+  context.canChangeDocumentStatus = () => true
+  context.jsonResponse = value => value
+  let writes = 0
+  context.workflowDocument = (id, targeted, type) => {
+    assert.equal(type, 'Special Order')
+    return { created: true, row: 100, sheet: { getRange(row, col) { assert.equal(row, 100); assert.equal(col, 11); return { setValue() { writes++ } } } },
+      cell: { setNote() {} }, metadata: { form: {}, type }, record: { id, type, status: 'Draft', url: 'https://drive.google.com/file/d/known/view' } }
+  }
+  context.syncCreatedDocumentStatus = () => { throw Error('Must reuse existing row') }
+  context.appendActivityEvent = () => {}
+  assert.equal(context.updateDocumentStatus({ id: 'doc', type: 'Special Order', status: 'For Review' }).success, true)
+  assert.equal(writes, 1)
+})
+
 test('typed previews read only their corresponding form sheet and skip MAIN Files', () => {
   for (const [type, name] of Object.entries({ 'Executive Memorandum': 'EX_Memo', 'Travel Order': 'Trav_Ord', 'Special Order': 'Spe_Ord', 'Authority to Travel Abroad': 'Auth_Travel', 'Certificate of Travel': 'Cert_Travel' })) {
     const context = vm.createContext({})

@@ -28,7 +28,8 @@ export default function Dashboard({ user, onLogout }) {
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [summaryAttempt, setSummaryAttempt] = useState(0)
   const [drafts, setDrafts] = useState([])
-  const documents = usePageData(['Documents', 'Archive'].includes(active), fetchDocuments, loadAttempt)
+  const loadDocuments = useCallback(() => fetchDocuments(loadAttempt > 0), [loadAttempt])
+  const documents = usePageData(['Documents', 'Archive'].includes(active), loadDocuments, loadAttempt)
   const activities = usePageData(active === 'Activity log' && permissions.fullAccess, fetchActivityLogs, loadAttempt + summaryAttempt)
   const loadOverview = useCallback(() => fetchOverview(loadAttempt + summaryAttempt > 0), [loadAttempt, summaryAttempt])
   const overview = usePageData(active === 'Overview', loadOverview, loadAttempt + summaryAttempt)
@@ -49,7 +50,7 @@ export default function Dashboard({ user, onLogout }) {
     if (status === 'Out' && !window.confirm('Mark this document OUT? Further editing will be locked.')) return
     const draft = drafts.find(record => record.reference === reference)
     if (draft) { setDrafts(current => current.map(record => record.reference === reference ? { ...record, status } : record)); return }
-    const record = await updateDocumentStatus(reference, status)
+    const record = await updateDocumentStatus(reference, status, records.find(record => record.reference === reference)?.type)
     setFiles(current => current.map(file => file.id === reference ? record : file))
     setActivityLogs(current => [...current, { ...record, activity: `Status changed to ${status}`, date: new Date().toISOString() }])
   }

@@ -146,7 +146,7 @@ function logCreatedDocument(sheet, record, data, internalId, snapshot, metadata)
 }
 
 // Form-tab ID notes hold workflow metadata without adding visible columns.
-function createdRegistryEntries(documentType) {
+function createdRegistryEntries(documentType, documentId) {
   const entries = [];
   const spreadsheet = appSpreadsheet();
   Object.entries(CREATED_DOCUMENT_SHEETS).forEach(([type, name]) => {
@@ -155,7 +155,20 @@ function createdRegistryEntries(documentType) {
     if (!sheet) return;
     const count = sheet.getLastRow() - 1;
     if (count < 1) return;
-    const range = sheet.getRange(2, 1, count, 1);
+    let firstRow = 2;
+    let rowCount = count;
+    // These forms store their public reference in a visible column. Search on
+    // the Sheets server, then transfer only the matching row's metadata.
+    if (documentId && ['Executive Memorandum', 'Special Order', 'Travel Order'].includes(type)) {
+      const references = sheet.getRange(2, type === 'Travel Order' ? 1 : 2, count, 1);
+      if (typeof references.createTextFinder === 'function') {
+        const match = references.createTextFinder(documentId).matchEntireCell(true).matchCase(true).useRegularExpression(false).findNext();
+        if (!match) return;
+        firstRow = match.getRow();
+        rowCount = 1;
+      }
+    }
+    const range = sheet.getRange(firstRow, 1, rowCount, 1);
     const ids = range.getDisplayValues();
     const notes = range.getNotes();
     ids.forEach((value, index) => {
@@ -164,8 +177,8 @@ function createdRegistryEntries(documentType) {
       try { metadata = JSON.parse(notes[index][0] || '{}'); } catch (error) { return; }
       if (!metadata || !Array.isArray(metadata.registry) || metadata.deleted) return;
       const record = documentFromRow(metadata.registry, JSON.stringify(metadata));
-      if (!record.id || record.type !== type) return;
-      entries.push({ sheet: sheet, row: index + 2, metadata: metadata, record: record, created: true });
+      if (!record.id || record.type !== type || (documentId && record.id !== documentId)) return;
+      entries.push({ sheet: sheet, row: index + firstRow, metadata: metadata, record: record, created: true });
     });
   });
   return entries;
@@ -289,18 +302,23 @@ function updateDocumentStatus(request) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const entry = workflowDocument(request.id, true);
+    const entry = workflowDocument(request.id, true, request.type);
     const cell = entry.cell;
     if (entry.record.status === 'Out') {
       return jsonResponse({ success: false, message: 'This document is Out and locked. It can only be previewed or downloaded.' });
     }
     const metadata = entry.metadata;
     const fileMatch = /\/d\/([a-zA-Z0-9_-]+)/.exec(entry.record.url);
-    if (metadata.form && fileMatch) syncApprovalSignature(DriveApp.getFileById(fileMatch[1]), metadata.form, request.status);
+    // Unsigned workflow transitions need only spreadsheet writes. Open Docs
+    // when entering or leaving a state that can carry the approval signature.
+    if (metadata.form && fileMatch && [entry.record.status, request.status].some(status => ['Approved', 'Out'].includes(status))) {
+      syncApprovalSignature(DriveApp.getFileById(fileMatch[1]), metadata.form, request.status);
+    }
     metadata.status = request.status;
     metadata.updated = new Date().toISOString();
     metadata.approvedAt = approvalTimestamp(entry.record.status, request.status, metadata.approvedAt, metadata.updated);
-    syncCreatedDocumentStatus(metadata.type, metadata.createdDocumentId, request.status);
+    if (entry.created && ['Executive Memorandum', 'Special Order'].includes(entry.record.type)) entry.sheet.getRange(entry.row, 11).setValue(request.status);
+    else syncCreatedDocumentStatus(metadata.type, metadata.createdDocumentId, request.status);
     cell.setNote(JSON.stringify(metadata));
     appendActivityEvent({ ...entry.record, activity: 'Status changed to ' + request.status, date: new Date().toISOString() });
     SpreadsheetApp.flush();
@@ -478,7 +496,7 @@ function doPost(e) {
       }
       if (request.action === 'uploadDocument') return uploadDocument(request);
       if (request.action === 'overview') return getOverview(request);
-      return request.action === 'documents' ? getDocuments() : getActivityLogs();
+      return request.action === 'documents' ? getDocuments(request) : getActivityLogs();
     }
 
     if (['userLogs', 'users'].includes(request.action) && !isSuperAdminSession(request.token)) {
@@ -554,6 +572,7 @@ function doPost(e) {
   } finally {
     if (overviewMayChange) {
       try { CacheService.getScriptCache().remove('overview:v1'); } catch (error) { /* Optional summary cache. */ }
+      try { CacheService.getScriptCache().remove('documents:v1'); } catch (error) { /* Optional registry cache. */ }
     }
     requestAccounts = undefined;
     requestCredentialRows = undefined;
@@ -861,8 +880,23 @@ function getActivityLogs() {
   return jsonResponse({ success: true, activities: current.concat(events) });
 }
 
-function getDocuments() {
-  return jsonResponse({ success: true, documents: registeredDocuments().reverse() });
+function getDocuments(request) {
+  let cache;
+  try {
+    cache = CacheService.getScriptCache();
+    const stored = !(request && request.refresh) && cache.get('documents:v1');
+    if (stored) {
+      const documents = JSON.parse(stored);
+      if (Array.isArray(documents)) return jsonResponse({ success: true, documents: documents });
+    }
+  } catch (error) { /* Cache is optional. */ }
+  const documents = registeredDocuments().reverse();
+  try {
+    const serialized = JSON.stringify(documents);
+    // Stay below CacheService's 100 KB per-key limit, including Unicode text.
+    if (cache && serialized.length < 24000) cache.put('documents:v1', serialized, 15);
+  } catch (error) { /* Large registers and cache failures use live reads. */ }
+  return jsonResponse({ success: true, documents: documents });
 }
 
 // Return chart counts only. No activity history, document bodies or Drive reads.
@@ -1931,7 +1965,8 @@ function manageAccount(request, user) {
 // Resolve again under the migration lock: deletes can shift row positions.
 function workflowDocument(id, targeted, documentType) {
   if (typeof id !== 'string' || !id) throw new Error('Document was not found.');
-  const typedEntry = documentType ? createdRegistryEntries(documentType).find(entry => entry.record.id === id) : null;
+  if (documentType && !Object.prototype.hasOwnProperty.call(CREATED_DOCUMENT_SHEETS, documentType)) throw new Error('Unsupported document type.');
+  const typedEntry = documentType ? createdRegistryEntries(documentType, id).find(entry => entry.record.id === id) : null;
   if (typedEntry) return { ...typedEntry, cell: typedEntry.sheet.getRange(typedEntry.row, 1) };
   function fromForm() {
     const entry = documentType ? null : createdRegistryEntries().find(entry => entry.record.id === id);
