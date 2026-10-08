@@ -643,3 +643,7 @@
 .upload-progress-note { margin:0; color:#827579; font-size:12px; line-height:1.5; }
 @media(prefers-reduced-motion:reduce) { .upload-progress > div { transition:none; } }
 @media(max-width:540px) { .upload-queue-copy { flex-direction:column; align-items:flex-start; gap:5px; } }
+.upload-success { display:grid; justify-items:center; gap:14px; padding:36px 28px; text-align:center; }
+.upload-success-icon { display:grid; place-items:center; width:64px; height:64px; border-radius:50%; background:#e7f4ec; color:#2c8054; font-size:32px; }
+.upload-success h3 { margin:0; color:#2c8054; font-size:20px; }
+.upload-success p { margin:0; color:#76626a; line-height:1.6; overflow-wrap:anywhere; }

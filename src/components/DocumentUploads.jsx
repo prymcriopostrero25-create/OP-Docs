@@ -76,7 +76,7 @@ export default function DocumentUploads({ onCreateDocument }) {
         updateItem(item.id, { status: 'uploading', progress: 1 })
         // The API reports completion only. Estimated progress stays below 100 until confirmed.
         const timer = setInterval(() => {
-          setSelection(current => current.map(entry => entry.id === item.id
+          setSelection(current => current.map(entry => entry.id === item.id && entry.status === 'uploading'
             ? { ...entry, progress: Math.min(95, entry.progress + Math.max(1, Math.round((95 - entry.progress) / 10))) }
             : entry))
         }, 500)
@@ -90,6 +90,8 @@ export default function DocumentUploads({ onCreateDocument }) {
           throw new Error(`${item.file.name}: ${failure.message}`, { cause: failure })
         } finally { clearInterval(timer) }
       })
+      operation.current = false
+      setBusy('')
       setSuccess(`Saved all ${selection.length} PDF${selection.length === 1 ? '' : 's'} to ${type} / ${year}.`)
     } catch (failure) { setError(failure.message + ' Retry to resume; completed files will be skipped.') }
     finally { operation.current = false; setBusy('') }
@@ -123,15 +125,18 @@ export default function DocumentUploads({ onCreateDocument }) {
     <div className="documents-title-row"><div><p className="eyebrow">Document registry</p><h1>Documents</h1><p>View and manage all records created across your office.</p></div>
       <div className="documents-actions"><button ref={opener} className="secondary-action upload-pdf-action" disabled={loading} onClick={() => setOpen(true)}>↑ Upload PDF</button><button className="primary-action" onClick={onCreateDocument}>＋ Create document</button></div>
     </div>
-    {success && <p className="uploaded-file" role="status">{success}</p>}
     {(error || loadError) && !open && <p role="alert">{error || loadError}</p>}
     {open && <div className="upload-pdf-overlay" onClick={closeUpload}>
-      <section ref={activeDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="upload-title" className="upload-pdf-modal" onKeyDown={dialogKeys} onClick={event => event.stopPropagation()}>
+      <section ref={activeDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="upload-title" aria-busy={!!busy} className="upload-pdf-modal" onKeyDown={dialogKeys} onClick={event => event.stopPropagation()}>
         <header className="upload-heading">
-          <div><p className="eyebrow">Document registry</p><h2 id="upload-title">Upload PDF documents</h2><span>Select PDFs and confirm the shared filing details.</span></div>
+          <div><p className="eyebrow">Document registry</p><h2 id="upload-title">{success ? 'Upload complete' : 'Upload PDF documents'}</h2><span>{success ? 'All PDFs were saved successfully.' : 'Select PDFs and confirm the shared filing details.'}</span></div>
           <button type="button" aria-label="Close upload" disabled={!!busy} onClick={closeUpload}><span aria-hidden="true">×</span></button>
         </header>
-        <div className="upload-body">
+        {success ? <div className="upload-body upload-success" role="status" aria-live="polite">
+          <div className="upload-success-icon" aria-hidden="true">&#10003;</div>
+          <h3>PDFs uploaded successfully</h3>
+          <p>{success}</p>
+        </div> : <div className="upload-body">
           <div className="upload-section-heading"><h3><span>01</span> Document files</h3><small>PDF · Up to 25 MB each</small></div>
           <input name="documentFile" ref={input} type="file" multiple hidden accept="application/pdf,.pdf" onChange={event => { void chooseFiles(event.target.files); event.target.value = '' }} />
           <div className={`pdf-dropzone${selection.length ? ' has-file' : ''}${dragging ? ' is-dragging' : ''}`} onDragOver={event => { event.preventDefault(); if (!operation.current) setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); void chooseFiles(event.dataTransfer.files) }}>
@@ -157,8 +162,8 @@ export default function DocumentUploads({ onCreateDocument }) {
             </div>
             <div className="upload-destination"><small>Filing destination</small><p><span>OP Systems</span><span aria-hidden="true">/</span><strong>{type || 'Document type'}</strong><span aria-hidden="true">/</span><strong>{year || 'Year'}</strong></p></div>
           </form> : <div className="upload-details-empty">Choose PDFs to review their shared document type and year.</div>}
-        </div>
-        <footer className="upload-footer"><p>{selection.length ? 'Files upload one at a time.' : 'Select PDFs to get started.'}</p><div><button type="button" className="secondary-action" disabled={!!busy} onClick={closeUpload}>{selection.length && selection.every(item => item.status === 'complete') ? 'Done' : 'Cancel'}</button><button type="submit" form="pdf-filing-form" className="primary-action" disabled={!!busy || !selection.length || selection.every(item => item.status === 'complete') || !type || !/^(19|20)\d{2}$/.test(year)}>{busy ? 'Please wait…' : selection.some(item => item.status === 'failed') ? 'Retry remaining' : 'Upload PDFs'}</button></div></footer>
+        </div>}
+        {success ? <footer className="upload-footer"><p>Upload complete.</p><div><button type="button" className="primary-action" autoFocus onClick={closeUpload}>Done</button></div></footer> : <footer className="upload-footer"><p>{selection.length ? 'Files upload one at a time.' : 'Select PDFs to get started.'}</p><div><button type="button" className="secondary-action" disabled={!!busy} onClick={closeUpload}>{selection.length && selection.every(item => item.status === 'complete') ? 'Done' : 'Cancel'}</button><button type="submit" form="pdf-filing-form" className="primary-action" disabled={!!busy || !selection.length || selection.every(item => item.status === 'complete') || !type || !/^(19|20)\d{2}$/.test(year)}>{busy ? 'Please wait…' : selection.some(item => item.status === 'failed') ? 'Retry remaining' : 'Upload PDFs'}</button></div></footer>}
       </section>
     </div>}
   </>
