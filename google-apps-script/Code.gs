@@ -278,6 +278,11 @@ function syncApprovalSignature(file, form, status) {
   if (changed) doc.saveAndClose();
 }
 
+function approvalTimestamp(previousStatus, status, previousTimestamp, now) {
+  if (!['Approved', 'Out'].includes(status)) return '';
+  return ['Approved', 'Out'].includes(previousStatus) && previousTimestamp ? previousTimestamp : now;
+}
+
 function updateDocumentStatus(request) {
   if (!canChangeDocumentStatus(request.token)) return jsonResponse({ success: false, message: 'Admin access is required to change document status.' });
   if (!DOCUMENT_STATUSES.includes(request.status)) return jsonResponse({ success: false, message: 'Choose a valid document status.' });
@@ -294,7 +299,7 @@ function updateDocumentStatus(request) {
     if (metadata.form && fileMatch) syncApprovalSignature(DriveApp.getFileById(fileMatch[1]), metadata.form, request.status);
     metadata.status = request.status;
     metadata.updated = new Date().toISOString();
-    if (request.status === 'Approved' && !metadata.approvedAt) metadata.approvedAt = metadata.updated;
+    metadata.approvedAt = approvalTimestamp(entry.record.status, request.status, metadata.approvedAt, metadata.updated);
     syncCreatedDocumentStatus(metadata.type, metadata.createdDocumentId, request.status);
     cell.setNote(JSON.stringify(metadata));
     appendActivityEvent({ ...entry.record, activity: 'Status changed to ' + request.status, date: new Date().toISOString() });
@@ -1800,6 +1805,7 @@ function createDocument(request) {
       if (root.isTrashed()) throw new Error('The destination folder is in the trash.');
       const folder = filingSubfolder(filingSubfolder(root, type), data.year);
       file.moveTo(folder);
+      if (['Approved', 'Out'].includes(state.status) && !state.approvedAt) state.approvedAt = new Date().toISOString();
       syncApprovalSignature(file, data, state.status);
       state.rendered = true;
       saveState();
@@ -1807,7 +1813,7 @@ function createDocument(request) {
     stage = 'registry';
     const record = { activity: type.toUpperCase(), id: id, date: executiveMemoDate(data.date), subject: data.subject, url: 'https://drive.google.com/file/d/' + state.fileId + '/view', type: type, year: data.year, status: state.status };
     const metadata = savedEntry ? savedEntry.metadata : {};
-    if (['Approved', 'Out'].includes(metadata.status || record.status) && !metadata.approvedAt) metadata.approvedAt = new Date().toISOString();
+    if (['Approved', 'Out'].includes(metadata.status || record.status) && !metadata.approvedAt) metadata.approvedAt = state.approvedAt || new Date().toISOString();
     const storedData = storeRichBodyForm(data, file, state.bodyRichFileId);
     if (storedData.bodyRichFileId && state.bodyRichFileId !== storedData.bodyRichFileId) { state.bodyRichFileId = storedData.bodyRichFileId; saveState(); }
     const savedNote = JSON.stringify({ ...metadata, type: record.type, year: record.year, status: metadata.status || record.status, owner: owner, form: { ...storedData, travelFrom: request.travelFrom || '', travelUntil: request.travelUntil || '', templateVersion: request.templateVersion || 1, type: type, signatoryPosition: data.position || request.signatoryPosition || '' }, createdDocumentId: key });

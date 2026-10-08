@@ -54,6 +54,17 @@ test('approval inserts the signature above the name, retains it for Out, and wit
   assert.equal(f.elements.length, 2)
 })
 
+test('approval timestamp records approval, survives Out, and resets after withdrawal', () => {
+  const { ctx } = fixture()
+  const first = '2026-10-08T02:23:45.000Z'
+  const later = '2026-10-09T03:00:00.000Z'
+  assert.equal(ctx.approvalTimestamp('For Signature', 'Approved', '', first), first)
+  assert.equal(ctx.approvalTimestamp('Approved', 'Approved', first, later), first)
+  assert.equal(ctx.approvalTimestamp('Approved', 'Out', first, later), first)
+  assert.equal(ctx.approvalTimestamp('Approved', 'For Review', first, later), '')
+  assert.equal(ctx.approvalTimestamp('For Review', 'Approved', first, later), later)
+})
+
 test('bundled backend signature matches public/esign.png', () => {
   const f = fixture()
   const bundled = vm.runInContext('PRESIDENT_SIGNATURE_PNG', f.ctx)
