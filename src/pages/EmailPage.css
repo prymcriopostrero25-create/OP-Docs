@@ -1,0 +1,29 @@
+.email-page .user-logs-table-wrap { overflow: visible; }
+.email-page .user-logs-table { width: 100%; min-width: 0; table-layout: fixed; white-space: normal; }
+.email-page .user-logs-table th,
+.email-page .user-logs-table td { text-align: center; }
+.email-page .user-logs-table th,
+.email-page .user-logs-table td { padding: 14px 10px; vertical-align: top; overflow-wrap: anywhere; white-space: normal; }
+.email-page .user-logs-table th:nth-child(1),
+.email-page .user-logs-table td:nth-child(1) { width: 12%; }
+.email-page .user-logs-table th:nth-child(2) { width: 15%; }
+.email-page .user-logs-table th:nth-child(3) { width: 21%; }
+.email-page .user-logs-table th:nth-child(4) { width: 27%; }
+.email-page .user-logs-table th:nth-child(5) { width: 17%; }
+.email-page .user-logs-table th:nth-child(6) { width: 8%; }
+.email-cell-text { white-space: pre-wrap; }
+.email-remarks-select { width: 100%; max-width: 180px; padding: 8px 4px; border: 1px solid #ddd4d5; border-radius: 6px; background: white; color: inherit; font: inherit; text-align: center; }
+.email-see-more { display: block; margin: 6px auto 0; padding: 0; border: 0; background: transparent; color: #7b2639; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.email-see-more:hover { color: #45101c; }
+
+@media (max-width: 700px) {
+  .email-page .user-logs-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .email-page .user-logs-table,
+  .email-page .user-logs-table tbody,
+  .email-page .user-logs-table tr { display: block; width: 100%; }
+  .email-page .user-logs-table tr { padding: 12px 0; border-top: 1px solid #eee9e7; }
+  .email-page .user-logs-table td,
+  .email-page .user-logs-table td:nth-child(1) { display: grid; grid-template-columns: 105px minmax(0, 1fr); width: auto; padding: 6px 16px; border: 0; }
+  .email-page .user-logs-table td::before { content: attr(data-label); color: #8d8082; font-weight: 700; }
+  .email-page .email-see-more { grid-column: 2; justify-self: center; }
+}

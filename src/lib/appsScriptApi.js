@@ -9,6 +9,14 @@ import { requestApprovalPassword } from './approvalPassword'
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL
 const requestTarget = () => import.meta.env.DEV ? '/apps-script' : APPS_SCRIPT_URL
 
+export async function fetchEmails() {
+  return (await documentRequest({ action: 'emails' })).emails || []
+}
+
+export async function updateEmailRemarks(link, remarks) {
+  return documentRequest({ action: 'updateEmailRemarks', link, remarks })
+}
+
 export async function authenticateUser(email, password) {
   if (!APPS_SCRIPT_URL) {
     throw new Error('The Apps Script web app URL is not configured.')

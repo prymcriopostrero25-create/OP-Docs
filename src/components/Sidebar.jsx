@@ -1,7 +1,7 @@
 import { canAccessPage } from '../lib/permissions'
 
 const navItems = [
-  ['Overview', '▦'], ['Documents', '▤'], ['Archive', '▣'], ['Activity log', '⌁'],
+  ['Overview', '▦'], ['Documents', '▤'], ['Email', '✉'], ['Archive', '▣'], ['Activity log', '⌁'],
   ['Verification', '✓'], ['User management', '♙'], ['User logs', '◷'], ['Settings', '⚙'],
 ]
 
@@ -29,7 +29,7 @@ export default function Sidebar({ active, isOpen, onNavigate, onLogout, onClose,
       <div className="sidebar-user">
         <div className="avatar">{initials}</div>
         <div><strong>{name}</strong><small>{user.email}</small></div>
-        <button onClick={onLogout} title="Sign out" aria-label="Sign out">↪</button>
+        <button onClick={onLogout} title="Sign out" aria-label="Sign out">{'↪'}</button>
       </div>
     </aside>
   )

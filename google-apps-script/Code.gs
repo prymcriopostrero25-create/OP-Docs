@@ -470,6 +470,8 @@ function doPost(e) {
   let overviewMayChange = false;
   try {
     const request = JSON.parse(e.postData.contents || '{}');
+    if (request.action === 'emails') return getEmailRegister(request);
+    if (request.action === 'updateEmailRemarks') return updateEmailRemarks(request);
     try { requireApprovalPassword(request); }
     catch (error) { return jsonResponse({ success: false, message: error.message }); }
     overviewMayChange = ['createDocument', 'createExecutiveMemorandum', 'uploadDocument', 'editDocument', 'deleteDocument', 'updateDocumentStatus', 'updateDocumentContent', 'sendDocument', 'documentSendStatus', 'prepareDocumentPreview'].includes(request.action);
@@ -2374,4 +2376,161 @@ function verifyPassword_(plainPassword, hashedPassword) {
     Utilities.Charset.UTF_8
   );
   return constantTimeEqual_(Utilities.base64EncodeWebSafe(signature), parts[2]);
+}
+
+// Email register: run setupEmailSheet once, then syncEmailSheet as the mailbox owner.
+const EMAIL_SHEET_HEADERS = ['Timestamp', 'Reference No', 'Date Received', 'Received From', 'Subject', 'Remarks', 'Links'];
+const EMAIL_REMARKS = ['Incoming', 'For Information', 'Acknowledge', 'For Action', 'Invitations', 'Memorandum', 'Approved', 'Disapproved', 'Completed'];
+
+function updateEmailRemarks(request) {
+  if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
+  if (!EMAIL_REMARKS.includes(request.remarks) || typeof request.link !== 'string' || !request.link) return jsonResponse({ success: false, message: 'Choose valid email remarks.' });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = appSpreadsheet().getSheetByName('Email');
+    if (!sheet || sheet.getLastRow() < 2) throw new Error('Email record was not found.');
+    const links = sheet.getRange(2, 7, sheet.getLastRow() - 1, 1);
+    const values = links.getDisplayValues();
+    const rich = links.getRichTextValues();
+    const matches = values.map((row, index) => {
+      const cell = rich[index][0];
+      const url = (cell && cell.getLinkUrl()) || (cell && cell.getRuns().map(run => run.getLinkUrl()).find(Boolean)) || row[0];
+      return url === request.link ? index + 2 : 0;
+    }).filter(Boolean);
+    if (matches.length !== 1) throw new Error('Email record could not be uniquely identified.');
+    sheet.getRange(matches[0], 6).setValue(request.remarks);
+    SpreadsheetApp.flush();
+    return jsonResponse({ success: true, remarks: request.remarks });
+  } catch (error) { return jsonResponse({ success: false, message: error.message }); }
+  finally { lock.releaseLock(); }
+}
+
+// Run once as the mailbox owner to enable unattended imports.
+function enableAutomaticEmailSync() {
+  setupEmailSheet();
+  // Request Gmail access before installing the background trigger.
+  Gmail.Users.getProfile('me');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const triggers = ScriptApp.getProjectTriggers().filter(trigger => trigger.getHandlerFunction() === 'syncEmailSheet');
+    if (!triggers.length) ScriptApp.newTrigger('syncEmailSheet').timeBased().everyMinutes(15).create();
+    // Repeated setup keeps a single trigger owned by this account.
+    triggers.slice(1).forEach(trigger => ScriptApp.deleteTrigger(trigger));
+  } finally { lock.releaseLock(); }
+  console.log('Automatic email import enabled every 15 minutes for this mailbox.');
+  syncEmailSheet();
+}
+
+function setupEmailSheet() {
+  const spreadsheet = appSpreadsheet();
+  const sheet = spreadsheet.getSheetByName('Email') || spreadsheet.insertSheet('Email');
+  const existing = sheet.getRange(1, 1, 1, 7).getDisplayValues()[0];
+  if (existing.some((value, index) => value && value !== EMAIL_SHEET_HEADERS[index])) {
+    throw new Error('Email headers differ from the expected layout. Check A1:G1 before setup.');
+  }
+  sheet.getRange(1, 1, 1, 7).setValues([EMAIL_SHEET_HEADERS]).setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
+// Imports received messages since today's midnight in Manila, including archived mail.
+// Each message gets a row; its Gmail message ID in Links prevents duplicate imports.
+// New rows receive a reference and Incoming remarks; existing rows stay intact.
+function syncEmailSheet() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = setupEmailSheet();
+    const known = new Set(sheet.getLastRow() > 1
+      ? sheet.getRange(2, 7, sheet.getLastRow() - 1, 1).getValues().map(row => String(row[0])) : []);
+    const today = Utilities.formatDate(new Date(), 'Asia/Manila', 'yyyy-MM-dd');
+    const references = new Set(sheet.getLastRow() > 1
+      ? sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getValues().map(row => String(row[0])) : []);
+    function nextReference() {
+      let reference;
+      do { reference = 'JHCSC-' + today.replace(/-/g, '') + '-' + Math.floor(100000 + Math.random() * 900000); }
+      while (references.has(reference));
+      references.add(reference);
+      return reference;
+    }
+    const midnight = Math.floor(new Date(today + 'T00:00:00+08:00').getTime() / 1000);
+    const query = 'in:anywhere -in:sent -in:drafts -in:spam -in:trash after:' + midnight;
+    const threads = new Map();
+    const subjectKey = value => String(value || '').replace(/^(?:(?:re|fw|fwd)\s*:\s*)+/i, '').trim().toLowerCase();
+    const messageHeader = (message, name) => (((message.payload || {}).headers || []).find(value => value.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
+    const properties = PropertiesService.getScriptProperties();
+    if (properties.getProperty('EMAIL_REGISTER_SCAN_DATE') !== today) {
+      properties.deleteProperty('EMAIL_REGISTER_PAGE_TOKEN');
+      properties.setProperty('EMAIL_REGISTER_SCAN_DATE', today);
+    }
+    let pageToken = properties.getProperty('EMAIL_REGISTER_PAGE_TOKEN');
+    // One small page per execution leaves quota available for document sending.
+    for (let page = 0; page < 1; page++) {
+      const options = { q: query, maxResults: 25 };
+      if (pageToken) options.pageToken = pageToken;
+      const result = Gmail.Users.Messages.list('me', options);
+      const rows = [];
+      try {
+      (result.messages || []).forEach(item => {
+        const url = 'https://mail.google.com/mail/u/0/#all/' + item.id;
+        if (known.has(url)) return;
+        let message = Gmail.Users.Messages.get('me', item.id, { format: 'metadata', metadataHeaders: ['From', 'Subject'] });
+        if (message.threadId) {
+          if (!threads.has(message.threadId)) {
+            threads.set(message.threadId, Gmail.Users.Threads.get('me', message.threadId, { format: 'metadata', metadataHeaders: ['From', 'Subject'] }).messages || []);
+          }
+          const matching = threads.get(message.threadId).filter(candidate =>
+            !(candidate.labelIds || []).some(label => ['SENT', 'DRAFT', 'SPAM', 'TRASH'].includes(label)) &&
+            subjectKey(messageHeader(candidate, 'Subject')) === subjectKey(messageHeader(message, 'Subject'))
+          ).sort((a, b) => Number(a.internalDate) - Number(b.internalDate) || String(a.id).localeCompare(String(b.id)));
+          // Check every matching message so legacy rows also prevent reimports.
+          if (matching.some(candidate => known.has('https://mail.google.com/mail/u/0/#all/' + candidate.id))) return;
+          if (!matching.length || Number(matching[0].internalDate) < midnight * 1000) return;
+          message = matching[0];
+        }
+        const firstUrl = 'https://mail.google.com/mail/u/0/#all/' + (message.id || item.id);
+        if (known.has(firstUrl)) return;
+        const headers = (message.payload && message.payload.headers) || [];
+        const header = name => (headers.find(value => value.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
+        // A leading apostrophe prevents email text being interpreted as a Sheets formula.
+        const text = value => /^[=+\-@]/.test(value) ? "'" + value : value;
+        rows.push([new Date(), nextReference(), new Date(Number(message.internalDate)), text(header('From')), text(header('Subject')), 'Incoming', firstUrl]);
+        known.add(firstUrl);
+      });
+      } finally {
+      // Preserve completed reads even if a later Gmail request hits its quota.
+      // Keep the current page token on failure; retries skip the saved URLs.
+      if (rows.length) {
+        const first = sheet.getLastRow() + 1;
+        sheet.getRange(first, 1, rows.length, 7).setValues(rows);
+        sheet.getRange(first, 1, rows.length, 1).setNumberFormat('yyyy-mm-dd hh:mm:ss');
+        sheet.getRange(first, 3, rows.length, 1).setNumberFormat('yyyy-mm-dd hh:mm:ss');
+      }
+      }
+      pageToken = result.nextPageToken;
+      if (pageToken) properties.setProperty('EMAIL_REGISTER_PAGE_TOKEN', pageToken);
+      else { properties.deleteProperty('EMAIL_REGISTER_PAGE_TOKEN'); break; }
+      console.log('Email import saved ' + rows.length + ' messages. Run again later to continue.');
+    }
+  } finally { lock.releaseLock(); }
+}
+
+// Read the register only; visiting the page never imports Gmail or modifies cells.
+function getEmailRegister(request) {
+  if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
+  const sheet = appSpreadsheet().getSheetByName('Email');
+  if (!sheet) return jsonResponse({ success: false, message: 'The Email sheet is missing.' });
+  if (sheet.getLastRow() < 2) return jsonResponse({ success: true, emails: [] });
+  const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7);
+  const rows = range.getDisplayValues();
+  const richText = range.getRichTextValues();
+  const emails = rows.map((row, index) => {
+    const cell = richText[index][6];
+    const runs = cell ? cell.getRuns() : [];
+    const link = (cell && cell.getLinkUrl()) || runs.map(run => run.getLinkUrl()).find(Boolean) || row[6];
+    return { timestamp: row[0], reference: row[1], dateReceived: row[2], receivedFrom: row[3], subject: row[4], remarks: row[5], link: /^https?:\/\//i.test(link) ? link : '' };
+  }).filter(email => email.timestamp || email.reference || email.dateReceived || email.receivedFrom || email.subject || email.remarks || email.link);
+  return jsonResponse({ success: true, emails: emails.reverse() });
 }

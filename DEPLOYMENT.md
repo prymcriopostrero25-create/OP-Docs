@@ -153,3 +153,31 @@ already-cached summary when available, without scanning the registry on a cache
 miss. The frontend reuses that result for up to 30 seconds; manual refresh and
 document mutations invalidate it. Older deployments fall back to the separate
 account request. A cold Google Apps Script execution can still take time.
+
+## Received email register
+
+The sidebar Email button opens an in-app register populated from columns A:G
+of the Email sheet. All signed-in portal roles can read it. The page includes
+search, refresh, and an Open email link per row; it does not import Gmail on load.
+Publish the updated Code.gs as a new version of the existing web app deployment
+to enable the authenticated `emails` endpoint.
+
+Copy the updated `Code.gs` into Apps Script, then run `setupEmailSheet` as the
+spreadsheet owner to create A1:G1: Timestamp, Reference No, Date Received,
+Received From, Subject, Remarks, Links. Existing mismatched headers are rejected.
+Run `syncEmailSheet` as the Gmail mailbox owner and authorize Gmail read access.
+Run `enableAutomaticEmailSync` once as the mailbox owner to authorize access,
+import immediately, and install a trigger for `syncEmailSheet` every 15 minutes.
+Repeated setup keeps one trigger for that account. Use the same mailbox owner
+each time. The trigger continues running when the website is closed.
+It imports received messages since midnight today in Manila, including archived mail,
+with one row and Gmail link per message. Each run processes up to 25 messages;
+subsequent runs continue the scan. Timestamp is the import time; Date Received
+uses Gmail's received timestamp; Received From is the sender. Reference No and
+Remarks are left for manual entry. Existing rows are preserved and message URLs
+prevent duplicate imports. Gmail links require access to the importing mailbox;
+select that Google account in Gmail if another account opens by default.
+
+These setup steps must be run in the connected Google account; local builds do
+not modify the live spreadsheet or install Google triggers.
+

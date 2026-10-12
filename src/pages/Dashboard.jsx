@@ -18,6 +18,7 @@ const ActivityLogPage = lazy(() => import('./ActivityLogPage'))
 const UserManagementPage = lazy(() => import('./UserManagementPage'))
 const UserLogsPage = lazy(() => import('./UserLogsPage'))
 const SettingsPage = lazy(() => import('./SettingsPage'))
+const EmailPage = lazy(() => import('./EmailPage'))
 const emptyFiles = []
 
 export default function Dashboard({ user, onLogout }) {
@@ -136,6 +137,7 @@ export default function Dashboard({ user, onLogout }) {
         {active === 'Create document' ? <main className="dashboard-content create-document-page"><CreateDocument isOpen page onClose={() => setActive('Documents')} onCreate={createDocument} onViewCreated={record => { setDocumentType(record.type); setActive('Documents') }} canChangeStatus={permissions.changeStatus} /></main>
           : active === 'Documents' ? <DocumentsPage initialType={documentType} onCreateDocument={() => { setMenuOpen(false); setActive('Create document') }} />
           : active === 'Archive' ? <ArchivePage />
+          : active === 'Email' ? <EmailPage />
           : active === 'Activity log' ? <ActivityLogPage />
           : active === 'User management' ? <UserManagementPage />
           : active === 'User logs' ? <UserLogsPage />
