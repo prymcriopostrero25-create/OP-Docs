@@ -167,17 +167,27 @@ spreadsheet owner to create A1:G1: Timestamp, Reference No, Date Received,
 Received From, Subject, Remarks, Links. Existing mismatched headers are rejected.
 Run `syncEmailSheet` as the Gmail mailbox owner and authorize Gmail read access.
 Run `enableAutomaticEmailSync` once as the mailbox owner to authorize access,
-import immediately, and install a trigger for `syncEmailSheet` every 15 minutes.
+import immediately, and install a trigger for `syncEmailSheet` every 5 minutes.
 Repeated setup keeps one trigger for that account. Use the same mailbox owner
 each time. The trigger continues running when the website is closed.
-It imports received messages since midnight today in Manila, including archived mail,
-with one row and Gmail link per message. Each run processes up to 25 messages;
-subsequent runs continue the scan. Timestamp is the import time; Date Received
-uses Gmail's received timestamp; Received From is the sender. Reference No and
-Remarks are left for manual entry. Existing rows are preserved and message URLs
-prevent duplicate imports. Gmail links require access to the importing mailbox;
+It imports received messages missing the `JHCSC_OPDOCS` label, from October 12, 2026 at midnight in Manila onward, including archived mail. Sent mail, drafts, spam and trash are excluded. Each run
+processes up to 25 search results; subsequent runs pick up the remaining unlabeled
+mail using that fixed start date, so later runs can catch up on missed imports. Large backlogs take multiple scheduled runs.
+The processed label is applied only after saving the rows and reply metadata.
+Each conversation keeps its original row, reference and remarks; incoming replies
+update its latest sender, received time and reply count in the Links cell note.
+New rows receive a generated reference and Incoming remarks. Timestamp is the
+import time; Date Received uses the original received timestamp.
+The open Email page refreshes approximately every 30–40 seconds and shows new
+reply indicators. Existing rows and message URLs prevent duplicate imports on retries.
+Gmail links require access to the importing mailbox;
 select that Google account in Gmail if another account opens by default.
 
 These setup steps must be run in the connected Google account; local builds do
 not modify the live spreadsheet or install Google triggers.
 
+### In-app email conversations
+
+Copy the updated `google-apps-script/Code.gs` into Apps Script and update the existing web app deployment to a new version. Clicking an Email row or **Open conversation** now loads its saved Gmail thread into a modal through the authenticated `emailThread` action. Existing automatic sync triggers do not need to be reinstalled.
+
+Messages show sender, date, formatted body, and clickable attachments; the To line is hidden. External images are hidden until **Show external images** is selected. Attachments up to 20 MB load through the authenticated `emailAttachment` action: PDF, PNG, JPEG, GIF, WebP, and plain text open in a preview dialog, with a download option for other formats. Sending replies is not included in this viewer. The New badge clears after the conversation loads successfully. Deploy the updated Apps Script version to enable attachment loading.

@@ -13,6 +13,14 @@ export async function fetchEmails() {
   return (await documentRequest({ action: 'emails' })).emails || []
 }
 
+export async function fetchEmailThread(link) {
+  return documentRequest({ action: 'emailThread', link })
+}
+
+export async function fetchEmailAttachment(link, messageId, partId) {
+  return documentRequest({ action: 'emailAttachment', link, messageId, partId })
+}
+
 export async function updateEmailRemarks(link, remarks) {
   return documentRequest({ action: 'updateEmailRemarks', link, remarks })
 }

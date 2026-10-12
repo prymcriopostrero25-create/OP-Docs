@@ -15,8 +15,17 @@
 .email-remarks-select { width: 100%; max-width: 180px; padding: 8px 4px; border: 1px solid #ddd4d5; border-radius: 6px; background: white; color: inherit; font: inherit; text-align: center; }
 .email-see-more { display: block; margin: 6px auto 0; padding: 0; border: 0; background: transparent; color: #7b2639; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
 .email-see-more:hover { color: #45101c; }
+.email-table-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.email-table-controls select { padding: 8px; border: 1px solid #ddd4d5; border-radius: 6px; background: white; color: inherit; font: inherit; }
+.email-sort-button { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-transform: inherit; cursor: pointer; }
+.email-mobile-sort { display: none; }
+.email-pagination { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 24px; border-top: 1px solid #eee9e7; }
+.email-pagination nav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.email-pagination button, .email-mobile-sort button { padding: 7px 10px; border: 1px solid #ddd4d5; border-radius: 6px; background: white; color: #7b2639; font: inherit; cursor: pointer; }
+.email-pagination button:disabled { opacity: .45; cursor: default; }
 
 @media (max-width: 700px) {
+  .email-mobile-sort { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .email-page .user-logs-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .email-page .user-logs-table,
   .email-page .user-logs-table tbody,
@@ -27,3 +36,30 @@
   .email-page .user-logs-table td::before { content: attr(data-label); color: #8d8082; font-weight: 700; }
   .email-page .email-see-more { grid-column: 2; justify-self: center; }
 }
+
+.email-new-badge { display: table; margin: 6px auto 0; padding: 3px 8px; border-radius: 12px; background: #e6f4eb; color: #25613b; font-size: 12px; font-weight: 700; }
+@media (max-width: 700px) {
+  .email-new-badge { grid-column: 2; justify-self: center; }
+}
+.email-clickable-row { cursor: pointer; }
+.email-clickable-row:hover { background: #faf6f7; }
+.email-conversation { width: min(1100px, calc(100vw - 40px)); max-height: 90dvh; padding: 0; border: 1px solid #e6dfe1; border-radius: 20px; color: #30282a; background: #f8f7f7; box-shadow: 0 24px 90px #240a1640; }
+.email-conversation::backdrop { background: #180a1466; }
+.email-conversation-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 24px; background: white; border-bottom: 1px solid #e6dfe1; position: sticky; top: 0; z-index: 1; }
+.email-conversation-heading h2 { margin: 6px 0 0; font-size: 21px; overflow-wrap: anywhere; }
+.email-conversation-heading button { flex-shrink: 0; }
+.email-conversation-content { padding: 24px; }
+.email-message { margin-top: 16px; background: white; border: 1px solid #e6dfe1; border-radius: 14px; overflow: hidden; }
+.email-message summary { padding: 20px; cursor: pointer; overflow-wrap: anywhere; }
+.email-message summary time { float: right; font-size: 13px; color: #80767a; margin-left: 16px; }
+.email-message-addresses { padding: 0 20px 16px; color: #80767a; font-size: 13px; overflow-wrap: anywhere; }
+.email-message iframe { display: block; width: 100%; height: 55dvh; min-height: 280px; border: 0; border-top: 1px solid #eee; background: white; }
+.email-message-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; padding: 20px; margin: 0; }
+.email-message-attachments { display: flex; flex-wrap: wrap; gap: 12px; padding: 16px 20px; border-top: 1px solid #eee; font-size: 13px; }
+@media (max-width: 700px) {
+  .email-conversation { width: calc(100vw - 16px); max-height: 95dvh; }
+  .email-conversation-heading, .email-conversation-content { padding: 16px; }
+  .email-message summary time { float: none; display: block; margin: 8px 0 0; }
+}
+.email-attachment-frame { display: block; width: 100%; height: 65dvh; margin-top: 20px; border: 0; }
+.email-attachment-image { display: block; max-width: 100%; max-height: 65dvh; object-fit: contain; margin: 20px auto 0; }

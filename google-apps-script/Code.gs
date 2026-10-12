@@ -471,6 +471,8 @@ function doPost(e) {
   try {
     const request = JSON.parse(e.postData.contents || '{}');
     if (request.action === 'emails') return getEmailRegister(request);
+    if (request.action === 'emailThread') return getEmailThread(request);
+    if (request.action === 'emailAttachment') return getEmailThread(request);
     if (request.action === 'updateEmailRemarks') return updateEmailRemarks(request);
     try { requireApprovalPassword(request); }
     catch (error) { return jsonResponse({ success: false, message: error.message }); }
@@ -2380,6 +2382,8 @@ function verifyPassword_(plainPassword, hashedPassword) {
 
 // Email register: run setupEmailSheet once, then syncEmailSheet as the mailbox owner.
 const EMAIL_SHEET_HEADERS = ['Timestamp', 'Reference No', 'Date Received', 'Received From', 'Subject', 'Remarks', 'Links'];
+// Fixed Manila start date: future runs can catch up without importing earlier mail.
+const EMAIL_IMPORT_START_DATE = '2026-10-12';
 const EMAIL_REMARKS = ['Incoming', 'For Information', 'Acknowledge', 'For Action', 'Invitations', 'Memorandum', 'Approved', 'Disapproved', 'Completed'];
 
 function updateEmailRemarks(request) {
@@ -2415,11 +2419,11 @@ function enableAutomaticEmailSync() {
   lock.waitLock(30000);
   try {
     const triggers = ScriptApp.getProjectTriggers().filter(trigger => trigger.getHandlerFunction() === 'syncEmailSheet');
-    if (!triggers.length) ScriptApp.newTrigger('syncEmailSheet').timeBased().everyMinutes(15).create();
-    // Repeated setup keeps a single trigger owned by this account.
-    triggers.slice(1).forEach(trigger => ScriptApp.deleteTrigger(trigger));
+    ScriptApp.newTrigger('syncEmailSheet').timeBased().everyMinutes(5).create();
+    // Replace the old schedule only after the new trigger is installed.
+    triggers.forEach(trigger => ScriptApp.deleteTrigger(trigger));
   } finally { lock.releaseLock(); }
-  console.log('Automatic email import enabled every 15 minutes for this mailbox.');
+  console.log('Automatic email import enabled every 5 minutes for this mailbox.');
   syncEmailSheet();
 }
 
@@ -2435,16 +2439,26 @@ function setupEmailSheet() {
   return sheet;
 }
 
-// Imports received messages since today's midnight in Manila, including archived mail.
-// Each message gets a row; its Gmail message ID in Links prevents duplicate imports.
+// Imports received messages from the fixed start date onward, including archived mail.
+// Each conversation keeps its original row; Links notes track incoming replies.
 // New rows receive a reference and Incoming remarks; existing rows stay intact.
 function syncEmailSheet() {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     const sheet = setupEmailSheet();
+    const labelName = 'JHCSC_OPDOCS';
+    const labels = Gmail.Users.Labels.list('me').labels || [];
+    const label = labels.find(item => item.name === labelName) || Gmail.Users.Labels.create({ name: labelName, labelListVisibility: 'labelShow', messageListVisibility: 'show' }, 'me');
     const known = new Set(sheet.getLastRow() > 1
       ? sheet.getRange(2, 7, sheet.getLastRow() - 1, 1).getValues().map(row => String(row[0])) : []);
+    const linkRows = sheet.getLastRow() > 1 ? sheet.getRange(2, 7, sheet.getLastRow() - 1, 1) : null;
+    const linkNotes = linkRows && typeof linkRows.getNotes === 'function' ? linkRows.getNotes() : [];
+    const linkValues = linkRows ? linkRows.getValues() : [];
+    const threadRows = new Map();
+    linkNotes.forEach((note, index) => {
+      try { const metadata = JSON.parse(note[0] || '{}'); if (metadata.threadId) threadRows.set(metadata.threadId, index + 2); } catch (error) { /* Legacy note. */ }
+    });
     const today = Utilities.formatDate(new Date(), 'Asia/Manila', 'yyyy-MM-dd');
     const references = new Set(sheet.getLastRow() > 1
       ? sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getValues().map(row => String(row[0])) : []);
@@ -2455,28 +2469,28 @@ function syncEmailSheet() {
       references.add(reference);
       return reference;
     }
-    const midnight = Math.floor(new Date(today + 'T00:00:00+08:00').getTime() / 1000);
-    const query = 'in:anywhere -in:sent -in:drafts -in:spam -in:trash after:' + midnight;
+    const startMillis = new Date(EMAIL_IMPORT_START_DATE + 'T00:00:00+08:00').getTime();
+    const query = 'in:anywhere -in:sent -in:drafts -in:spam -in:trash -label:' + labelName + ' after:' + (startMillis / 1000 - 1);
     const threads = new Map();
     const subjectKey = value => String(value || '').replace(/^(?:(?:re|fw|fwd)\s*:\s*)+/i, '').trim().toLowerCase();
     const messageHeader = (message, name) => (((message.payload || {}).headers || []).find(value => value.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
     const properties = PropertiesService.getScriptProperties();
-    if (properties.getProperty('EMAIL_REGISTER_SCAN_DATE') !== today) {
-      properties.deleteProperty('EMAIL_REGISTER_PAGE_TOKEN');
-      properties.setProperty('EMAIL_REGISTER_SCAN_DATE', today);
-    }
-    let pageToken = properties.getProperty('EMAIL_REGISTER_PAGE_TOKEN');
+    properties.deleteProperty('EMAIL_REGISTER_PAGE_TOKEN');
+    properties.deleteProperty('EMAIL_REGISTER_SCAN_DATE');
     // One small page per execution leaves quota available for document sending.
     for (let page = 0; page < 1; page++) {
       const options = { q: query, maxResults: 25 };
-      if (pageToken) options.pageToken = pageToken;
       const result = Gmail.Users.Messages.list('me', options);
       const rows = [];
+      const labelIds = new Set();
+      const pendingNotes = new Map();
       try {
       (result.messages || []).forEach(item => {
         const url = 'https://mail.google.com/mail/u/0/#all/' + item.id;
-        if (known.has(url)) return;
+        if (known.has(url) && !item.threadId) { labelIds.add(item.id); return; }
         let message = Gmail.Users.Messages.get('me', item.id, { format: 'metadata', metadataHeaders: ['From', 'Subject'] });
+        if (Number(message.internalDate) < startMillis) return;
+        let threadMetadata;
         if (message.threadId) {
           if (!threads.has(message.threadId)) {
             threads.set(message.threadId, Gmail.Users.Threads.get('me', message.threadId, { format: 'metadata', metadataHeaders: ['From', 'Subject'] }).messages || []);
@@ -2485,10 +2499,23 @@ function syncEmailSheet() {
             !(candidate.labelIds || []).some(label => ['SENT', 'DRAFT', 'SPAM', 'TRASH'].includes(label)) &&
             subjectKey(messageHeader(candidate, 'Subject')) === subjectKey(messageHeader(message, 'Subject'))
           ).sort((a, b) => Number(a.internalDate) - Number(b.internalDate) || String(a.id).localeCompare(String(b.id)));
-          // Check every matching message so legacy rows also prevent reimports.
-          if (matching.some(candidate => known.has('https://mail.google.com/mail/u/0/#all/' + candidate.id))) return;
-          if (!matching.length || Number(matching[0].internalDate) < midnight * 1000) return;
-          message = matching[0];
+          if (!matching.length) return;
+          const eligible = matching.filter(candidate => Number(candidate.internalDate) >= startMillis);
+          if (!eligible.length) return;
+          const latest = matching[matching.length - 1];
+          threadMetadata = { threadId: message.threadId, latestMessageId: latest.id,
+            latestReceivedAt: new Date(Number(latest.internalDate)).toISOString(),
+            latestSender: messageHeader(latest, 'From'), replyCount: Math.max(0, matching.length - 1) };
+          const existingRow = threadRows.get(message.threadId) || linkValues.findIndex(row => matching.some(candidate => String(row[0]) === 'https://mail.google.com/mail/u/0/#all/' + candidate.id)) + 2;
+          if (existingRow >= 2) {
+            pendingNotes.set(existingRow, threadMetadata);
+            threadRows.set(message.threadId, existingRow);
+            eligible.forEach(candidate => labelIds.add(candidate.id));
+            return;
+          }
+          message = eligible[0];
+          if (!message) return;
+          eligible.forEach(candidate => labelIds.add(candidate.id));
         }
         const firstUrl = 'https://mail.google.com/mail/u/0/#all/' + (message.id || item.id);
         if (known.has(firstUrl)) return;
@@ -2497,27 +2524,122 @@ function syncEmailSheet() {
         // A leading apostrophe prevents email text being interpreted as a Sheets formula.
         const text = value => /^[=+\-@]/.test(value) ? "'" + value : value;
         rows.push([new Date(), nextReference(), new Date(Number(message.internalDate)), text(header('From')), text(header('Subject')), 'Incoming', firstUrl]);
+        if (threadMetadata) {
+          const newRow = sheet.getLastRow() + rows.length;
+          pendingNotes.set(newRow, threadMetadata);
+          threadRows.set(threadMetadata.threadId, newRow);
+        }
         known.add(firstUrl);
+        labelIds.add(message.id || item.id);
       });
       } finally {
       // Preserve completed reads even if a later Gmail request hits its quota.
-      // Keep the current page token on failure; retries skip the saved URLs.
+      // Unlabeled messages remain eligible on failure; retries skip saved URLs.
       if (rows.length) {
         const first = sheet.getLastRow() + 1;
         sheet.getRange(first, 1, rows.length, 7).setValues(rows);
         sheet.getRange(first, 1, rows.length, 1).setNumberFormat('yyyy-mm-dd hh:mm:ss');
         sheet.getRange(first, 3, rows.length, 1).setNumberFormat('yyyy-mm-dd hh:mm:ss');
+        SpreadsheetApp.flush();
+      }
+      pendingNotes.forEach((metadata, row) => sheet.getRange(row, 7).setNote(JSON.stringify(metadata)));
+      if (pendingNotes.size) SpreadsheetApp.flush();
+      // Label only after the sheet write succeeds. A failed label request keeps
+      // this page for retry; saved links prevent another row being imported.
+      const savedIds = [...labelIds];
+      for (let offset = 0; offset < savedIds.length; offset += 1000) {
+        Gmail.Users.Messages.batchModify({ ids: savedIds.slice(offset, offset + 1000), addLabelIds: [label.id] }, 'me');
       }
       }
-      pageToken = result.nextPageToken;
-      if (pageToken) properties.setProperty('EMAIL_REGISTER_PAGE_TOKEN', pageToken);
-      else { properties.deleteProperty('EMAIL_REGISTER_PAGE_TOKEN'); break; }
-      console.log('Email import saved ' + rows.length + ' messages. Run again later to continue.');
+      // Always start at the first remaining batch: labeling shrinks this query.
+      // A page token would skip messages as earlier results disappear.
+      console.log('Email import saved ' + rows.length + ' conversations. Remaining unlabeled mail will be checked automatically on the next run.');
     }
   } finally { lock.releaseLock(); }
 }
 
 // Read the register only; visiting the page never imports Gmail or modifies cells.
+function decodeGmailBody(data, charset) {
+  // Advanced services can expose byte fields as already-decoded byte arrays.
+  // String(array) produces comma-separated numbers, which are not base64.
+  let bytes;
+  if (data != null && typeof data !== 'string' && typeof data.length === 'number') {
+    bytes = Array.from(data);
+    if (bytes.some(value => !Number.isInteger(value) || value < -128 || value > 255)) throw new Error('Invalid email body bytes.');
+    bytes = bytes.map(value => value > 127 ? value - 256 : value);
+  } else if (typeof data === 'string') {
+    const encoded = data.replace(/\s/g, '').replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+    if (!/^[A-Za-z0-9+/]*$/.test(encoded) || encoded.length % 4 === 1) throw new Error('Invalid email body encoding.');
+    const padded = encoded + '='.repeat((4 - encoded.length % 4) % 4);
+    bytes = Utilities.base64Decode(padded);
+  } else throw new Error('Unsupported email body format.');
+  const blob = Utilities.newBlob(bytes);
+  try { return blob.getDataAsString(charset || 'UTF-8'); }
+  catch (error) { return blob.getDataAsString('UTF-8'); }
+}
+
+function getEmailThread(request) {
+  if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
+  try {
+    // Resolve only a saved register link; client-supplied Gmail IDs grant no access.
+    const sheet = appSpreadsheet().getSheetByName('Email');
+    if (!sheet || sheet.getLastRow() < 2 || typeof request.link !== 'string') throw new Error('Email record was not found.');
+    const range = sheet.getRange(2, 7, sheet.getLastRow() - 1, 1);
+    const values = range.getDisplayValues(), rich = range.getRichTextValues();
+    const matches = values.filter((row, index) => {
+      const cell = rich[index][0];
+      const link = (cell && cell.getLinkUrl()) || (cell && cell.getRuns().map(run => run.getLinkUrl()).find(Boolean)) || row[0];
+      return link === request.link;
+    });
+    const match = /^https:\/\/mail\.google\.com\/mail\/u\/\d+\/#(?:all|inbox)\/([a-zA-Z0-9_-]+)$/.exec(request.link);
+    if (matches.length !== 1 || !match) throw new Error('Email record could not be uniquely identified.');
+    const anchor = Gmail.Users.Messages.get('me', match[1], { format: 'minimal' });
+    const thread = Gmail.Users.Threads.get('me', anchor.threadId, { format: 'full' });
+    if (request.action === 'emailAttachment') {
+      if (typeof request.messageId !== 'string' || typeof request.partId !== 'string') throw new Error('Choose a valid attachment.');
+      const message = (thread.messages || []).find(item => item.id === request.messageId && !(item.labelIds || []).some(label => ['DRAFT', 'SPAM', 'TRASH'].includes(label)));
+      let attachment;
+      function findAttachment(part) {
+        if (part.filename && part.partId === request.partId) attachment = part;
+        (part.parts || []).forEach(findAttachment);
+      }
+      if (message) findAttachment(message.payload || {});
+      if (!attachment) throw new Error('Attachment was not found in this conversation.');
+      if ((attachment.body || {}).size > 20 * 1024 * 1024) throw new Error('This attachment exceeds the 20 MB preview limit.');
+      const body = attachment.body || {};
+      const data = body.attachmentId ? Gmail.Users.Messages.Attachments.get('me', message.id, body.attachmentId).data : body.data;
+      if (data == null) throw new Error('The attachment content is unavailable.');
+      const encoded = typeof data === 'string' ? data.replace(/\s/g, '').replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '') : '';
+      const bytes = typeof data === 'string' ? Utilities.base64Decode(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, '=')) : Array.from(data).map(value => value > 127 ? value - 256 : value);
+      if (bytes.length > 20 * 1024 * 1024) throw new Error('This attachment exceeds the 20 MB preview limit.');
+      return jsonResponse({ success: true, name: attachment.filename, mimeType: attachment.mimeType || 'application/octet-stream', data: Utilities.base64Encode(bytes) });
+    }
+    const messages = (thread.messages || []).filter(message => !(message.labelIds || []).some(label => ['DRAFT', 'SPAM', 'TRASH'].includes(label)))
+      .sort((a, b) => Number(a.internalDate) - Number(b.internalDate)).map(message => {
+        const header = name => (((message.payload || {}).headers || []).find(item => item.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
+        const bodies = { html: '', text: '' }, attachments = [];
+        function visit(part) {
+          if (part.filename) attachments.push({ name: part.filename, partId: part.partId, mimeType: part.mimeType, size: (part.body || {}).size || 0 });
+          else if (['text/html', 'text/plain'].includes(part.mimeType)) {
+            let data = (part.body || {}).data;
+            if (!data && part.body && part.body.attachmentId) data = Gmail.Users.Messages.Attachments.get('me', message.id, part.body.attachmentId).data;
+            if (data) {
+              const contentType = ((part.headers || []).find(item => item.name.toLowerCase() === 'content-type') || {}).value || '';
+              const charset = /charset=["']?([^;\s"']+)/i.exec(contentType);
+              const content = decodeGmailBody(data, charset ? charset[1] : 'UTF-8');
+              bodies[part.mimeType === 'text/html' ? 'html' : 'text'] += content;
+            }
+          }
+          (part.parts || []).forEach(visit);
+        }
+        visit(message.payload || {});
+        return { id: message.id, from: header('From'), to: header('To'), cc: header('Cc'), subject: header('Subject'), date: new Date(Number(message.internalDate)).toISOString(), ...bodies, attachments };
+      });
+    const incoming = messages.filter(message => !(thread.messages.find(item => item.id === message.id).labelIds || []).includes('SENT'));
+    return jsonResponse({ success: true, messages: messages, latestMessageId: incoming.length ? incoming[incoming.length - 1].id : '' });
+  } catch (error) { return jsonResponse({ success: false, message: 'Unable to load the conversation. ' + error.message }); }
+}
+
 function getEmailRegister(request) {
   if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
   const sheet = appSpreadsheet().getSheetByName('Email');
@@ -2526,11 +2648,14 @@ function getEmailRegister(request) {
   const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7);
   const rows = range.getDisplayValues();
   const richText = range.getRichTextValues();
+  const notes = typeof range.getNotes === 'function' ? range.getNotes() : [];
   const emails = rows.map((row, index) => {
     const cell = richText[index][6];
     const runs = cell ? cell.getRuns() : [];
     const link = (cell && cell.getLinkUrl()) || runs.map(run => run.getLinkUrl()).find(Boolean) || row[6];
-    return { timestamp: row[0], reference: row[1], dateReceived: row[2], receivedFrom: row[3], subject: row[4], remarks: row[5], link: /^https?:\/\//i.test(link) ? link : '' };
+    let thread = {};
+    try { thread = JSON.parse(notes[index]?.[6] || '{}') || {}; } catch (error) { /* Legacy note. */ }
+    return { threadId: thread.threadId || '', latestMessageId: thread.latestMessageId || '', latestReceivedAt: thread.latestReceivedAt || '', latestSender: thread.latestSender || '', replyCount: thread.replyCount || 0, timestamp: row[0], reference: row[1], dateReceived: row[2], receivedFrom: row[3], subject: row[4], remarks: row[5], link: /^https?:\/\//i.test(link) ? link : '' };
   }).filter(email => email.timestamp || email.reference || email.dateReceived || email.receivedFrom || email.subject || email.remarks || email.link);
   return jsonResponse({ success: true, emails: emails.reverse() });
 }
