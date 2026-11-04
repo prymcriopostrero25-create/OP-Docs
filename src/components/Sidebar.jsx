@@ -1,7 +1,7 @@
 import { canAccessPage } from '../lib/permissions'
 
 const navItems = [
-  ['Overview', '▦'], ['Documents', '▤'], ['Email', '✉'], ['Archive', '▣'], ['Activity log', '⌁'],
+  ['Overview', '▦'], ['Documents', '▤'], ['Email', '✉'], ['Activity log', '⌁'],
   ['Verification', '✓'], ['User management', '♙'], ['User logs', '◷'], ['Settings', '⚙'],
 ]
 

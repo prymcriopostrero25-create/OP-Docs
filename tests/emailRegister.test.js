@@ -36,7 +36,7 @@ test('automatic sync drains multiple batches from the fixed start date across la
     getLastRow: () => rows.length + 1,
     getRange: (row, column, count = 1) => ({
       getValues: () => rows.slice(row - 2, row - 2 + count).map(value => [value[column - 1]]),
-      setValues: values => rows.push(...values), setNumberFormat() {}, setNote() {},
+      setValues: values => rows.push(...values), setValue() {}, setNumberFormat() {}, setNote() {},
     }),
   })
   for (const expected of [25, 50, 61, 61]) {
@@ -89,7 +89,7 @@ test('thread replies save the first eligible message and exclude earlier mail', 
     } },
   })
   vm.runInContext(source, context)
-  context.setupEmailSheet = () => ({ getLastRow: () => rows.length + 1, getRange: () => ({ getValues: () => rows.map(row => [row[6]]), setValues: values => rows.push(...values), setNumberFormat() {}, setNote() {} }) })
+  context.setupEmailSheet = () => ({ getLastRow: () => rows.length + 1, getRange: () => ({ getValues: () => rows.map(row => [row[6]]), setValues: values => rows.push(...values), setValue() {}, setNumberFormat() {}, setNote() {} }) })
   mockLabels(context)
   context.syncEmailSheet()
   context.syncEmailSheet()
@@ -107,7 +107,7 @@ test('email import preserves manual fields, skips existing messages and escapes 
       return {
         getValues: () => rows.slice(row - 2, row - 2 + count).map(value => [value[column - 1]]),
         setValues: values => rows.push(...values),
-        setNumberFormat() {}, setNote() {},
+        setValue() {}, setNumberFormat() {}, setNote() {},
       }
     },
   }
@@ -178,7 +178,7 @@ test('quota failure saves completed messages and retries the remaining unlabeled
   vm.runInContext(source, context)
   context.setupEmailSheet = () => ({
     getLastRow: () => rows.length + 1,
-    getRange: () => ({ getValues: () => rows.map(row => [row[6]]), setValues: values => rows.push(...values), setNumberFormat() {}, setNote() {} }),
+    getRange: () => ({ getValues: () => rows.map(row => [row[6]]), setValues: values => rows.push(...values), setValue() {}, setNumberFormat() {}, setNote() {} }),
   })
   mockLabels(context)
   assert.throws(() => context.syncEmailSheet(), /Quota exceeded/)
@@ -220,7 +220,7 @@ test('labels are created and applied after saving, and failed labeling retries w
     } },
   })
   vm.runInContext(source, context)
-  context.setupEmailSheet = () => ({ getLastRow: () => rows.length + 1, getRange: () => ({ getValues: () => rows.map(row => [row[6]]), setValues: values => rows.push(...values), setNumberFormat() {}, setNote() {} }) })
+  context.setupEmailSheet = () => ({ getLastRow: () => rows.length + 1, getRange: () => ({ getValues: () => rows.map(row => [row[6]]), setValues: values => rows.push(...values), setValue() {}, setNumberFormat() {}, setNote() {} }) })
   assert.throws(() => context.syncEmailSheet(), /Label quota/)
   failLabel = false
   context.syncEmailSheet()
@@ -248,7 +248,7 @@ test('new replies update the existing conversation across days without changing 
     getRange: (row, column, count = 1) => ({
       getValues: () => rows.slice(row - 2, row - 2 + count).map(value => [value[column - 1]]),
       getNotes: () => rows.slice(row - 2, row - 2 + count).map((_, index) => [notes.get(row + index) || '']),
-      setNote: note => notes.set(row, note), setNumberFormat() {},
+      setNote: note => notes.set(row, note), setValue: value => { rows[row - 2][column - 1] = value }, setNumberFormat() {},
       setValues: values => rows.push(...values),
     }),
   })
@@ -256,6 +256,7 @@ test('new replies update the existing conversation across days without changing 
   context.syncEmailSheet()
   context.syncEmailSheet()
   assert.equal(rows.length, 1)
+  assert.equal(rows[0][2].toISOString(), '2026-10-12T01:00:00.000Z')
   assert.equal(rows[0][1], 'REF-original')
   assert.equal(rows[0][5], 'For Action')
   const metadata = JSON.parse(notes.get(2))

@@ -58,3 +58,13 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
+/* Keep scrolling inside the active modal, including nested attachment previews. */
+html:has(dialog:modal),
+body:has(dialog:modal) {
+  overflow: hidden;
+}
+
+dialog:modal {
+  overscroll-behavior: contain;
+}
+

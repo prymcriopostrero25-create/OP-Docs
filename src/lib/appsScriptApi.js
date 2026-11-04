@@ -317,3 +317,7 @@ export const documentPage = (id, type, revision, refresh = false) => {
   if (refresh) cachedDocumentPage.clear()
   return cachedDocumentPage(getSessionToken(), id, type, revision)
 }
+
+export async function replyEmail(link, messageId, message, requestId, bodyRich, attachments) {
+  return documentRequest({ action: 'replyEmail', link, messageId, message, requestId, bodyRich, attachments })
+}

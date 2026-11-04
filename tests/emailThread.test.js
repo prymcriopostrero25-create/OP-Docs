@@ -6,6 +6,21 @@ import { Buffer } from 'node:buffer'
 
 const source = fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8')
 const link = 'https://mail.google.com/mail/u/0/#all/abc123'
+
+test('opening a conversation marks loaded unread messages as read in Gmail', () => {
+  const { context } = fixture()
+  const changes = []
+  context.Gmail.Users.Messages.batchModify = (body, user) => changes.push({ body: JSON.parse(JSON.stringify(body)), user })
+  context.Gmail.Users.Threads.get = () => ({ messages: [
+    { id: 'unread', labelIds: ['UNREAD', 'INBOX'], internalDate: '1', payload: {} },
+    { id: 'read', labelIds: ['INBOX'], internalDate: '2', payload: {} },
+    { id: 'trashed', labelIds: ['UNREAD', 'TRASH'], internalDate: '3', payload: {} },
+  ] })
+  assert.equal(context.getEmailThread({ action: 'emailThread', link }).success, true)
+  assert.deepEqual(changes, [{ body: { ids: ['unread'], removeLabelIds: ['UNREAD'] }, user: 'me' }])
+  context.getEmailThread({ action: 'emailThread', link: link + 'invalid' })
+  assert.equal(changes.length, 1)
+})
 test('attachment reads are bound to a registered thread and its message part', () => {
   const { context } = fixture()
   let downloads = 0
@@ -111,4 +126,95 @@ test('conversation resolves the registered message, decodes multipart bodies, an
   assert.equal(result.messages[0].text, 'Hello café')
   assert.equal(result.messages[0].attachments[0].name, 'report.pdf')
   assert.equal(result.messages[1].text, 'Large text body')
+})
+
+test('replies use server recipients and threading, deduplicate confirmed sends, and block uncertain retries', () => {
+  const { context } = fixture()
+  const stored = new Map()
+  let sends = 0, sentRaw = ''
+  context.sessionAccount = () => ({ email: 'admin@jhcsc.edu.ph' })
+  context.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) }
+  context.PropertiesService = { getScriptProperties: () => ({ getProperty: key => stored.get(key), setProperty: (key, value) => stored.set(key, value) }) }
+  context.Utilities.newBlob = value => ({ getBytes: () => Buffer.from(value) })
+  context.Utilities.base64Encode = value => Buffer.from(value).toString('base64')
+  context.Utilities.base64EncodeWebSafe = value => Buffer.from(value).toString('base64url')
+  context.Utilities.getUuid = () => 'test-boundary'
+  context.Utilities.DigestAlgorithm = { SHA_256: 'sha256' }
+  context.Utilities.computeDigest = (_, value) => Buffer.from(value)
+  context.Gmail.Users.getProfile = () => ({ emailAddress: 'main@jhcsc.edu.ph' })
+  context.Gmail.Users.Messages.send = value => { sends++; assert.equal(value.threadId, 'thread1'); sentRaw = Buffer.from(value.raw, 'base64url').toString(); return { id: 'sent1' } }
+  const target = { id: 'message1', payload: { headers: [{ name: 'From', value: 'Sender <sender@example.com>' }, { name: 'Reply-To', value: 'Office <office@example.com>' }, { name: 'Subject', value: 'Meeting' }, { name: 'Message-ID', value: '<original@example.com>' }] } }
+  const thread = { id: 'thread1', messages: [target] }
+  const request = { link, messageId: 'message1', message: 'Thank you.', attachments: [{ name: 'report.pdf', mimeType: 'application/pdf', data: Buffer.from('%PDF-example').toString('base64') }], requestId: 'reply-request-123456' }
+  assert.equal(context.replyToRegisteredThread(request, thread).success, true)
+  assert.match(sentRaw, /multipart\/mixed/)
+  assert.match(sentRaw, /filename="report.pdf"/)
+  assert.ok(sentRaw.includes(Buffer.from('%PDF-example').toString('base64')))
+  assert.match(sentRaw, /To: office@example.com/)
+  assert.match(sentRaw, /In-Reply-To: <original@example.com>/)
+  assert.equal(context.replyToRegisteredThread(request, thread).success, true)
+  assert.equal(sends, 1)
+  assert.throws(() => context.replyToRegisteredThread({ ...request, message: 'Changed' }, thread), /different content/)
+  assert.throws(() => context.replyToRegisteredThread({ ...request, messageId: 'outside' }, thread), /incoming message/)
+  assert.throws(() => context.replyToRegisteredThread({ ...request, message: '' }, thread), /Enter a reply/)
+  context.Gmail.Users.Messages.send = () => { sends++; throw new Error('Network interrupted') }
+  const uncertain = { ...request, requestId: 'reply-uncertain-123456' }
+  assert.throws(() => context.replyToRegisteredThread(uncertain, thread), /Network interrupted/)
+  assert.throws(() => context.replyToRegisteredThread(uncertain, thread), /Delivery is uncertain/)
+  assert.equal(sends, 2)
+})
+
+test('reply formatting preserves styles and escapes message text', () => {
+  const { context } = fixture()
+  const rich = context.validateRichBody({ type: 'doc', content: [{ type: 'paragraph', attrs: { textAlign: 'center' }, content: [{ type: 'text', text: '<script>example</script>', marks: [{ type: 'bold' }, { type: 'textStyle', attrs: { color: '#123456', fontSize: '14pt', fontFamily: 'Arial' } }] }] }] })
+  const html = context.replyRichHtml(rich)
+  assert.match(html, /text-align:center/)
+  assert.match(html, /<strong>&lt;script&gt;example&lt;\/script&gt;<\/strong>/)
+  assert.match(html, /color:#123456;font-family:Arial;font-size:14pt/)
+  assert.doesNotMatch(html, /<script>/)
+})
+
+test('reply attachments reject invalid names, encoding, and excessive file counts', () => {
+  const { context } = fixture()
+  assert.throws(() => context.validateReplyAttachments([{ name: 'bad\r\nheader.pdf', data: '' }]), /filename/)
+  assert.throws(() => context.validateReplyAttachments([{ name: 'report.pdf', data: '!!!' }]), /data/)
+  assert.throws(() => context.validateReplyAttachments(Array(11).fill({})), /10 attachments/)
+  assert.equal(context.validateReplyAttachments([{ name: 'report.pdf', data: 'YQ==', mimeType: 'text/plain\r\nInjected: yes' }])[0].mimeType, 'application/octet-stream')
+})
+
+test('conversation resolves attached CID logos without loading external images', () => {
+  const { context } = fixture()
+  const html = '<img src="cid:jhcsc-email-logo"><img src="https://example.com/tracker.png">'
+  context.Utilities.base64DecodeWebSafe = value => Buffer.from(value, 'base64url')
+  context.Utilities.base64Encode = value => Buffer.from(value).toString('base64')
+  context.Gmail.Users.Messages.Attachments.get = () => ({ data: Buffer.from('logo bytes').toString('base64url') })
+  context.Gmail.Users.Threads.get = () => ({ messages: [{ id: 'message1', internalDate: '1', payload: { parts: [
+    { mimeType: 'text/html', body: { data: Buffer.from(html).toString('base64url') } },
+    { filename: 'jhcsc-logo.png', mimeType: 'image/png', headers: [{ name: 'Content-ID', value: '<jhcsc-email-logo>' }], body: { attachmentId: 'logo', size: 10 } },
+  ] } }] })
+  const result = context.getEmailThread({ action: 'emailThread', link })
+  assert.equal(result.success, true)
+  assert.ok(result.messages[0].html.includes('src="data:image/png;base64,' + Buffer.from('logo bytes').toString('base64') + '"'))
+  assert.ok(result.messages[0].html.includes('https://example.com/tracker.png'))
+})
+
+test('inline image decoding accepts Gmail formats and failures preserve the conversation', () => {
+  for (const data of ['-_8', [251, 255], [-5, -1], '!!!', null]) {
+    const { context } = fixture()
+    const html = '<p>Message remains readable</p><img src="cid:logo">'
+    context.Utilities.base64Encode = bytes => Buffer.from(bytes).toString('base64')
+    context.Gmail.Users.Messages.Attachments.get = () => {
+      if (data === null) throw new Error('Attachment unavailable')
+      return { data }
+    }
+    context.Gmail.Users.Threads.get = () => ({ messages: [{ id: 'message1', internalDate: '1', payload: { parts: [
+      { mimeType: 'text/html', body: { data: Buffer.from(html).toString('base64url') } },
+      { mimeType: 'image/png', headers: [{ name: 'Content-ID', value: '<logo>' }], body: { attachmentId: 'image', size: 2 } },
+    ] } }] })
+    const result = context.getEmailThread({ action: 'emailThread', link })
+    assert.equal(result.success, true)
+    assert.ok(result.messages[0].html.includes('Message remains readable'))
+    if (data !== null && data !== '!!!') assert.ok(result.messages[0].html.includes('data:image/png;base64,+/8='))
+    else assert.ok(result.messages[0].html.includes('cid:logo'))
+  }
 })

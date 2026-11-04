@@ -1,11 +1,29 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchEmails, updateEmailRemarks } from '../lib/appsScriptApi'
 import { usePageData } from '../lib/usePageData'
 import './EmailPage.css'
 import EmailConversation from '../components/EmailConversation'
+import EmailIcon from '../components/EmailIcon'
 
 const remarkOptions = ['Incoming', 'For Information', 'Acknowledge', 'For Action', 'Invitations', 'Memorandum', 'Approved', 'Disapproved', 'Completed']
 const columns = [['reference', 'Reference No'], ['dateReceived', 'Date Received'], ['receivedFrom', 'Received From'], ['subject', 'Subject'], ['remarks', 'Remarks']]
+
+function RemarksNotice({ message, onClose }) {
+  const dialog = useRef(null)
+  useEffect(() => { dialog.current.showModal() }, [])
+  return <dialog ref={dialog} className="email-remarks-notice" aria-labelledby="remarks-notice-title" aria-describedby="remarks-notice-message" onCancel={onClose} onClose={onClose}>
+    <div className="email-remarks-notice-content">
+      <span className="email-remarks-notice-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 12 4 4 8-8" /></svg>
+      </span>
+      <h2 id="remarks-notice-title">Remarks Updated</h2>
+      <p id="remarks-notice-message">{message}</p>
+    </div>
+    <footer className="email-remarks-notice-footer">
+      <button type="button" autoFocus onClick={onClose}>Done</button>
+    </footer>
+  </dialog>
+}
 
 function EmailText({ value }) {
   const [expanded, setExpanded] = useState(false)
@@ -20,6 +38,10 @@ function EmailText({ value }) {
 export default function EmailPage() {
   const [seenMessages, setSeenMessages] = useState(() => { try { return JSON.parse(localStorage.getItem('op-email-seen-replies') || '{}') } catch { return {} } })
   const [conversation, setConversation] = useState(null)
+  function openConversation(email) {
+    if (!email.link) return
+    setConversation(email)
+  }
   function markConversationRead(email, latestMessageId) {
     const next = { ...seenMessages, [email.link]: latestMessageId || email.latestMessageId };
     setSeenMessages(next);
@@ -27,21 +49,31 @@ export default function EmailPage() {
   }
   const [attempt, setAttempt] = useState(0)
   const [query, setQuery] = useState('')
+  const [remarkFilter, setRemarkFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateUntil, setDateUntil] = useState('')
   const [sort, setSort] = useState({ field: 'dateReceived', direction: 'desc' })
   const [pageSize, setPageSize] = useState(10)
   const [page, setPage] = useState(1)
+  function selectRemark(remark) {
+    setRemarkFilter(remark)
+    setPage(1)
+  }
   function changeSort(field) {
     setSort(previous => ({ field, direction: previous.field === field && previous.direction === 'asc' ? 'desc' : 'asc' }))
     setPage(1)
   }
   const [saving, setSaving] = useState({})
   const [saveError, setSaveError] = useState('')
+  const [saveNotice, setSaveNotice] = useState('')
   const { data, setData, loading, error } = usePageData(true, fetchEmails, attempt, 30000)
   async function changeRemarks(email, remarks) {
     setSaving(previous => ({ ...previous, [email.link]: true }))
     setSaveError('')
+    setSaveNotice('')
     try {
-      await updateEmailRemarks(email.link, remarks)
+      const result = await updateEmailRemarks(email.link, remarks)
+      setSaveNotice(result.emailSent ? `Email sent to the sender.` : 'Remarks Updated.')
       setData(rows => rows.map(row => row.link === email.link ? { ...row, remarks } : row))
     } catch (error) { setSaveError(error.message) }
     finally { setSaving(previous => ({ ...previous, [email.link]: false })) }
@@ -49,11 +81,21 @@ export default function EmailPage() {
   const emails = (data || []).map(email => {
     const sender = String(email.receivedFrom || '')
     const name = sender.replace(/\s*<[^>]*>/g, '').trim().replace(/^"(.*)"$/, '$1')
-    return { ...email, receivedFrom: name || sender.replace(/[<>]/g, '').trim() }
+    return { ...email, senderAddress: sender, receivedFrom: name || sender.replace(/[<>]/g, '').trim() }
   })
   const receivedTime = email => Date.parse(String(email.latestReceivedAt || email.dateReceived || '').replace(/^(\d{4}-\d{2}-\d{2}) /, '$1T')) || 0
+  const isUnread = email => Boolean(email.latestMessageId && seenMessages[email.link] !== email.latestMessageId)
+  const activeFilters = query || remarkFilter || dateFrom || dateUntil
+  function resetFilters() {
+    setQuery(''); setRemarkFilter(''); setDateFrom(''); setDateUntil(''); setPage(1)
+  }
   const filtered = emails
-    .filter(email => [email.reference, email.dateReceived, email.receivedFrom, email.subject, email.remarks].join(' ').toLowerCase().includes(query.trim().toLowerCase()))
+    .filter(email => !remarkFilter || email.remarks === remarkFilter)
+    .filter(email => {
+      const time = receivedTime(email)
+      return (!dateFrom || time >= Date.parse(dateFrom + 'T00:00:00+08:00')) && (!dateUntil || time < Date.parse(dateUntil + 'T00:00:00+08:00') + 86400000)
+    })
+    .filter(email => [email.reference, email.dateReceived, email.senderAddress, email.receivedFrom, email.subject, email.remarks].join(' ').toLowerCase().includes(query.trim().toLowerCase()))
     .sort((a, b) => {
       const comparison = sort.field === 'dateReceived' ? receivedTime(a) - receivedTime(b)
         : String(a[sort.field] || '').localeCompare(String(b[sort.field] || ''), undefined, { numeric: true, sensitivity: 'base' })
@@ -66,36 +108,58 @@ export default function EmailPage() {
 
   return <main className="dashboard-content user-logs-page email-page">
     <div className="page-title-row">
-      <div><p className="eyebrow">Workspace</p><h1>Email</h1><p>Received email records from the Email sheet. Updates automatically.</p></div>
+      <div><p className="eyebrow">Office of the President / Correspondence</p><h1>Email Correspondence</h1><p>Manage official communications and keep every conversation on record.</p></div>
+      <button type="button" className="secondary-action email-refresh" disabled={loading} onClick={() => setAttempt(value => value + 1)}><EmailIcon name="refresh" size={16} />{loading ? 'Refreshing…' : 'Refresh'}</button>
     </div>
+    <section className="email-summary" aria-label="Correspondence overview">
+      {[
+        { label: 'All Correspondence', value: emails.length, icon: 'inbox', detail: 'Registered conversations', remark: '' },
+        { label: 'Incoming', value: emails.filter(email => email.remarks === 'Incoming').length, icon: 'download', detail: 'Received correspondence', remark: 'Incoming' },
+        { label: 'For Action', value: emails.filter(email => email.remarks === 'For Action').length, icon: 'clock', detail: 'Requires follow-up', remark: 'For Action' },
+        { label: 'Completed', value: emails.filter(email => email.remarks === 'Completed').length, icon: 'check', detail: 'Closed correspondence', remark: 'Completed' },
+      ].map(item => <button type="button" key={item.label} className={`email-summary-card ${remarkFilter === item.remark ? 'is-active' : ''}`} aria-pressed={remarkFilter === item.remark} onClick={() => selectRemark(item.remark)}>
+        <span className="email-summary-icon"><EmailIcon name={item.icon} size={21} /></span>
+        <span className="email-summary-copy"><span>{item.label}</span><strong>{loading && !data ? '?' : item.value.toLocaleString()}</strong><small>{item.detail}</small></span>
+        <EmailIcon name="arrow" size={16} />
+      </button>)}
+    </section>
     <section className="user-logs-panel">
       <header className="user-logs-header">
-        <div><h2>Email register</h2><p>{emails.length} records</p></div>
+        <div className="email-register-title"><span className="email-register-icon"><EmailIcon name="inbox" size={21} /></span><div><h2>Correspondence register</h2><p><span className="email-live-dot" /> Live sync · Updates every 30 seconds</p></div></div>
         <div className="email-table-controls">
           <label>Show <select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1) }} aria-label="Emails per page">{[10, 20, 50].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
           <label className="email-mobile-sort">Sort by <select value={sort.field} onChange={event => changeSort(event.target.value)}>{columns.map(([field, label]) => <option key={field} value={field}>{label}</option>)}</select><button type="button" onClick={() => { setSort(previous => ({ ...previous, direction: previous.direction === 'asc' ? 'desc' : 'asc' })); setPage(1) }}>{sort.direction === 'asc' ? 'Ascending' : 'Descending'}</button></label>
-          <label className="archive-search"><input value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} placeholder="Search emails..." aria-label="Search emails" /></label>
+          <label className="archive-search"><EmailIcon name="search" size={17} /><input value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} placeholder="Search correspondence…" aria-label="Search emails" /></label>
         </div>
       </header>
+      <nav className="email-category-tabs" aria-label="Filter correspondence by remarks">
+        {['', ...remarkOptions].map(remark => <button key={remark || 'all'} type="button" aria-pressed={remarkFilter === remark} className={remarkFilter === remark ? 'is-active' : ''} onClick={() => selectRemark(remark)}>{remark || 'All correspondence'}<span>{(remark ? emails.filter(email => email.remarks === remark).length : emails.length).toLocaleString()}</span></button>)}
+      </nav>
+      <div className="email-filter-bar">
+        <span className="email-filter-label">Date received</span>
+        <label>From<input type="date" value={dateFrom} max={dateUntil || undefined} onChange={event => { setDateFrom(event.target.value); setPage(1) }} /></label>
+        <label>To<input type="date" value={dateUntil} min={dateFrom || undefined} onChange={event => { setDateUntil(event.target.value); setPage(1) }} /></label>
+        <div className="email-filter-result" role="status">{filtered.length} matching {filtered.length === 1 ? 'conversation' : 'conversations'}{activeFilters && <button type="button" className="email-see-more" onClick={resetFilters}>Clear filters</button>}</div>
+      </div>
       {loading && <div className="user-logs-state" role="status">Loading emails...</div>}
       {saveError && <div className="user-logs-state user-logs-error" role="alert">{saveError}</div>}
       {error && <div className="user-logs-state user-logs-error" role="alert"><p>{error}</p><button className="secondary-action" onClick={() => setAttempt(value => value + 1)}>Try again</button></div>}
       {!loading && !error && <div className="user-logs-table-wrap">
         <table className="user-logs-table">
-          <thead><tr>{columns.map(([field, label]) => <th key={field} scope="col" aria-sort={sort.field === field ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><button className="email-sort-button" type="button" onClick={() => changeSort(field)}>{label} <span aria-hidden="true">{sort.field === field ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></th>)}<th scope="col">Links</th></tr></thead>
-          <tbody>{visible.map((email, index) => <tr key={email.link || `${email.reference}-${email.timestamp}-${start + index}`} className={email.link ? 'email-clickable-row' : ''} onClick={() => { if (email.link) setConversation(email) }}>
+          <thead><tr>{columns.map(([field, label]) => <th key={field} scope="col" aria-sort={sort.field === field ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><button className="email-sort-button" type="button" onClick={() => changeSort(field)}>{label} <span aria-hidden="true">{sort.field === field ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></th>)}<th scope="col">Conversation</th></tr></thead>
+          <tbody>{visible.map((email, index) => <tr key={email.link || `${email.reference}-${email.timestamp}-${start + index}`} className={`${email.link ? 'email-clickable-row' : ''} ${isUnread(email) ? 'email-unread-row' : ''}`} onClick={() => openConversation(email)}>
             <td data-label="Reference No"><EmailText value={email.reference} /></td>
             <td data-label="Date Received">{email.dateReceived}</td>
-            <td data-label="Received From"><EmailText value={email.receivedFrom} /></td>
-            <td data-label="Subject"><EmailText value={email.subject} />{email.latestMessageId && seenMessages[email.link] !== email.latestMessageId && <span className="email-new-badge" title="New email in this conversation" aria-label="New email in this conversation">New</span>}</td>
-            <td data-label="Remarks" onClick={event => event.stopPropagation()}><select className="email-remarks-select" aria-label={`Remarks for ${email.reference || email.subject}`} value={email.remarks || ''} disabled={!email.link || saving[email.link]} onChange={event => changeRemarks(email, event.target.value)}>
+            <td data-label="Received From"><div className="email-sender"><span className="email-avatar" aria-hidden="true">{email.receivedFrom.slice(0, 1).toUpperCase() || '?'}</span><span title={email.senderAddress}><EmailText value={email.receivedFrom} /></span></div></td>
+            <td data-label="Subject"><strong className="email-subject"><EmailText value={email.subject || '(No subject)'} /></strong>{email.replyCount > 0 && <small className="email-reply-count">{email.replyCount} {email.replyCount === 1 ? 'reply' : 'replies'}</small>}{email.latestMessageId && seenMessages[email.link] !== email.latestMessageId && <span className="email-new-badge" title="New email in this conversation" aria-label="New email in this conversation">New</span>}</td>
+            <td data-label="Remarks" onClick={event => event.stopPropagation()}><select className="email-remarks-select" data-remark={email.remarks} aria-label={`Remarks for ${email.reference || email.subject}`} value={email.remarks || ''} disabled={!email.link || saving[email.link]} onChange={event => changeRemarks(email, event.target.value)}>
               {!remarkOptions.includes(email.remarks) && <option value={email.remarks || ''}>{email.remarks || 'Select remarks'}</option>}
               {remarkOptions.map(remark => <option key={remark} value={remark}>{remark}</option>)}
             </select>{saving[email.link] && <span role="status">Saving...</span>}</td>
-            <td data-label="Links">{email.link && <button type="button" className="email-see-more" onClick={event => { event.stopPropagation(); setConversation(email) }}>Open conversation</button>}</td>
+            <td data-label="Conversation">{email.link && <button type="button" className="email-open-conversation" aria-label={`Open conversation: ${email.subject || email.reference}`} onClick={event => { event.stopPropagation(); openConversation(email) }}>Open <EmailIcon name="arrow" size={15} /></button>}</td>
           </tr>)}</tbody>
         </table>
-        {!filtered.length && <div className="user-logs-state">{emails.length ? 'No emails match your search.' : 'No email records yet.'}</div>}
+        {!filtered.length && <div className="user-logs-state">{emails.length ? 'No conversations match these filters. Try a different search or clear the filters.' : 'No email records yet.'}</div>}
         <footer className="email-pagination">
           <span>{filtered.length ? `Showing ${start + 1}–${Math.min(start + pageSize, filtered.length)} of ${filtered.length}` : 'Showing 0 records'}</span>
           <nav aria-label="Email table pagination">
@@ -109,6 +173,7 @@ export default function EmailPage() {
       </div>}
     </section>
     {conversation && <EmailConversation email={conversation} onClose={() => setConversation(null)} onRead={markConversationRead} />}
+    {saveNotice && <RemarksNotice message={saveNotice} onClose={() => setSaveNotice('')} />}
   </main>
 }
 
