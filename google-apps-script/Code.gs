@@ -2428,7 +2428,7 @@ function emailRemarksHtml(remarks, reference, forward) {
     '<tr><td style="padding:30px 28px 12px;"><span style="display:inline-block;padding:7px 11px;border-radius:4px;background-color:' + background + ';color:' + color + ';font-size:11px;font-weight:bold;letter-spacing:1px;">' + badge + '</span>' +
     '<h1 style="margin:18px 0 24px;font-size:24px;line-height:32px;font-weight:bold;color:#244d36;">' + heading + '</h1>' +
     '<p style="margin:0 0 16px;font-size:15px;line-height:25px;">Greetings,</p>' +
-    '<p style="margin:0 0 24px;font-size:15px;line-height:25px;">' + escape(message).replace(/\r?\n/g, '<br>') + '</p>' +
+    '<div style="margin:0 0 24px;font-size:15px;line-height:25px;">' + (forward && forward.bodyRich ? replyRichHtml(forward.bodyRich) : escape(message).replace(/\r?\n/g, '<br>')) + '</div>' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:17px 18px;background-color:#f4f7f4;border-left:3px solid #356442;">' +
     '<p style="margin:0 0 7px;font-size:10px;letter-spacing:1.5px;font-weight:bold;color:#607368;">' + (forward ? 'SUBJECT' : 'REFERENCE NUMBER') + '</p>' +
     '<p style="margin:0;font-size:15px;line-height:23px;font-weight:bold;color:#244d36;overflow-wrap:anywhere;word-break:break-word;">' + escape(reference) + '</p></td></tr></table>' +
@@ -2869,7 +2869,8 @@ function forwardRegisteredEmail(request, thread) {
   const messageId = header('Message-ID');
   if (!/^<[^<>\s]+>$/.test(messageId)) throw new Error('This email has no valid threading header. Open it in Gmail to forward.');
   const references = (header('References').match(/<[^<>\s]+>/g) || []).slice(-15).concat(messageId).join(' ');
-  const body = String(request.message || '').trim();
+  const rich = request.bodyRich ? validateRichBody(request.bodyRich) : null;
+  const body = rich ? richBodyPlainText(rich).trim() : String(request.message || '').trim();
   if (!body || body.length > 20000) throw new Error('Enter a body up to 20,000 characters.');
   if (!/^[a-zA-Z0-9-]{16,80}$/.test(String(request.requestId || ''))) throw new Error('Invalid forward request.');
   const lock = LockService.getScriptLock();
@@ -2877,7 +2878,7 @@ function forwardRegisteredEmail(request, thread) {
   try {
     const props = PropertiesService.getScriptProperties();
     const key = 'email-forward:' + request.requestId;
-    const fingerprint = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([user.email, request.link, target.id, recipients, subject, body])));
+    const fingerprint = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([user.email, request.link, target.id, recipients, subject, body, rich])));
     const previous = JSON.parse(props.getProperty(key) || 'null');
     if (previous) {
       if (previous.fingerprint !== fingerprint) throw new Error('This forward attempt used different content. Close and reopen Forward to start a new send.');
@@ -2904,7 +2905,7 @@ function forwardRegisteredEmail(request, thread) {
       '--' + boundary, 'Content-Type: multipart/alternative; boundary="' + boundary + '_alt"', '',
       '--' + boundary + '_alt', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(encode(body)),
       '--' + boundary + '_alt', 'Content-Type: multipart/related; boundary="' + boundary + '_related"', '',
-      '--' + boundary + '_related', 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(encode(emailRemarksHtml('Incoming', subject, { message: body }))),
+      '--' + boundary + '_related', 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(encode(emailRemarksHtml('Incoming', subject, { message: body, bodyRich: rich }))),
       '--' + boundary + '_related', 'Content-Type: image/png', 'Content-ID: <jhcsc-email-logo>', 'Content-Disposition: inline; filename="jhcsc-logo.png"', 'Content-Transfer-Encoding: base64', '', wrap(EMAIL_JHCSC_LOGO_PNG),
       '--' + boundary + '_related--', '--' + boundary + '_alt--',
       '--' + boundary, 'Content-Type: application/octet-stream; name="forwarded-email.eml"',

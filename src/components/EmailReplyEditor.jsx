@@ -4,11 +4,11 @@ import StarterKit from '@tiptap/starter-kit'
 import { TextStyle, Color, FontFamily, FontSize } from '@tiptap/extension-text-style'
 import TextAlign from '@tiptap/extension-text-align'
 
-export default function EmailReplyEditor({ disabled, onChange }) {
+export default function EmailReplyEditor({ disabled, onChange, initialContent, label = 'Your reply', placeholder = 'Write your response here...' }) {
   const editor = useEditor({
     extensions: [StarterKit.configure({ heading: false, codeBlock: false, code: false, horizontalRule: false, link: false }), TextStyle, Color, FontFamily, FontSize, TextAlign.configure({ types: ['paragraph'] })],
-    content: '<p></p>',
-    editorProps: { attributes: { role: 'textbox', 'aria-label': 'Your reply', 'aria-multiline': 'true' } },
+    content: initialContent || '<p></p>',
+    editorProps: { attributes: { role: 'textbox', 'aria-label': label, 'aria-multiline': 'true' } },
     onUpdate: ({ editor }) => onChange(editor.getText(), editor.getJSON()),
   })
   useEffect(() => { editor?.setEditable(!disabled) }, [editor, disabled])
@@ -16,7 +16,7 @@ export default function EmailReplyEditor({ disabled, onChange }) {
   if (!editor) return null
   const button = (label, text, action, active) => <button type="button" title={label} aria-label={label} aria-pressed={active} disabled={disabled} onMouseDown={event => event.preventDefault()} onClick={action}>{text}</button>
   return <div className="email-rich-reply">
-    <div className="email-format-toolbar" role="toolbar" aria-label="Reply formatting">
+    <div className="email-format-toolbar" role="toolbar" aria-label={`${label} formatting`}>
       {button('Undo', '↶', () => editor.chain().focus().undo().run())}{button('Redo', '↷', () => editor.chain().focus().redo().run())}
       <select aria-label="Font" disabled={disabled} defaultValue="Arial" onChange={event => editor.chain().focus().setFontFamily(event.target.value).run()}>{['Arial', 'Times New Roman', 'Calibri', 'Georgia', 'Verdana'].map(font => <option key={font}>{font}</option>)}</select>
       <select aria-label="Text size" disabled={disabled} defaultValue="12pt" onChange={event => editor.chain().focus().setFontSize(event.target.value).run()}>{['8','10','12','14','18','24','36'].map(size => <option key={size} value={size + 'pt'}>{size}</option>)}</select>
@@ -33,6 +33,6 @@ export default function EmailReplyEditor({ disabled, onChange }) {
       {button('Strikethrough', <s>S</s>, () => editor.chain().focus().toggleStrike().run(), state.strike)}
       {button('Clear formatting', 'Tx', () => editor.chain().focus().unsetAllMarks().clearNodes().run())}
     </div>
-    <div className="email-editor-writing-area"><EditorContent editor={editor} />{state.empty && <span className="email-editor-placeholder">Write your response here...</span>}</div>
+    <div className="email-editor-writing-area"><EditorContent editor={editor} />{state.empty && <span className="email-editor-placeholder">{placeholder}</span>}</div>
   </div>
 }

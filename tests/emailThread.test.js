@@ -30,7 +30,14 @@ test('forwards preserve threading, recipients, branding and original attachment 
   const target = { id: 'message1', payload: { headers: [{ name: 'Subject', value: 'Meeting' }, { name: 'Message-ID', value: '<original@example.com>' }, { name: 'References', value: '<earlier@example.com>' }] } }
   const thread = { id: 'thread1', messages: [target] }
   const request = { link, messageId: 'message1', to: 'one@example.com, two@example.com', subject: 'Changed subject', message: 'Please review.', requestId: 'forward-request-123456' }
+  request.bodyRich = { type: 'doc', content: [{ type: 'paragraph', attrs: { textAlign: 'center' }, content: [{ type: 'text', text: 'Please review.', marks: [{ type: 'bold' }, { type: 'italic' }, { type: 'underline' }] }] }] }
   assert.equal(context.forwardRegisteredEmail(request, thread).success, true)
+  const htmlPart = raw.match(/Content-Type: text\/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n([\s\S]*?)\r\n--/)
+  const html = Buffer.from(htmlPart[1].replace(/\s/g, ''), 'base64').toString()
+  assert.match(html, /<u><em><strong>Please review\.<\/strong><\/em><\/u>/)
+  assert.match(html, /text-align:center/)
+  assert.ok(raw.includes(Buffer.from('Please review.').toString('base64')))
+  assert.throws(() => context.forwardRegisteredEmail({ ...request, bodyRich: { ...request.bodyRich, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Please review.' }] }] } }, thread), /different content/)
   assert.match(raw, /To: one@example.com, two@example.com\r\n/)
   assert.match(raw, /In-Reply-To: <original@example.com>/)
   assert.match(raw, /References: <earlier@example.com> <original@example.com>/)
