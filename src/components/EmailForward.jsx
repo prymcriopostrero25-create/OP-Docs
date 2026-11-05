@@ -2,6 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import { fetchEmailThread, forwardEmail } from '../lib/appsScriptApi'
 import EmailReplyEditor from './EmailReplyEditor'
 
+function historyKey() {
+  const account = JSON.parse(localStorage.getItem('op-dms-user') || 'null')
+  return account?.email ? 'op-email-forward-history:' + account.email.toLowerCase() : null
+}
+
+function readHistory() {
+  try {
+    const key = historyKey()
+    const saved = key ? JSON.parse(localStorage.getItem(key) || '[]') : []
+    return Array.isArray(saved) ? saved.filter(value => typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)).slice(0, 100) : []
+  } catch { return [] }
+}
+
 export default function EmailForward({ email, onClose, onForwarded }) {
   const dialog = useRef(null)
   const requestId = useRef(null)
@@ -10,6 +23,7 @@ export default function EmailForward({ email, onClose, onForwarded }) {
   const [selected, setSelected] = useState('')
   const [composing, setComposing] = useState(false)
   const [to, setTo] = useState('')
+  const [history, setHistory] = useState(readHistory)
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [bodyRich, setBodyRich] = useState(null)
@@ -31,6 +45,12 @@ export default function EmailForward({ email, onClose, onForwarded }) {
     if (!requestId.current) requestId.current = crypto.randomUUID()
     try {
       await forwardEmail({ link: email.link, messageId: selected, to: recipients.join(', '), subject, message: body, bodyRich, requestId: requestId.current })
+      const nextHistory = [...new Set([...recipients.map(value => value.toLowerCase()), ...readHistory(), ...history])].slice(0, 100)
+      setHistory(nextHistory)
+      try {
+        const key = historyKey()
+        if (key) localStorage.setItem(key, JSON.stringify(nextHistory))
+      } catch { /* A confirmed forward still succeeds when browser storage is unavailable. */ }
       setSent(true)
       onForwarded?.()
     } catch (reason) { setError(reason.message) }
@@ -53,10 +73,19 @@ export default function EmailForward({ email, onClose, onForwarded }) {
       <fieldset disabled={sending}>
         <label>To<input autoFocus required value={to} onChange={event => setTo(event.target.value)} placeholder="name@example.com, another@example.com" aria-describedby="forward-recipient-help" /></label>
         <small id="forward-recipient-help">Separate multiple addresses with commas, semicolons, or spaces. Maximum 30 recipients.</small>
+        <section className="email-forward-history" aria-label="Email history">
+          <strong>Email history</strong>
+          <small>{history.length ? 'Select an address to add it to To.' : 'Recipients will appear here after a successful forward.'}</small>
+          {history.length > 0 && <div>{history.map(address => {
+            const recipients = to.split(/[;,\s]+/).filter(Boolean)
+            const included = recipients.some(value => value.toLowerCase() === address.toLowerCase())
+            return <button type="button" key={address} disabled={included || recipients.length >= 30} onClick={() => setTo([...recipients, address].join(', '))}>{address}</button>
+          })}</div>}
+        </section>
         <label>Subject<input readOnly value={subject} placeholder="(No subject)" /></label><small>The original subject is preserved to keep this forward in the conversation.</small>
         <div className="email-forward-body-label">Body</div>
         <EmailReplyEditor disabled={sending} label="Forward body" placeholder="Add a message to your forward..." initialContent={bodyRich} onChange={(text, rich) => { setBody(text); setBodyRich(rich) }} />
-        <p>The selected email is included as an .eml attachment with its original content and attachments.</p>
+        <p>All original attachments from the selected email are forwarded as separate files, keeping their filenames and file types.</p>
       </fieldset>
       {error && <p role="alert">{error}</p>}
       <footer><button type="submit" className="email-send-action" disabled={sending || !body.trim()}>{sending ? 'Sending...' : 'Send forward'}</button><button type="button" className="secondary-action" disabled={sending} onClick={() => { setComposing(false); setError('') }}>Back</button></footer>

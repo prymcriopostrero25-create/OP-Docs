@@ -17,7 +17,7 @@ test('forwards preserve threading, recipients, branding and original attachment 
   context.sessionAccount = () => ({ email: 'admin@jhcsc.edu.ph' })
   context.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) }
   context.PropertiesService = { getScriptProperties: () => ({ getProperty: key => stored.get(key), setProperty: (key, value) => stored.set(key, value) }) }
-  context.Utilities.newBlob = value => ({ getBytes: () => Buffer.from(value) })
+  context.Utilities.newBlob = value => ({ getBytes: () => Buffer.from(value), getDataAsString: () => Buffer.from(value).toString() })
   context.Utilities.base64Encode = value => Buffer.from(value).toString('base64')
   context.Utilities.base64EncodeWebSafe = value => Buffer.from(value).toString('base64url')
   context.Utilities.getUuid = () => 'test-boundary'
@@ -29,6 +29,15 @@ test('forwards preserve threading, recipients, branding and original attachment 
   context.Gmail.Users.Messages.send = value => { sends++; assert.equal(value.threadId, 'thread1'); raw = Buffer.from(value.raw, 'base64url').toString(); return { id: 'sent1' } }
   const target = { id: 'message1', payload: { headers: [{ name: 'Subject', value: 'Meeting' }, { name: 'Message-ID', value: '<original@example.com>' }, { name: 'References', value: '<earlier@example.com>' }] } }
   const thread = { id: 'thread1', messages: [target] }
+  target.payload.parts = [{ mimeType: 'multipart/mixed', parts: [
+    { mimeType: 'text/plain', body: { data: [...Buffer.from('Original invitation text')] } },
+    { filename: 'Letter.pdf', mimeType: 'application/pdf', body: { data: [...Buffer.from('%PDF-original')] } },
+    { filename: 'Confirmation.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', body: { attachmentId: 'docx1' } },
+  ] }]
+  context.Gmail.Users.Messages.Attachments = { get: (account, id, attachmentId) => {
+    assert.equal(id, 'message1'); assert.equal(attachmentId, 'docx1')
+    return { data: [...Buffer.from('original-docx-bytes')] }
+  } }
   const request = { link, messageId: 'message1', to: 'one@example.com, two@example.com', subject: 'Changed subject', message: 'Please review.', requestId: 'forward-request-123456' }
   request.bodyRich = { type: 'doc', content: [{ type: 'paragraph', attrs: { textAlign: 'center' }, content: [{ type: 'text', text: 'Please review.', marks: [{ type: 'bold' }, { type: 'italic' }, { type: 'underline' }] }] }] }
   assert.equal(context.forwardRegisteredEmail(request, thread).success, true)
@@ -36,14 +45,21 @@ test('forwards preserve threading, recipients, branding and original attachment 
   const html = Buffer.from(htmlPart[1].replace(/\s/g, ''), 'base64').toString()
   assert.match(html, /<u><em><strong>Please review\.<\/strong><\/em><\/u>/)
   assert.match(html, /text-align:center/)
-  assert.ok(raw.includes(Buffer.from('Please review.').toString('base64')))
+  const plainPart = raw.match(/Content-Type: text\/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n([\s\S]*?)\r\n--/)
+  const plain = Buffer.from(plainPart[1].replace(/\s/g, ''), 'base64').toString()
+  assert.match(plain, /Please review\.[\s\S]*Forwarded message[\s\S]*Subject: Meeting[\s\S]*Original invitation text/)
+  assert.match(html, /Forwarded message[\s\S]*Original invitation text/)
   assert.throws(() => context.forwardRegisteredEmail({ ...request, bodyRich: { ...request.bodyRich, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Please review.' }] }] } }, thread), /different content/)
   assert.match(raw, /To: one@example.com, two@example.com\r\n/)
   assert.match(raw, /In-Reply-To: <original@example.com>/)
   assert.match(raw, /References: <earlier@example.com> <original@example.com>/)
   assert.ok(raw.includes('Subject: =?UTF-8?B?' + Buffer.from('Meeting').toString('base64') + '?='))
   assert.match(raw, /Content-ID: <jhcsc-email-logo>/)
-  assert.ok(raw.includes(Buffer.from(original).toString('base64')))
+  assert.doesNotMatch(raw, /forwarded-email\.eml/)
+  assert.match(raw, /filename="Letter.pdf"/)
+  assert.match(raw, /filename="Confirmation.docx"/)
+  assert.ok(raw.includes(Buffer.from('%PDF-original').toString('base64')))
+  assert.ok(raw.includes(Buffer.from('original-docx-bytes').toString('base64')))
   assert.equal(context.forwardRegisteredEmail(request, thread).success, true)
   assert.equal(sends, 1)
   assert.equal(remarks, 'Forwarded')
@@ -58,7 +74,7 @@ test('forward template reuses remarks branding and escapes custom subject and bo
   assert.match(html, /FORWARDED EMAIL/)
   assert.match(html, /&lt;Subject&gt;/)
   assert.match(html, /Hello &lt;script&gt;<br>Second line &amp; text/)
-  assert.match(html, /forwarded-email.eml/)
+  assert.match(html, /original attachments are included as separate files/i)
   assert.doesNotMatch(html, /<script>/)
 })
 
@@ -239,6 +255,26 @@ test('reply formatting preserves styles and escapes message text', () => {
   assert.match(html, /<strong>&lt;script&gt;example&lt;\/script&gt;<\/strong>/)
   assert.match(html, /color:#123456;font-family:Arial;font-size:14pt/)
   assert.doesNotMatch(html, /<script>/)
+})
+
+test('editor RGB colors normalize safely for email formatting', () => {
+  const { context } = fixture()
+  const document = color => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Forward', marks: [{ type: 'textStyle', attrs: { color } }] }] }] })
+  assert.match(context.replyRichHtml(context.validateRichBody(document('rgb(0, 128, 255)'))), /color:#0080ff/)
+  assert.match(context.replyRichHtml(context.validateRichBody(document('#abc'))), /color:#aabbcc/)
+  for (const color of ['rgb(256, 0, 0)', 'red;display:none', 'url(https://example.com)']) {
+    assert.throws(() => context.validateRichBody(document(color)), /Unsupported text color/)
+  }
+})
+
+test('pasted email text sends with optional styles and unsupported fonts removed', () => {
+  const { context } = fixture()
+  const source = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Pasted message', marks: [{ type: 'bold' }, { type: 'textStyle', attrs: { fontFamily: 'Aptos, sans-serif', fontSize: '16px', color: 'inherit' } }] }] }] }
+  const html = context.replyRichHtml(context.validateRichBody(source, true))
+  assert.match(html, /<strong>Pasted message<\/strong>/)
+  assert.doesNotMatch(html, /Aptos|16px|inherit/)
+  source.content[0].content[0].marks[1].attrs = { fontFamily: '"Arial", sans-serif', fontSize: '12pt' }
+  assert.match(context.replyRichHtml(context.validateRichBody(source, true)), /font-family:Arial;font-size:12pt/)
 })
 
 test('reply attachments reject invalid names, encoding, and excessive file counts', () => {

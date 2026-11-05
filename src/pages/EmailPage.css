@@ -416,6 +416,12 @@
 .email-forward form footer { margin-inline:-26px; }
 .email-forward fieldset > small,.email-forward fieldset > p { color:#927b87; font-size:12px; line-height:1.6; }
 .email-forward input[readonly] { background:#f8f4f6; color:#8e7582; }
+.email-forward-history { display:grid; gap:7px; margin:16px 0; padding:14px; border:1px solid #eee3e9; border-radius:10px; background:#fcfafb; }
+.email-forward-history > strong { font-size:13px; }
+.email-forward-history > small { color:#927b87; font-size:12px; line-height:1.5; }
+.email-forward-history > div { display:flex; flex-wrap:wrap; gap:7px; max-height:130px; overflow:auto; padding:3px; }
+.email-forward-history button { min-height:32px; max-width:100%; padding:6px 10px; border:1px solid #ddc9d3; background:#fff; color:#80455f; font:inherit; font-size:12px; overflow-wrap:anywhere; text-align:left; }
+.email-forward-history button:hover:not(:disabled) { background:#f5ecf1; border-color:#80455f; }
 .email-forward-body-label { margin:16px 0 8px; font-weight:600; }
 .email-forward .email-rich-reply { margin:0; }
 .email-forward .email-format-toolbar button { min-height:30px; padding:5px 7px; }

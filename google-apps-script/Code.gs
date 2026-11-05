@@ -1489,12 +1489,20 @@ function richBodyPlainText(node) {
   return (node.content || []).map(richBodyPlainText).join(separate ? '\n' : '');
 }
 
-function validateRichBody(value) {
+function validateRichBody(value, optionalStyles) {
   if (!value || value.type !== 'doc' || JSON.stringify(value).length > 3000000) throw new Error('The formatted body is invalid or too large (maximum 3 MB).');
   const blocks = ['paragraph', 'heading', 'bulletList', 'orderedList', 'blockquote', 'horizontalRule', 'pageBreak', 'image', 'table'];
   const allowed = { doc: blocks, paragraph: ['text', 'hardBreak'], heading: ['text', 'hardBreak'], bulletList: ['listItem'], orderedList: ['listItem'], listItem: ['paragraph', 'bulletList', 'orderedList'], blockquote: ['paragraph', 'heading', 'bulletList', 'orderedList'], table: ['tableRow'], tableRow: ['tableCell', 'tableHeader'], tableCell: ['paragraph', 'heading', 'bulletList', 'orderedList', 'image'], tableHeader: ['paragraph', 'heading', 'bulletList', 'orderedList', 'image'], text: [], hardBreak: [], horizontalRule: [], pageBreak: [], image: [] };
   let count = 0;
-  const color = value => /^#[0-9a-f]{6}$/i.test(value || '') ? value : null;
+  // Browsers serialize editor CSS colors as rgb(), even when chosen as hex.
+  const color = value => {
+    const text = String(value || '').trim();
+    if (/^#[0-9a-f]{6}$/i.test(text)) return text;
+    if (/^#[0-9a-f]{3}$/i.test(text)) return '#' + text.slice(1).split('').map(char => char + char).join('');
+    const rgb = /^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/i.exec(text);
+    return rgb && rgb.slice(1).every(channel => Number(channel) <= 255)
+      ? '#' + rgb.slice(1).map(channel => Number(channel).toString(16).padStart(2, '0')).join('') : null;
+  };
   function visit(node, depth) {
     if (++count > 10000 || depth > 20 || !node || !Object.prototype.hasOwnProperty.call(allowed, node.type)) throw new Error('The body contains unsupported formatting.');
     const clean = { type: node.type }, attrs = node.attrs || {};
@@ -1509,9 +1517,19 @@ function validateRichBody(value) {
         if (mark.type === 'highlight' && color(a.color)) return { type: 'highlight', attrs: { color: color(a.color) } };
         if (mark.type === 'textStyle') {
           const style = {};
-          if (a.color) { if (!color(a.color)) throw new Error('Unsupported text color.'); style.color = a.color; }
-          if (a.fontFamily) { if (!['Arial', 'Times New Roman', 'Calibri', 'Georgia', 'Verdana'].includes(a.fontFamily)) throw new Error('Choose a font from the editor toolbar.'); style.fontFamily = a.fontFamily; }
-          if (a.fontSize) { if (!/^(8|9|10|11|12|14|16|18|24|30|36)pt$/.test(a.fontSize)) throw new Error('Choose a font size from the editor toolbar.'); style.fontSize = a.fontSize; }
+          if (a.color) {
+            if (color(a.color)) style.color = color(a.color);
+            else if (!optionalStyles) throw new Error('Unsupported text color.');
+          }
+          if (a.fontFamily) {
+            const font = optionalStyles ? String(a.fontFamily).split(',')[0].trim().replace(/^['"]|['"]$/g, '') : a.fontFamily;
+            if (['Arial', 'Times New Roman', 'Calibri', 'Georgia', 'Verdana'].includes(font)) style.fontFamily = font;
+            else if (!optionalStyles) throw new Error('Choose a font from the editor toolbar.');
+          }
+          if (a.fontSize) {
+            if (/^(8|9|10|11|12|14|16|18|24|30|36)pt$/.test(a.fontSize)) style.fontSize = a.fontSize;
+            else if (!optionalStyles) throw new Error('Choose a font size from the editor toolbar.');
+          }
           return { type: 'textStyle', attrs: style };
         }
         throw new Error('The body contains an unsupported text style or link.');
@@ -2409,33 +2427,37 @@ function emailRemarksHtml(remarks, reference, forward) {
   const text = emailRemarksMessage(remarks, reference);
   if (!text && !forward) return '';
   const escape = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const burgundy = !!forward || remarks === 'Forwarded';
+  const theme = burgundy
+    ? { dark: '#800020', accent: '#800020', light: '#f8edf0', muted: '#ead2d8', panel: '#fbf4f6' }
+    : { dark: '#244d36', accent: '#356442', light: '#edf5ef', muted: '#d2e5d7', panel: '#f4f7f4' };
   const styles = {
     Acknowledge: ['Acknowledgment of receipt', '#356442', '#edf5ef', 'RECEIVED'],
-    Forwarded: ['Your Inquiry/Email has been forwarded', '#356442', '#edf5ef', 'FORWARDED'],
+    Forwarded: ['Your Inquiry/Email has been forwarded', theme.accent, theme.light, 'FORWARDED'],
     Invitations: ['Thank you for your INVITATION', '#425a89', '#edf1fa', 'INVITATION RECEIVED'],
   };
-  const [heading, color, background, badge] = forward ? ['Forwarded correspondence', '#356442', '#edf5ef', 'FORWARDED EMAIL'] : styles[remarks];
+  const [heading, color, background, badge] = forward ? ['Forwarded correspondence', theme.accent, theme.light, 'FORWARDED EMAIL'] : styles[remarks];
   const message = forward ? forward.message : text.split('\n\n')[1];
   return '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><meta charset="UTF-8"></head>' +
     '<body style="margin:0;padding:0;background-color:#f3f5f3;color:#25332c;font-family:Arial,Helvetica,sans-serif;">' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f5f3;"><tr><td align="center" style="padding:24px 12px;">' +
     '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #dde5df;border-radius:12px;">' +
-    '<tr><td align="center" style="padding:26px 28px;background-color:#244d36;border-radius:12px 12px 0 0;text-align:center;">' +
+    '<tr><td align="center" style="padding:26px 28px;background-color:' + theme.dark + ';border-radius:12px 12px 0 0;text-align:center;">' +
     '<img src="cid:jhcsc-email-logo" width="88" height="88" alt="JHCSC logo" style="display:block;width:88px;height:88px;margin:0 auto 18px;border:0;">' +
-    '<p style="margin:0 0 8px;color:#d2e5d7;font-size:11px;font-weight:bold;letter-spacing:2px;">J.H. CERILLES STATE COLLEGE</p>' +
+    '<p style="margin:0 0 8px;color:' + theme.muted + ';font-size:11px;font-weight:bold;letter-spacing:2px;">J.H. CERILLES STATE COLLEGE</p>' +
     '<p style="margin:0;color:#ffffff;font-size:23px;line-height:30px;font-weight:bold;">Office of the President</p>' +
-    '<p style="margin:8px 0 0;color:#d2e5d7;font-size:12px;line-height:18px;">Mati, San Miguel, Zamboanga del Sur</p></td></tr>' +
+    '<p style="margin:8px 0 0;color:' + theme.muted + ';font-size:12px;line-height:18px;">Mati, San Miguel, Zamboanga del Sur</p></td></tr>' +
     '<tr><td style="padding:30px 28px 12px;"><span style="display:inline-block;padding:7px 11px;border-radius:4px;background-color:' + background + ';color:' + color + ';font-size:11px;font-weight:bold;letter-spacing:1px;">' + badge + '</span>' +
-    '<h1 style="margin:18px 0 24px;font-size:24px;line-height:32px;font-weight:bold;color:#244d36;">' + heading + '</h1>' +
+    '<h1 style="margin:18px 0 24px;font-size:24px;line-height:32px;font-weight:bold;color:' + theme.dark + ';">' + heading + '</h1>' +
     '<p style="margin:0 0 16px;font-size:15px;line-height:25px;">Greetings,</p>' +
     '<div style="margin:0 0 24px;font-size:15px;line-height:25px;">' + (forward && forward.bodyRich ? replyRichHtml(forward.bodyRich) : escape(message).replace(/\r?\n/g, '<br>')) + '</div>' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:17px 18px;background-color:#f4f7f4;border-left:3px solid #356442;">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:17px 18px;background-color:' + theme.panel + ';border-left:3px solid ' + theme.accent + ';">' +
     '<p style="margin:0 0 7px;font-size:10px;letter-spacing:1.5px;font-weight:bold;color:#607368;">' + (forward ? 'SUBJECT' : 'REFERENCE NUMBER') + '</p>' +
-    '<p style="margin:0;font-size:15px;line-height:23px;font-weight:bold;color:#244d36;overflow-wrap:anywhere;word-break:break-word;">' + escape(reference) + '</p></td></tr></table>' +
+    '<p style="margin:0;font-size:15px;line-height:23px;font-weight:bold;color:' + theme.dark + ';overflow-wrap:anywhere;word-break:break-word;">' + escape(reference) + '</p></td></tr></table>' +
     '<p style="margin:26px 0 6px;font-size:14px;line-height:23px;">Thank you,</p>' +
     '<p style="margin:0 0 24px;font-size:14px;line-height:23px;"><strong>Office of the President</strong><br>J.H. Cerilles State College</p></td></tr>' +
     '<tr><td style="padding:18px 28px;border-top:1px solid #e5ebe6;background-color:#fafbf9;border-radius:0 0 12px 12px;">' +
-    '<p style="margin:0;color:#65756b;font-size:12px;line-height:20px;">' + (forward ? 'The original email, including its attachments, is enclosed as forwarded-email.eml.' : 'For questions about this correspondence, reply to this email and include your reference number.') + '</p></td></tr>' +
+    '<p style="margin:0;color:#65756b;font-size:12px;line-height:20px;">' + (forward ? 'Any original attachments are included as separate files.' : 'For questions about this correspondence, reply to this email and include your reference number.') + '</p></td></tr>' +
     '</table></td></tr></table></body></html>';
 }
 
@@ -2858,6 +2880,54 @@ function forwardedEmailRemarksCell(link) {
   return sheet.getRange(matches[0], 6);
 }
 
+// Read every named MIME part from the selected, server-resolved message.
+function forwardEmailAttachments(message) {
+  const files = [];
+  let total = 0;
+  function visit(part) {
+    if (part.filename) {
+      const body = part.body || {};
+      if (body.size > 20 * 1024 * 1024) throw new Error('The email attachments exceed the 20 MB forwarding limit.');
+      const data = body.attachmentId ? Gmail.Users.Messages.Attachments.get('me', message.id, body.attachmentId).data : body.data;
+      if (data == null) throw new Error('An original attachment is unavailable. Nothing was forwarded.');
+      const bytes = decodeGmailBytes(data);
+      total += bytes.length;
+      if (total > 20 * 1024 * 1024) throw new Error('The email attachments exceed the 20 MB forwarding limit.');
+      files.push({ name: String(part.filename).replace(/[\r\n\x00]/g, '_'), mimeType: /^[\w.+-]+\/[\w.+-]+$/.test(part.mimeType || '') ? part.mimeType : 'application/octet-stream', data: Utilities.base64Encode(bytes) });
+      return;
+    }
+    (part.parts || []).forEach(visit);
+  }
+  visit(message.payload || {});
+  return files;
+}
+
+function forwardedEmailContent(message) {
+  const bodies = { text: '', html: '' };
+  function visit(part) {
+    if (part.filename) return;
+    if (['text/plain', 'text/html'].includes(part.mimeType)) {
+      const body = part.body || {};
+      const data = body.attachmentId ? Gmail.Users.Messages.Attachments.get('me', message.id, body.attachmentId).data : body.data;
+      if (data != null) {
+        const contentType = ((part.headers || []).find(item => item.name.toLowerCase() === 'content-type') || {}).value || '';
+        const charset = /charset=["']?([^;\s"']+)/i.exec(contentType);
+        bodies[part.mimeType === 'text/html' ? 'html' : 'text'] += decodeGmailBody(data, charset ? charset[1] : 'UTF-8');
+      }
+    }
+    (part.parts || []).forEach(visit);
+  }
+  visit(message.payload || {});
+  const header = name => (((message.payload || {}).headers || []).find(item => item.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
+  const escape = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const details = ['From', 'Date', 'Subject', 'To', 'Cc'].map(name => [name, header(name)]).filter(([, value]) => value);
+  const text = bodies.text || bodies.html.replace(/<br\s*\/?\s*>|<\/p>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  return {
+    text: '\n\n---------- Forwarded message ---------\n' + details.map(([name, value]) => name + ': ' + value).join('\n') + '\n\n' + text,
+    html: '<div style="margin-top:24px;border-top:1px solid #ddd;padding-top:16px;">---------- Forwarded message ---------<br>' + details.map(([name, value]) => '<strong>' + name + ':</strong> ' + escape(value)).join('<br>') + '<br><br>' + (bodies.html || escape(bodies.text).replace(/\r?\n/g, '<br>')) + '</div>',
+  };
+}
+
 function forwardRegisteredEmail(request, thread) {
   const user = sessionAccount(request.token);
   const target = (thread.messages || []).find(message => message.id === request.messageId && !(message.labelIds || []).some(label => ['DRAFT', 'SPAM', 'TRASH'].includes(label)));
@@ -2869,7 +2939,7 @@ function forwardRegisteredEmail(request, thread) {
   const messageId = header('Message-ID');
   if (!/^<[^<>\s]+>$/.test(messageId)) throw new Error('This email has no valid threading header. Open it in Gmail to forward.');
   const references = (header('References').match(/<[^<>\s]+>/g) || []).slice(-15).concat(messageId).join(' ');
-  const rich = request.bodyRich ? validateRichBody(request.bodyRich) : null;
+  const rich = request.bodyRich ? validateRichBody(request.bodyRich, true) : null;
   const body = rich ? richBodyPlainText(rich).trim() : String(request.message || '').trim();
   if (!body || body.length > 20000) throw new Error('Enter a body up to 20,000 characters.');
   if (!/^[a-zA-Z0-9-]{16,80}$/.test(String(request.requestId || ''))) throw new Error('Invalid forward request.');
@@ -2893,23 +2963,27 @@ function forwardRegisteredEmail(request, thread) {
       throw new Error('Delivery is uncertain. Check Gmail Sent before starting another forward.');
     }
     const remarksCell = forwardedEmailRemarksCell(request.link);
-    const original = Gmail.Users.Messages.get('me', target.id, { format: 'raw' });
-    const padded = forwardedEmailBase64(original.raw);
+    const attachments = forwardEmailAttachments(target);
+    const originalContent = forwardedEmailContent(target);
     const encode = value => Utilities.base64Encode(Utilities.newBlob(value).getBytes());
     const wrap = value => (value.match(/.{1,76}/g) || []).join('\r\n');
     const boundary = 'op_forward_' + Utilities.getUuid();
     const sender = emailAddresses(Gmail.Users.getProfile('me').emailAddress, true).join(', ');
-    const raw = ['From: ' + sender, 'To: ' + recipients.join(', '), 'Subject: =?UTF-8?B?' + encode(subject) + '?=',
+    let raw = ['From: ' + sender, 'To: ' + recipients.join(', '), 'Subject: =?UTF-8?B?' + encode(subject) + '?=',
       'In-Reply-To: ' + messageId, 'References: ' + references,
       'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="' + boundary + '"', '',
       '--' + boundary, 'Content-Type: multipart/alternative; boundary="' + boundary + '_alt"', '',
-      '--' + boundary + '_alt', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(encode(body)),
+      '--' + boundary + '_alt', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(encode(body + originalContent.text)),
       '--' + boundary + '_alt', 'Content-Type: multipart/related; boundary="' + boundary + '_related"', '',
-      '--' + boundary + '_related', 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(encode(emailRemarksHtml('Incoming', subject, { message: body, bodyRich: rich }))),
+      '--' + boundary + '_related', 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(encode(emailRemarksHtml('Incoming', subject, { message: body, bodyRich: rich }).replace('</body>', originalContent.html + '</body>'))),
       '--' + boundary + '_related', 'Content-Type: image/png', 'Content-ID: <jhcsc-email-logo>', 'Content-Disposition: inline; filename="jhcsc-logo.png"', 'Content-Transfer-Encoding: base64', '', wrap(EMAIL_JHCSC_LOGO_PNG),
-      '--' + boundary + '_related--', '--' + boundary + '_alt--',
-      '--' + boundary, 'Content-Type: application/octet-stream; name="forwarded-email.eml"',
-      'Content-Disposition: attachment; filename="forwarded-email.eml"', 'Content-Transfer-Encoding: base64', '', wrap(padded), '--' + boundary + '--', ''].join('\r\n');
+      '--' + boundary + '_related--', '--' + boundary + '_alt--'].join('\r\n');
+    attachments.forEach(file => {
+      const fallback = file.name.replace(/[^\x20-\x7e]|["\\]/g, '_');
+      raw += '\r\n--' + boundary + '\r\nContent-Type: ' + file.mimeType + '\r\nContent-Disposition: attachment; filename="' + fallback + '"; filename*=UTF-8\'\'' + encodeURIComponent(file.name).replace(/['()*]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase()) + '\r\nContent-Transfer-Encoding: base64\r\n\r\n' + wrap(file.data);
+    });
+    raw += '\r\n--' + boundary + '--\r\n';
+    if (Utilities.newBlob(raw).getBytes().length > 34 * 1024 * 1024) throw new Error('The complete forward is too large. Forward this email directly from Gmail.');
     props.setProperty(key, JSON.stringify({ state: 'pending', fingerprint: fingerprint }));
     const sent = Gmail.Users.Messages.send({ threadId: thread.id || target.threadId, raw: Utilities.base64EncodeWebSafe(Utilities.newBlob(raw).getBytes()) }, 'me');
     if (!sent || !sent.id) throw new Error('Delivery is uncertain. Check Gmail Sent before starting another forward.');
@@ -2924,7 +2998,7 @@ function forwardRegisteredEmail(request, thread) {
 function replyToRegisteredThread(request, thread, lockHeld, templateHtml) {
   const user = sessionAccount(request.token);
   const attachments = validateReplyAttachments(request.attachments);
-  const rich = request.bodyRich ? validateRichBody(request.bodyRich) : null;
+  const rich = request.bodyRich ? validateRichBody(request.bodyRich, true) : null;
   const body = rich ? richBodyPlainText(rich).trim() : String(request.message || '').trim();
   if (!body || body.length > 20000) throw new Error('Enter a reply up to 20,000 characters.');
   if (!/^[a-zA-Z0-9-]{16,80}$/.test(String(request.requestId || ''))) throw new Error('Invalid reply request.');
