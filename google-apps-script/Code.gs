@@ -470,11 +470,14 @@ function doPost(e) {
   let overviewMayChange = false;
   try {
     const request = JSON.parse(e.postData.contents || '{}');
+    if (request.action === 'deleteEmail') return deleteRegisteredEmail(request);
     if (request.action === 'emails') return getEmailRegister(request);
     if (request.action === 'emailThread') return getEmailThread(request);
     if (request.action === 'emailAttachment') return getEmailThread(request);
     if (request.action === 'replyEmail') return getEmailThread(request);
+    if (request.action === 'forwardEmail') return getEmailThread(request);
     if (request.action === 'updateEmailRemarks') return updateEmailRemarks(request);
+    if (request.action === 'updateEmailRowColor') return updateEmailRowColor(request);
     try { requireApprovalPassword(request); }
     catch (error) { return jsonResponse({ success: false, message: error.message }); }
     overviewMayChange = ['createDocument', 'createExecutiveMemorandum', 'uploadDocument', 'editDocument', 'deleteDocument', 'updateDocumentStatus', 'updateDocumentContent', 'sendDocument', 'documentSendStatus', 'prepareDocumentPreview'].includes(request.action);
@@ -2385,15 +2388,13 @@ function verifyPassword_(plainPassword, hashedPassword) {
 const EMAIL_SHEET_HEADERS = ['Timestamp', 'Reference No', 'Date Received', 'Received From', 'Subject', 'Remarks', 'Links'];
 // Fixed Manila start date: future runs can catch up without importing earlier mail.
 const EMAIL_IMPORT_START_DATE = '2026-10-12';
-const EMAIL_REMARKS = ['Incoming', 'For Information', 'Acknowledge', 'For Action', 'Invitations', 'Memorandum', 'Approved', 'Disapproved', 'Completed'];
+const EMAIL_REMARKS = ['Incoming', 'For Information', 'Acknowledge', 'Invitations', 'Memorandum', 'Forwarded'];
 
 // Automatic replies share the existing Gmail conversation and reply safeguards.
 function emailRemarksMessage(remarks, reference) {
   const templates = {
     Acknowledge: 'We acknowledge receipt of your inqury/email. It has been received by the Office of the President for review.',
-    Approved: 'Your inqury/email has been reviewed and marked Approved by the Office of the President.',
-    'For Action': 'Your inqury/email has been marked For Action and referred for appropriate action by the Office of the President. Further updates will be communicated as available.',
-    Disapproved: 'Your inqury/email has been reviewed and marked Disapproved by the Office of the President. You may reply to this email for clarification.',
+    Forwarded: 'Your inquiry/email has been forwarded to the concerned office for review and appropriate action by the Office of the President. Further updates will be communicated as available.',
     Invitations: 'Thank you for your invitation. It has been received by the Office of the President for consideration. Attendance or participation will be confirmed separately.',
   };
   return templates[remarks] ? ['Greetings!,', templates[remarks], 'Reference No: ' + reference, 'Thank you.\nOffice of the President\nJ.H. Cerilles State College'].join('\n\n') : '';
@@ -2404,19 +2405,17 @@ const EMAIL_JHCSC_LOGO_PNG = 'iVBORw0KGgoAAAANSUhEUgAAALAAAACwCAYAAACvt+ReAAAAAX
 
 // Table layout and inline styles work across Gmail, Outlook and mobile clients.
 // All variable text is escaped; this HTML is generated only on the server.
-function emailRemarksHtml(remarks, reference) {
+function emailRemarksHtml(remarks, reference, forward) {
   const text = emailRemarksMessage(remarks, reference);
-  if (!text) return '';
+  if (!text && !forward) return '';
   const escape = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const styles = {
     Acknowledge: ['Acknowledgment of receipt', '#356442', '#edf5ef', 'RECEIVED'],
-    Approved: ['Your Inquiry/Email is APPROVED', '#286341', '#edf5ef', 'APPROVED'],
-    'For Action': ['Your Inquiry/Email is FOR ACTION', '#8a5b14', '#fff6e5', 'FOR ACTION'],
-    Disapproved: ['Update on your Inquiry/Email', '#9b3e3e', '#fbeded', 'DISAPPROVED'],
+    Forwarded: ['Your Inquiry/Email has been forwarded', '#356442', '#edf5ef', 'FORWARDED'],
     Invitations: ['Thank you for your INVITATION', '#425a89', '#edf1fa', 'INVITATION RECEIVED'],
   };
-  const [heading, color, background, badge] = styles[remarks];
-  const message = text.split('\n\n')[1];
+  const [heading, color, background, badge] = forward ? ['Forwarded correspondence', '#356442', '#edf5ef', 'FORWARDED EMAIL'] : styles[remarks];
+  const message = forward ? forward.message : text.split('\n\n')[1];
   return '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><meta charset="UTF-8"></head>' +
     '<body style="margin:0;padding:0;background-color:#f3f5f3;color:#25332c;font-family:Arial,Helvetica,sans-serif;">' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f5f3;"><tr><td align="center" style="padding:24px 12px;">' +
@@ -2429,14 +2428,14 @@ function emailRemarksHtml(remarks, reference) {
     '<tr><td style="padding:30px 28px 12px;"><span style="display:inline-block;padding:7px 11px;border-radius:4px;background-color:' + background + ';color:' + color + ';font-size:11px;font-weight:bold;letter-spacing:1px;">' + badge + '</span>' +
     '<h1 style="margin:18px 0 24px;font-size:24px;line-height:32px;font-weight:bold;color:#244d36;">' + heading + '</h1>' +
     '<p style="margin:0 0 16px;font-size:15px;line-height:25px;">Greetings,</p>' +
-    '<p style="margin:0 0 24px;font-size:15px;line-height:25px;">' + escape(message) + '</p>' +
+    '<p style="margin:0 0 24px;font-size:15px;line-height:25px;">' + escape(message).replace(/\r?\n/g, '<br>') + '</p>' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:17px 18px;background-color:#f4f7f4;border-left:3px solid #356442;">' +
-    '<p style="margin:0 0 7px;font-size:10px;letter-spacing:1.5px;font-weight:bold;color:#607368;">REFERENCE NUMBER</p>' +
+    '<p style="margin:0 0 7px;font-size:10px;letter-spacing:1.5px;font-weight:bold;color:#607368;">' + (forward ? 'SUBJECT' : 'REFERENCE NUMBER') + '</p>' +
     '<p style="margin:0;font-size:15px;line-height:23px;font-weight:bold;color:#244d36;overflow-wrap:anywhere;word-break:break-word;">' + escape(reference) + '</p></td></tr></table>' +
     '<p style="margin:26px 0 6px;font-size:14px;line-height:23px;">Thank you,</p>' +
     '<p style="margin:0 0 24px;font-size:14px;line-height:23px;"><strong>Office of the President</strong><br>J.H. Cerilles State College</p></td></tr>' +
     '<tr><td style="padding:18px 28px;border-top:1px solid #e5ebe6;background-color:#fafbf9;border-radius:0 0 12px 12px;">' +
-    '<p style="margin:0;color:#65756b;font-size:12px;line-height:20px;">For questions about this correspondence, reply to this email and include your reference number.</p></td></tr>' +
+    '<p style="margin:0;color:#65756b;font-size:12px;line-height:20px;">' + (forward ? 'The original email, including its attachments, is enclosed as forwarded-email.eml.' : 'For questions about this correspondence, reply to this email and include your reference number.') + '</p></td></tr>' +
     '</table></td></tr></table></body></html>';
 }
 
@@ -2457,6 +2456,60 @@ function sendEmailRemarksReply(request, reference) {
   const result = replyToRegisteredThread({ token: request.token, link: request.link, requestId: pending.requestId, messageId: pending.messageId, message: emailRemarksMessage(request.remarks, reference) }, thread, true, emailRemarksHtml(request.remarks, reference));
   // The caller clears this state only after the sheet update is persisted.
   return { result: result, key: key };
+}
+
+// Background formatting survives mailbox sync without changing thread metadata.
+function deleteRegisteredEmail(request) {
+  if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
+  const match = typeof request.link === 'string' && /^https:\/\/mail\.google\.com\/mail\/u\/\d+\/#(?:all|inbox)\/([a-zA-Z0-9_-]+)$/.exec(request.link);
+  if (!match) return jsonResponse({ success: false, message: 'Choose a registered email.' });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = appSpreadsheet().getSheetByName('Email');
+    if (!sheet || sheet.getLastRow() < 2) throw new Error('Email record was not found.');
+    const range = sheet.getRange(2, 7, sheet.getLastRow() - 1, 1);
+    const values = range.getDisplayValues(), rich = range.getRichTextValues();
+    const rows = values.map((row, index) => {
+      const cell = rich[index][0];
+      const url = (cell && cell.getLinkUrl()) || (cell && cell.getRuns().map(run => run.getLinkUrl()).find(Boolean)) || row[0];
+      return url === request.link ? index + 2 : 0;
+    }).filter(Boolean);
+    if (rows.length !== 1) throw new Error('Email record could not be uniquely identified.');
+    const anchor = Gmail.Users.Messages.get('me', match[1], { format: 'minimal' });
+    // Trash first: a Gmail failure must preserve the register so deletion can be retried.
+    const trashed = Gmail.Users.Threads.trash('me', anchor.threadId);
+    if (!trashed || trashed.id !== anchor.threadId) throw new Error('Gmail did not confirm moving this conversation to Trash.');
+    sheet.deleteRow(rows[0]);
+    SpreadsheetApp.flush();
+    return jsonResponse({ success: true, deletedLink: request.link, trashed: true });
+  } catch (error) { return jsonResponse({ success: false, message: error.message }); }
+  finally { lock.releaseLock(); }
+}
+
+function updateEmailRowColor(request) {
+  if (!getDocumentSession(request.token)) return jsonResponse({ success: false, message: 'Your session expired. Please sign in again.' });
+  const colors = ['', '#f4cccc', '#fff2cc', '#e2f0d9'];
+  if (!colors.includes(request.color) || typeof request.link !== 'string' || !request.link) return jsonResponse({ success: false, message: 'Choose a valid row color.' });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = appSpreadsheet().getSheetByName('Email');
+    if (!sheet || sheet.getLastRow() < 2) throw new Error('Email record was not found.');
+    const links = sheet.getRange(2, 7, sheet.getLastRow() - 1, 1);
+    const values = links.getDisplayValues();
+    const rich = links.getRichTextValues();
+    const matches = values.map((row, index) => {
+      const cell = rich[index][0];
+      const url = (cell && cell.getLinkUrl()) || (cell && cell.getRuns().map(run => run.getLinkUrl()).find(Boolean)) || row[0];
+      return url === request.link ? index + 2 : 0;
+    }).filter(Boolean);
+    if (matches.length !== 1) throw new Error('Email record could not be uniquely identified.');
+    sheet.getRange(matches[0], 1, 1, 7).setBackground(request.color || null);
+    SpreadsheetApp.flush();
+    return jsonResponse({ success: true, rowColor: request.color });
+  } catch (error) { return jsonResponse({ success: false, message: error.message }); }
+  finally { lock.releaseLock(); }
 }
 
 function updateEmailRemarks(request) {
@@ -2683,6 +2736,7 @@ function getEmailThread(request) {
     const anchor = Gmail.Users.Messages.get('me', match[1], { format: 'minimal' });
     const thread = Gmail.Users.Threads.get('me', anchor.threadId, { format: 'full' });
     if (request.action === 'replyEmail') return replyToRegisteredThread(request, thread);
+    if (request.action === 'forwardEmail') return forwardRegisteredEmail(request, thread);
     if (request.action === 'emailAttachment') {
       if (typeof request.messageId !== 'string' || typeof request.partId !== 'string') throw new Error('Choose a valid attachment.');
       const message = (thread.messages || []).find(item => item.id === request.messageId && !(item.labelIds || []).some(label => ['DRAFT', 'SPAM', 'TRASH'].includes(label)));
@@ -2761,6 +2815,7 @@ function getEmailRegister(request) {
   const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7);
   const rows = range.getDisplayValues();
   const richText = range.getRichTextValues();
+  const backgrounds = typeof range.getBackgrounds === 'function' ? range.getBackgrounds() : [];
   const notes = typeof range.getNotes === 'function' ? range.getNotes() : [];
   const emails = rows.map((row, index) => {
     const cell = richText[index][6];
@@ -2768,12 +2823,103 @@ function getEmailRegister(request) {
     const link = (cell && cell.getLinkUrl()) || runs.map(run => run.getLinkUrl()).find(Boolean) || row[6];
     let thread = {};
     try { thread = JSON.parse(notes[index]?.[6] || '{}') || {}; } catch (error) { /* Legacy note. */ }
-    return { threadId: thread.threadId || '', latestMessageId: thread.latestMessageId || '', latestReceivedAt: thread.latestReceivedAt || '', latestSender: thread.latestSender || '', replyCount: thread.replyCount || 0, timestamp: row[0], reference: row[1], dateReceived: row[2], receivedFrom: row[3], subject: row[4], remarks: row[5], link: /^https?:\/\//i.test(link) ? link : '' };
+    const background = backgrounds[index]?.[0];
+    const rowColor = ['#f4cccc', '#fff2cc', '#e2f0d9'].includes(background) ? background : '';
+    return { rowColor: rowColor, threadId: thread.threadId || '', latestMessageId: thread.latestMessageId || '', latestReceivedAt: thread.latestReceivedAt || '', latestSender: thread.latestSender || '', replyCount: thread.replyCount || 0, timestamp: row[0], reference: row[1], dateReceived: row[2], receivedFrom: row[3], subject: row[4], remarks: row[5], link: /^https?:\/\//i.test(link) ? link : '' };
   }).filter(email => email.timestamp || email.reference || email.dateReceived || email.receivedFrom || email.subject || email.remarks || email.link);
   return jsonResponse({ success: true, emails: emails.reverse() });
 }
 
 // Reply targets and threading headers come only from the registered conversation.
+function forwardedEmailBase64(raw) {
+  // Advanced Gmail may deserialize its bytes field before returning it.
+  if (Array.isArray(raw)) {
+    if (!raw.length || raw.length > 20 * 1024 * 1024 || raw.some(byte => !Number.isInteger(byte) || byte < -128 || byte > 255)) throw new Error('The original email is unavailable or too large to forward here.');
+    return Utilities.base64Encode(raw);
+  }
+  if (typeof raw !== 'string' || !raw.length || raw.length > Math.ceil(20 * 1024 * 1024 / 3) * 4) throw new Error('The original email is unavailable or too large to forward here.');
+  const base64 = raw.replace(/\s/g, '').replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+  if (!/^[A-Za-z0-9+/]+$/.test(base64) || base64.length % 4 === 1) throw new Error('The original email could not be decoded.');
+  return base64 + '='.repeat((4 - base64.length % 4) % 4);
+}
+
+// Called under the forward lock; updating remarks must not send another reply.
+function forwardedEmailRemarksCell(link) {
+  const sheet = appSpreadsheet().getSheetByName('Email');
+  if (!sheet || sheet.getLastRow() < 2) throw new Error('Email record was not found.');
+  const links = sheet.getRange(2, 7, sheet.getLastRow() - 1, 1);
+  const values = links.getDisplayValues(), rich = links.getRichTextValues();
+  const matches = values.map((row, index) => {
+    const cell = rich[index][0];
+    const url = (cell && cell.getLinkUrl()) || (cell && cell.getRuns().map(run => run.getLinkUrl()).find(Boolean)) || row[0];
+    return url === link ? index + 2 : 0;
+  }).filter(Boolean);
+  if (matches.length !== 1) throw new Error('Email record could not be uniquely identified.');
+  return sheet.getRange(matches[0], 6);
+}
+
+function forwardRegisteredEmail(request, thread) {
+  const user = sessionAccount(request.token);
+  const target = (thread.messages || []).find(message => message.id === request.messageId && !(message.labelIds || []).some(label => ['DRAFT', 'SPAM', 'TRASH'].includes(label)));
+  if (!target) throw new Error('Choose a message from this conversation.');
+  const recipients = emailAddresses(request.to, true);
+  if (recipients.some(address => /[<>\r\n]/.test(address))) throw new Error('Enter plain email addresses.');
+  const header = name => (((target.payload || {}).headers || []).find(item => item.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
+  const subject = header('Subject').replace(/[\r\n]/g, ' ');
+  const messageId = header('Message-ID');
+  if (!/^<[^<>\s]+>$/.test(messageId)) throw new Error('This email has no valid threading header. Open it in Gmail to forward.');
+  const references = (header('References').match(/<[^<>\s]+>/g) || []).slice(-15).concat(messageId).join(' ');
+  const body = String(request.message || '').trim();
+  if (!body || body.length > 20000) throw new Error('Enter a body up to 20,000 characters.');
+  if (!/^[a-zA-Z0-9-]{16,80}$/.test(String(request.requestId || ''))) throw new Error('Invalid forward request.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const key = 'email-forward:' + request.requestId;
+    const fingerprint = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([user.email, request.link, target.id, recipients, subject, body])));
+    const previous = JSON.parse(props.getProperty(key) || 'null');
+    if (previous) {
+      if (previous.fingerprint !== fingerprint) throw new Error('This forward attempt used different content. Close and reopen Forward to start a new send.');
+      if (previous.state === 'sent') {
+        if (!previous.remarksComplete) {
+          forwardedEmailRemarksCell(request.link).setValue('Forwarded');
+          SpreadsheetApp.flush();
+          props.setProperty(key, JSON.stringify({ ...previous, remarksComplete: true }));
+        }
+        return jsonResponse({ success: true, remarks: 'Forwarded' });
+      }
+      throw new Error('Delivery is uncertain. Check Gmail Sent before starting another forward.');
+    }
+    const remarksCell = forwardedEmailRemarksCell(request.link);
+    const original = Gmail.Users.Messages.get('me', target.id, { format: 'raw' });
+    const padded = forwardedEmailBase64(original.raw);
+    const encode = value => Utilities.base64Encode(Utilities.newBlob(value).getBytes());
+    const wrap = value => (value.match(/.{1,76}/g) || []).join('\r\n');
+    const boundary = 'op_forward_' + Utilities.getUuid();
+    const sender = emailAddresses(Gmail.Users.getProfile('me').emailAddress, true).join(', ');
+    const raw = ['From: ' + sender, 'To: ' + recipients.join(', '), 'Subject: =?UTF-8?B?' + encode(subject) + '?=',
+      'In-Reply-To: ' + messageId, 'References: ' + references,
+      'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="' + boundary + '"', '',
+      '--' + boundary, 'Content-Type: multipart/alternative; boundary="' + boundary + '_alt"', '',
+      '--' + boundary + '_alt', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(encode(body)),
+      '--' + boundary + '_alt', 'Content-Type: multipart/related; boundary="' + boundary + '_related"', '',
+      '--' + boundary + '_related', 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(encode(emailRemarksHtml('Incoming', subject, { message: body }))),
+      '--' + boundary + '_related', 'Content-Type: image/png', 'Content-ID: <jhcsc-email-logo>', 'Content-Disposition: inline; filename="jhcsc-logo.png"', 'Content-Transfer-Encoding: base64', '', wrap(EMAIL_JHCSC_LOGO_PNG),
+      '--' + boundary + '_related--', '--' + boundary + '_alt--',
+      '--' + boundary, 'Content-Type: application/octet-stream; name="forwarded-email.eml"',
+      'Content-Disposition: attachment; filename="forwarded-email.eml"', 'Content-Transfer-Encoding: base64', '', wrap(padded), '--' + boundary + '--', ''].join('\r\n');
+    props.setProperty(key, JSON.stringify({ state: 'pending', fingerprint: fingerprint }));
+    const sent = Gmail.Users.Messages.send({ threadId: thread.id || target.threadId, raw: Utilities.base64EncodeWebSafe(Utilities.newBlob(raw).getBytes()) }, 'me');
+    if (!sent || !sent.id) throw new Error('Delivery is uncertain. Check Gmail Sent before starting another forward.');
+    props.setProperty(key, JSON.stringify({ state: 'sent', fingerprint: fingerprint }));
+    remarksCell.setValue('Forwarded');
+    SpreadsheetApp.flush();
+    props.setProperty(key, JSON.stringify({ state: 'sent', fingerprint: fingerprint, remarksComplete: true }));
+    return jsonResponse({ success: true, remarks: 'Forwarded' });
+  } finally { lock.releaseLock(); }
+}
+
 function replyToRegisteredThread(request, thread, lockHeld, templateHtml) {
   const user = sessionAccount(request.token);
   const attachments = validateReplyAttachments(request.attachments);

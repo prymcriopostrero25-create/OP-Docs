@@ -15,32 +15,32 @@ function fixture() {
   context.sendEmailRemarksReply = request => { sends++; if (fail) throw new Error('Gmail failed'); assert.ok(context.emailRemarksMessage(request.remarks, 'REF-1')); return { key: 'pending' } }
   return { context, update: remarks => context.updateEmailRemarks({ link, remarks }), sends: () => sends, remark: () => remark, fail: () => { fail = true } }
 }
-test('five distinct templates send on changes, same remark and other remarks do not send', () => {
+test('three distinct templates send on changes, same remark and other remarks do not send', () => {
   const f = fixture(), messages = new Set()
-  for (const remark of ['Acknowledge', 'Approved', 'For Action', 'Disapproved', 'Invitations']) {
+  for (const remark of ['Acknowledge', 'Forwarded', 'Invitations']) {
     messages.add(f.context.emailRemarksMessage(remark, 'REF-1'))
     assert.equal(f.update(remark).emailSent, true)
     assert.equal(f.update(remark).emailSent, false)
   }
-  assert.equal(messages.size, 5)
-  assert.equal(f.sends(), 5)
-  assert.equal(f.update('Completed').emailSent, false)
-  assert.equal(f.sends(), 5)
+  assert.equal(messages.size, 3)
+  assert.equal(f.sends(), 3)
+  assert.equal(f.update('For Information').emailSent, false)
+  assert.equal(f.sends(), 3)
 })
 test('failed email does not save remarks and invalid sessions cannot send', () => {
   const f = fixture()
   f.fail()
-  assert.equal(f.update('Approved').success, false)
+  assert.equal(f.update('Forwarded').success, false)
   assert.equal(f.remark(), 'Incoming')
   f.context.getDocumentSession = () => false
-  assert.equal(f.update('Approved').success, false)
+  assert.equal(f.update('Forwarded').success, false)
   assert.equal(f.sends(), 1)
 })
 
 test('branded templates escape reference text and give each status its own heading', () => {
   const { context } = fixture()
   const headings = new Set()
-  for (const remark of ['Acknowledge', 'Approved', 'For Action', 'Disapproved', 'Invitations']) {
+  for (const remark of ['Acknowledge', 'Forwarded', 'Invitations']) {
     const html = context.emailRemarksHtml(remark, '<unsafe & reference>')
     assert.match(html, /Office of the President/)
     assert.match(html, /&lt;unsafe &amp; reference&gt;/)
@@ -50,7 +50,7 @@ test('branded templates escape reference text and give each status its own headi
     assert.match(html, /src="cid:jhcsc-email-logo"/)
     headings.add(html.match(/<h1[^>]*>(.*?)<\/h1>/)[1])
   }
-  assert.equal(headings.size, 5)
+  assert.equal(headings.size, 3)
   assert.equal(context.emailRemarksHtml('Completed', 'REF-1'), '')
 })
 
@@ -68,8 +68,8 @@ test('automatic reply sends both plain text and branded HTML in the existing thr
   }
   context.Gmail = { Users: { getProfile: () => ({ emailAddress: 'main@jhcsc.edu.ph' }), Messages: { send: value => { assert.equal(value.threadId, 'thread1'); raw = Buffer.from(value.raw, 'base64url').toString(); return { id: 'sent1' } } } } }
   const thread = { id: 'thread1', messages: [{ id: 'incoming1', payload: { headers: [{ name: 'From', value: 'sender@example.com' }, { name: 'Message-ID', value: '<incoming@example.com>' }, { name: 'Subject', value: 'Request' }] } }] }
-  const plain = context.emailRemarksMessage('Approved', 'REF-1')
-  const html = context.emailRemarksHtml('Approved', 'REF-1')
+  const plain = context.emailRemarksMessage('Forwarded', 'REF-1')
+  const html = context.emailRemarksHtml('Forwarded', 'REF-1')
   const result = context.replyToRegisteredThread({ token: 'session', link: 'registered-link', messageId: 'incoming1', requestId: 'request-1234567890', message: plain }, thread, true, html)
   assert.equal(result.success, true)
   assert.match(raw, /multipart\/alternative/)

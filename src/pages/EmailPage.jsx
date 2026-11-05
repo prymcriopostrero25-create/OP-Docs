@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchEmails, updateEmailRemarks } from '../lib/appsScriptApi'
+import { fetchEmails, updateEmailRemarks, updateEmailRowColor, deleteEmail } from '../lib/appsScriptApi'
 import { usePageData } from '../lib/usePageData'
 import './EmailPage.css'
 import EmailConversation from '../components/EmailConversation'
 import EmailIcon from '../components/EmailIcon'
+import EmailForward from '../components/EmailForward'
 
-const remarkOptions = ['Incoming', 'For Information', 'Acknowledge', 'For Action', 'Invitations', 'Memorandum', 'Approved', 'Disapproved', 'Completed']
+const remarkOptions = ['Incoming', 'For Information', 'Acknowledge', 'Invitations', 'Memorandum', 'Forwarded']
 const columns = [['reference', 'Reference No'], ['dateReceived', 'Date Received'], ['receivedFrom', 'Received From'], ['subject', 'Subject'], ['remarks', 'Remarks']]
+const rowColors = [['#f4cccc', 'Red', '#dc4444'], ['#fff2cc', 'Yellow', '#f0c62e'], ['#e2f0d9', 'Green', '#48a35a']]
 
 function RemarksNotice({ message, onClose }) {
   const dialog = useRef(null)
@@ -38,6 +40,7 @@ function EmailText({ value }) {
 export default function EmailPage() {
   const [seenMessages, setSeenMessages] = useState(() => { try { return JSON.parse(localStorage.getItem('op-email-seen-replies') || '{}') } catch { return {} } })
   const [conversation, setConversation] = useState(null)
+  const [forward, setForward] = useState(null)
   function openConversation(email) {
     if (!email.link) return
     setConversation(email)
@@ -67,6 +70,25 @@ export default function EmailPage() {
   const [saveError, setSaveError] = useState('')
   const [saveNotice, setSaveNotice] = useState('')
   const { data, setData, loading, error } = usePageData(true, fetchEmails, attempt, 30000)
+  async function removeEmail(email) {
+    if (saving[email.link] || !window.confirm(`Delete "${email.subject || email.reference}"? This moves the entire Gmail conversation to Trash and removes it from the register.`)) return
+    setSaving(previous => ({ ...previous, [email.link]: true }))
+    setSaveError('')
+    try {
+      await deleteEmail(email.link)
+      setData(rows => rows.filter(row => row.link !== email.link))
+    } catch (error) { setSaveError(error.message) }
+    finally { setSaving(previous => ({ ...previous, [email.link]: false })) }
+  }
+  async function changeRowColor(email, color) {
+    setSaving(previous => ({ ...previous, [email.link]: true }))
+    setSaveError('')
+    try {
+      await updateEmailRowColor(email.link, color)
+      setData(rows => rows.map(row => row.link === email.link ? { ...row, rowColor: color } : row))
+    } catch (error) { setSaveError(error.message) }
+    finally { setSaving(previous => ({ ...previous, [email.link]: false })) }
+  }
   async function changeRemarks(email, remarks) {
     setSaving(previous => ({ ...previous, [email.link]: true }))
     setSaveError('')
@@ -115,8 +137,8 @@ export default function EmailPage() {
       {[
         { label: 'All Correspondence', value: emails.length, icon: 'inbox', detail: 'Registered conversations', remark: '' },
         { label: 'Incoming', value: emails.filter(email => email.remarks === 'Incoming').length, icon: 'download', detail: 'Received correspondence', remark: 'Incoming' },
-        { label: 'For Action', value: emails.filter(email => email.remarks === 'For Action').length, icon: 'clock', detail: 'Requires follow-up', remark: 'For Action' },
-        { label: 'Completed', value: emails.filter(email => email.remarks === 'Completed').length, icon: 'check', detail: 'Closed correspondence', remark: 'Completed' },
+        { label: 'Acknowledge', value: emails.filter(email => email.remarks === 'Acknowledge').length, icon: 'clock', detail: 'Acknowledged correspondence', remark: 'Acknowledge' },
+        { label: 'Forwarded', value: emails.filter(email => email.remarks === 'Forwarded').length, icon: 'check', detail: 'Referred correspondence', remark: 'Forwarded' },
       ].map(item => <button type="button" key={item.label} className={`email-summary-card ${remarkFilter === item.remark ? 'is-active' : ''}`} aria-pressed={remarkFilter === item.remark} onClick={() => selectRemark(item.remark)}>
         <span className="email-summary-icon"><EmailIcon name={item.icon} size={21} /></span>
         <span className="email-summary-copy"><span>{item.label}</span><strong>{loading && !data ? '?' : item.value.toLocaleString()}</strong><small>{item.detail}</small></span>
@@ -146,8 +168,8 @@ export default function EmailPage() {
       {error && <div className="user-logs-state user-logs-error" role="alert"><p>{error}</p><button className="secondary-action" onClick={() => setAttempt(value => value + 1)}>Try again</button></div>}
       {!loading && !error && <div className="user-logs-table-wrap">
         <table className="user-logs-table">
-          <thead><tr>{columns.map(([field, label]) => <th key={field} scope="col" aria-sort={sort.field === field ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><button className="email-sort-button" type="button" onClick={() => changeSort(field)}>{label} <span aria-hidden="true">{sort.field === field ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></th>)}<th scope="col">Conversation</th></tr></thead>
-          <tbody>{visible.map((email, index) => <tr key={email.link || `${email.reference}-${email.timestamp}-${start + index}`} className={`${email.link ? 'email-clickable-row' : ''} ${isUnread(email) ? 'email-unread-row' : ''}`} onClick={() => openConversation(email)}>
+          <thead><tr>{columns.map(([field, label]) => <th key={field} scope="col" aria-sort={sort.field === field ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><button className="email-sort-button" type="button" onClick={() => changeSort(field)}>{label} <span aria-hidden="true">{sort.field === field ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></th>)}<th scope="col">Actions</th></tr></thead>
+          <tbody>{visible.map((email, index) => <tr key={email.link || `${email.reference}-${email.timestamp}-${start + index}`} className={`${email.link ? 'email-clickable-row' : ''} ${isUnread(email) ? 'email-unread-row' : ''}`} style={rowColors.some(([color]) => color && color === email.rowColor) ? { backgroundColor: email.rowColor } : undefined} onClick={() => openConversation(email)}>
             <td data-label="Reference No"><EmailText value={email.reference} /></td>
             <td data-label="Date Received">{email.dateReceived}</td>
             <td data-label="Received From"><div className="email-sender"><span className="email-avatar" aria-hidden="true">{email.receivedFrom.slice(0, 1).toUpperCase() || '?'}</span><span title={email.senderAddress}><EmailText value={email.receivedFrom} /></span></div></td>
@@ -155,8 +177,8 @@ export default function EmailPage() {
             <td data-label="Remarks" onClick={event => event.stopPropagation()}><select className="email-remarks-select" data-remark={email.remarks} aria-label={`Remarks for ${email.reference || email.subject}`} value={email.remarks || ''} disabled={!email.link || saving[email.link]} onChange={event => changeRemarks(email, event.target.value)}>
               {!remarkOptions.includes(email.remarks) && <option value={email.remarks || ''}>{email.remarks || 'Select remarks'}</option>}
               {remarkOptions.map(remark => <option key={remark} value={remark}>{remark}</option>)}
-            </select>{saving[email.link] && <span role="status">Saving...</span>}</td>
-            <td data-label="Conversation">{email.link && <button type="button" className="email-open-conversation" aria-label={`Open conversation: ${email.subject || email.reference}`} onClick={event => { event.stopPropagation(); openConversation(email) }}>Open <EmailIcon name="arrow" size={15} /></button>}</td>
+            </select><div className="email-row-color" role="group" aria-label={`Row color for ${email.reference || email.subject}`}>{rowColors.map(([color, label, swatch]) => <button key={color} type="button" className="email-color-swatch" style={{ backgroundColor: swatch }} aria-label={`${label} row highlight`} title={`${label} — click again to clear`} aria-pressed={email.rowColor === color} disabled={!email.link || saving[email.link]} onClick={() => changeRowColor(email, email.rowColor === color ? '' : color)} />)}</div>{saving[email.link] && <span role="status">Saving...</span>}</td>
+            <td data-label="Actions">{email.link && <div className="email-row-actions"><button type="button" className="email-open-conversation" title="Open conversation" aria-label={`Open conversation: ${email.subject || email.reference}`} onClick={event => { event.stopPropagation(); openConversation(email) }}><EmailIcon name="external" size={17} /></button><button type="button" className="email-open-conversation" title="Forward" aria-label={`Forward: ${email.subject || email.reference}`} onClick={event => { event.stopPropagation(); setForward(email) }}><EmailIcon name="arrow" size={17} /></button><button type="button" className="email-open-conversation" title="Delete conversation" aria-label={`Delete conversation: ${email.subject || email.reference}`} disabled={saving[email.link]} onClick={event => { event.stopPropagation(); removeEmail(email) }}><EmailIcon name="trash" size={17} /></button></div>}</td>
           </tr>)}</tbody>
         </table>
         {!filtered.length && <div className="user-logs-state">{emails.length ? 'No conversations match these filters. Try a different search or clear the filters.' : 'No email records yet.'}</div>}
@@ -173,6 +195,7 @@ export default function EmailPage() {
       </div>}
     </section>
     {conversation && <EmailConversation email={conversation} onClose={() => setConversation(null)} onRead={markConversationRead} />}
+    {forward && <EmailForward email={forward} onClose={() => setForward(null)} onForwarded={() => setData(rows => rows.map(row => row.link === forward.link ? { ...row, remarks: 'Forwarded' } : row))} />}
     {saveNotice && <RemarksNotice message={saveNotice} onClose={() => setSaveNotice('')} />}
   </main>
 }

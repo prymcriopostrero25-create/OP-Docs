@@ -7,6 +7,66 @@ import { Buffer } from 'node:buffer'
 const source = fs.readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8')
 const link = 'https://mail.google.com/mail/u/0/#all/abc123'
 
+test('forwards preserve threading, recipients, branding and original attachment without duplicate sends', () => {
+  const { context } = fixture()
+  const stored = new Map()
+  let sends = 0, raw = ''
+  let remarks = 'Incoming'
+  context.SpreadsheetApp = { flush() {} }
+  context.appSpreadsheet = () => ({ getSheetByName: () => ({ getLastRow: () => 2, getRange: (row, col) => col === 7 ? { getDisplayValues: () => [[link]], getRichTextValues: () => [[null]] } : { setValue: value => { assert.equal(sends, 1); remarks = value } } }) })
+  context.sessionAccount = () => ({ email: 'admin@jhcsc.edu.ph' })
+  context.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) }
+  context.PropertiesService = { getScriptProperties: () => ({ getProperty: key => stored.get(key), setProperty: (key, value) => stored.set(key, value) }) }
+  context.Utilities.newBlob = value => ({ getBytes: () => Buffer.from(value) })
+  context.Utilities.base64Encode = value => Buffer.from(value).toString('base64')
+  context.Utilities.base64EncodeWebSafe = value => Buffer.from(value).toString('base64url')
+  context.Utilities.getUuid = () => 'test-boundary'
+  context.Utilities.DigestAlgorithm = { SHA_256: 'sha256' }
+  context.Utilities.computeDigest = (_, value) => Buffer.from(value)
+  context.Gmail.Users.getProfile = () => ({ emailAddress: 'main@jhcsc.edu.ph' })
+  const original = 'Subject: Meeting\r\n\r\nOriginal'
+  context.Gmail.Users.Messages.get = () => ({ raw: [...Buffer.from(original)] })
+  context.Gmail.Users.Messages.send = value => { sends++; assert.equal(value.threadId, 'thread1'); raw = Buffer.from(value.raw, 'base64url').toString(); return { id: 'sent1' } }
+  const target = { id: 'message1', payload: { headers: [{ name: 'Subject', value: 'Meeting' }, { name: 'Message-ID', value: '<original@example.com>' }, { name: 'References', value: '<earlier@example.com>' }] } }
+  const thread = { id: 'thread1', messages: [target] }
+  const request = { link, messageId: 'message1', to: 'one@example.com, two@example.com', subject: 'Changed subject', message: 'Please review.', requestId: 'forward-request-123456' }
+  assert.equal(context.forwardRegisteredEmail(request, thread).success, true)
+  assert.match(raw, /To: one@example.com, two@example.com\r\n/)
+  assert.match(raw, /In-Reply-To: <original@example.com>/)
+  assert.match(raw, /References: <earlier@example.com> <original@example.com>/)
+  assert.ok(raw.includes('Subject: =?UTF-8?B?' + Buffer.from('Meeting').toString('base64') + '?='))
+  assert.match(raw, /Content-ID: <jhcsc-email-logo>/)
+  assert.ok(raw.includes(Buffer.from(original).toString('base64')))
+  assert.equal(context.forwardRegisteredEmail(request, thread).success, true)
+  assert.equal(sends, 1)
+  assert.equal(remarks, 'Forwarded')
+  assert.throws(() => context.forwardRegisteredEmail({ ...request, messageId: 'outside' }, thread), /Choose a message/)
+})
+
+test('forward template reuses remarks branding and escapes custom subject and body', () => {
+  const { context } = fixture()
+  const html = context.emailRemarksHtml('Incoming', '<Subject>', { message: 'Hello <script>\nSecond line & text' })
+  assert.match(html, /cid:jhcsc-email-logo/)
+  assert.match(html, /Office of the President/)
+  assert.match(html, /FORWARDED EMAIL/)
+  assert.match(html, /&lt;Subject&gt;/)
+  assert.match(html, /Hello &lt;script&gt;<br>Second line &amp; text/)
+  assert.match(html, /forwarded-email.eml/)
+  assert.doesNotMatch(html, /<script>/)
+})
+
+test('forwarded originals preserve bytes from Gmail arrays and encoded strings', () => {
+  const { context } = fixture()
+  context.Utilities.base64Encode = bytes => Buffer.from(bytes).toString('base64')
+  const original = Buffer.from('Subject: Forward test\r\n\r\nHello café 😀')
+  for (const raw of [original.toString('base64url'), original.toString('base64'), [...original], [...original].map(byte => byte > 127 ? byte - 256 : byte)]) {
+    assert.deepEqual(Buffer.from(context.forwardedEmailBase64(raw), 'base64'), original)
+  }
+  for (const raw of [null, {}, [], [256], 'a', 'invalid!']) {
+    assert.throws(() => context.forwardedEmailBase64(raw))
+  }
+})
+
 test('opening a conversation marks loaded unread messages as read in Gmail', () => {
   const { context } = fixture()
   const changes = []

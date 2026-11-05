@@ -17,12 +17,18 @@ export async function fetchEmailThread(link) {
   return documentRequest({ action: 'emailThread', link })
 }
 
+export const forwardEmail = form => documentRequest({ ...form, action: 'forwardEmail' })
+
 export async function fetchEmailAttachment(link, messageId, partId) {
   return documentRequest({ action: 'emailAttachment', link, messageId, partId })
 }
 
 export async function updateEmailRemarks(link, remarks) {
   return documentRequest({ action: 'updateEmailRemarks', link, remarks })
+}
+
+export async function updateEmailRowColor(link, color) {
+  return documentRequest({ action: 'updateEmailRowColor', link, color })
 }
 
 export async function authenticateUser(email, password) {
@@ -320,4 +326,10 @@ export const documentPage = (id, type, revision, refresh = false) => {
 
 export async function replyEmail(link, messageId, message, requestId, bodyRich, attachments) {
   return documentRequest({ action: 'replyEmail', link, messageId, message, requestId, bodyRich, attachments })
+}
+
+export async function deleteEmail(link) {
+  const result = await documentRequest({ action: 'deleteEmail', link })
+  if (result.deletedLink !== link || result.trashed !== true) throw new Error('Email deletion was not confirmed. Deploy the latest Code.gs and retry.')
+  return result
 }
