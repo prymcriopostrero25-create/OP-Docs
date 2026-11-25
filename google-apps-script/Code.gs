@@ -2454,8 +2454,8 @@ function emailRemarksHtml(remarks, reference, forward) {
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:17px 18px;background-color:' + theme.panel + ';border-left:3px solid ' + theme.accent + ';">' +
     '<p style="margin:0 0 7px;font-size:10px;letter-spacing:1.5px;font-weight:bold;color:#607368;">' + (forward ? 'SUBJECT' : 'REFERENCE NUMBER') + '</p>' +
     '<p style="margin:0;font-size:15px;line-height:23px;font-weight:bold;color:' + theme.dark + ';overflow-wrap:anywhere;word-break:break-word;">' + escape(reference) + '</p></td></tr></table>' +
-    '<p style="margin:26px 0 6px;font-size:14px;line-height:23px;">Thank you,</p>' +
-    '<p style="margin:0 0 24px;font-size:14px;line-height:23px;"><strong>Office of the President</strong><br>J.H. Cerilles State College</p></td></tr>' +
+    '<p style="margin:26px 0 6px;font-size:14px;line-height:23px;">Daghang Salamat,</p>' +
+    '<p style="margin:0 0 24px;font-size:14px;line-height:23px;"><strong>Prym Crio Postrero</strong><br>Executive Assistant, Office of the President</p></td></tr>' +
     '<tr><td style="padding:18px 28px;border-top:1px solid #e5ebe6;background-color:#fafbf9;border-radius:0 0 12px 12px;">' +
     '<p style="margin:0;color:#65756b;font-size:12px;line-height:20px;">' + (forward ? 'Any original attachments are included as separate files.' : 'For questions about this correspondence, reply to this email and include your reference number.') + '</p></td></tr>' +
     '</table></td></tr></table></body></html>';
