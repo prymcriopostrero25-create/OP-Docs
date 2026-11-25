@@ -185,6 +185,9 @@
 .email-message summary time { float:none; margin-left:auto; flex-shrink:0; font-size:11px; }
 .email-message-avatar { display:grid; place-items:center; width:36px; height:36px; flex-shrink:0; border:1px solid #eadce2; border-radius:12px; color:#854159; background:#f7edf1; font-size:11px; font-weight:700; }
 .email-message-addresses { padding:0 54px 12px 66px; font-size:12px; }
+.email-recipient-toggle { flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border:1px solid #eadce2; border-radius:8px; color:#854159; background:#fff; cursor:pointer; }
+.email-recipient-toggle:hover { background:#f7edf1; }
+.email-recipient-toggle:focus-visible { outline:2px solid #854159; outline-offset:2px; }
 .email-message iframe { height:44dvh; min-height:220px; }
 .email-reply-trigger { padding:12px 18px; background:#fdfbfc; }
 .email-reply-trigger .secondary-action { min-width:90px; }

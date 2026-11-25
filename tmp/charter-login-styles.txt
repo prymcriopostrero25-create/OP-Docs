@@ -1,0 +1,4 @@
+.portal .citizen-charter-login-button { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 10px 18px; border: 1px solid #bca2aa; border-radius: 5px; background: #ffffffb3; color: #680f26; font: 600 13px/1.4 'Manrope', sans-serif; white-space: nowrap; cursor: pointer; }
+.portal .citizen-charter-login-button:hover { background: #f5e9ee; border-color: #800020; }
+.citizen-charter-login-button:focus-visible { outline: 3px solid #b67489; outline-offset: 3px; }
+@media (max-width: 520px) { .portal .topbar { flex-wrap: wrap; gap: 14px; } .portal .topbar-meta { margin-left: auto; } .portal .citizen-charter-login-button { padding: 9px 12px; font-size: 12px; } }

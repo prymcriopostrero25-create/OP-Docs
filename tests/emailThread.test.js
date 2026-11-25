@@ -301,6 +301,21 @@ test('conversation resolves attached CID logos without loading external images',
   assert.ok(result.messages[0].html.includes('https://example.com/tracker.png'))
 })
 
+test('conversation resolves uppercase CID schemes and URL-encoded image IDs', () => {
+  const { context } = fixture()
+  const html = '<img src="CID:logo%40mail"><img src="cid:logo%40mail">'
+  context.Utilities.base64Encode = bytes => Buffer.from(bytes).toString('base64')
+  context.Gmail.Users.Messages.Attachments.get = () => ({ data: Buffer.from('logo bytes').toString('base64url') })
+  context.Gmail.Users.Threads.get = () => ({ messages: [{ id: 'message1', internalDate: '1', payload: { parts: [
+    { mimeType: 'text/html', body: { data: Buffer.from(html).toString('base64url') } },
+    { mimeType: 'image/png', headers: [{ name: 'Content-ID', value: '<logo@mail>' }], body: { attachmentId: 'logo', size: 10 } },
+  ] } }] })
+  const result = context.getEmailThread({ action: 'emailThread', link })
+  assert.equal(result.success, true)
+  assert.equal((result.messages[0].html.match(/data:image\/png;base64,/g) || []).length, 2)
+  assert.doesNotMatch(result.messages[0].html, /cid:/i)
+})
+
 test('inline image decoding accepts Gmail formats and failures preserve the conversation', () => {
   for (const data of ['-_8', [251, 255], [-5, -1], '!!!', null]) {
     const { context } = fixture()

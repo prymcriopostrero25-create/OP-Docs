@@ -28,7 +28,8 @@ export default function EmailConversation({ email, onClose, onRead }) {
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
-  const [showImages, setShowImages] = useState(false)
+  const [showImages, setShowImages] = useState(true)
+  const [visibleRecipients, setVisibleRecipients] = useState({})
   const [replyTarget, setReplyTarget] = useState(null)
   const [replyFiles, setReplyFiles] = useState([])
   const [fileError, setFileError] = useState('')
@@ -90,11 +91,19 @@ export default function EmailConversation({ email, onClose, onRead }) {
       {error && <div role="alert"><p>{error}</p><button type="button" className="secondary-action" onClick={() => { setError(''); setAttempt(value => value + 1) }}>Try again</button></div>}
       {result && !result.messages.length && <p>No messages are available in this conversation.</p>}
       {result?.messages.map((message, index) => <details className="email-message" key={message.id} open={expandAll || index === result.messages.length - 1}>
-        <summary><span className="email-message-avatar" aria-hidden="true">{(message.from || "Unknown").replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase()}</span><strong>{message.from || 'Unknown sender'}</strong><time dateTime={message.date}>{new Date(message.date).toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' })}</time></summary>
-        {message.to && <div className="email-message-addresses">To: {message.to}</div>}
-        {message.cc && <div className="email-message-addresses">CC: {message.cc}</div>}
-        {!!message.attachments.length && <div className="email-message-attachments"><strong>Attachments</strong>{message.attachments.map((file, index) => <button type="button" className="email-attachment-card" key={index} onClick={() => setSelectedAttachment({ messageId: message.id, file })}><span className="email-attachment-icon"><EmailIcon name="attach" size={22} /></span><span><strong>{file.name}</strong><small>{Math.ceil(file.size / 1024)} KB &middot; Open attachment</small></span></button>)}</div>}
+        <summary><span className="email-message-avatar" aria-hidden="true">{(message.from || "Unknown").replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase()}</span><strong>{message.from || 'Unknown sender'}</strong>
+          {(message.to || message.cc) && (
+          <button type="button" className="email-recipient-toggle" aria-label={visibleRecipients[message.id] ? 'Hide email list' : 'Show email list'} title={visibleRecipients[message.id] ? 'Hide email list' : 'Show email list'} aria-expanded={!!visibleRecipients[message.id]} aria-controls={`email-recipients-${message.id}`} onClick={event => { event.stopPropagation(); setVisibleRecipients(previous => ({ ...previous, [message.id]: !previous[message.id] })) }}>
+            <EmailIcon name={visibleRecipients[message.id] ? 'eyeOff' : 'eye'} size={16} />
+          </button>
+          )}
+          <time dateTime={message.date}>{new Date(message.date).toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' })}</time></summary>
+        {(message.to || message.cc) && <div id={`email-recipients-${message.id}`} hidden={!visibleRecipients[message.id]}>
+          {message.to && <div className="email-message-addresses">To: {message.to}</div>}
+          {message.cc && <div className="email-message-addresses">CC: {message.cc}</div>}
+        </div>}
         {message.html ? <iframe title={`Message from ${message.from}`} sandbox="allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" srcDoc={emailDocument(message.html, showImages)} /> : <pre className="email-message-text">{message.text || 'This message has no readable text body.'}</pre>}
+        {!!message.attachments.length && <div className="email-message-attachments"><strong>Attachments</strong>{message.attachments.map((file, index) => <button type="button" className="email-attachment-card" key={index} onClick={() => setSelectedAttachment({ messageId: message.id, file })}><span className="email-attachment-icon"><EmailIcon name="attach" size={22} /></span><span><strong>{file.name}</strong><small>{Math.ceil(file.size / 1024)} KB &middot; Open attachment</small></span></button>)}</div>}
         {message.canReply !== false && <div className="email-reply-trigger"><button type="button" className="secondary-action" disabled={replyState === 'sending'} onClick={() => { setReplyTarget(message); setReplyText(''); setReplyRich(null); setReplyFiles([]); setFileError(''); setReplyState(''); replyId.current = null }}><EmailIcon name="reply" /> Reply</button></div>}
       </details>)}
       {replyState === 'sent' && <p role="status">Reply sent successfully.</p>}

@@ -2411,7 +2411,7 @@ const EMAIL_REMARKS = ['Incoming', 'For Information', 'Acknowledge', 'Invitation
 // Automatic replies share the existing Gmail conversation and reply safeguards.
 function emailRemarksMessage(remarks, reference) {
   const templates = {
-    Acknowledge: 'We acknowledge receipt of your inqury/email. It has been received by the Office of the President for review.',
+    Acknowledge: 'We acknowledge receipt of your inquiry/email. It has been received by the Office of the President for review.',
     Forwarded: 'Your inquiry/email has been forwarded to the concerned office for review and appropriate action by the Office of the President. Further updates will be communicated as available.',
     Invitations: 'Thank you for your invitation. It has been received by the Office of the President for consideration. Attendance or participation will be confirmed separately.',
   };
@@ -2427,13 +2427,13 @@ function emailRemarksHtml(remarks, reference, forward) {
   const text = emailRemarksMessage(remarks, reference);
   if (!text && !forward) return '';
   const escape = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  const burgundy = !!forward || remarks === 'Forwarded';
+  const burgundy = !!forward || remarks === 'Forwarded' || remarks === 'Acknowledge';
   const theme = burgundy
     ? { dark: '#800020', accent: '#800020', light: '#f8edf0', muted: '#ead2d8', panel: '#fbf4f6' }
     : { dark: '#244d36', accent: '#356442', light: '#edf5ef', muted: '#d2e5d7', panel: '#f4f7f4' };
   const styles = {
-    Acknowledge: ['Acknowledgment of receipt', '#356442', '#edf5ef', 'RECEIVED'],
-    Forwarded: ['Your Inquiry/Email has been forwarded', theme.accent, theme.light, 'FORWARDED'],
+    Acknowledge: ['Acknowledgment of Receipt', theme.accent, theme.light, 'RECEIVED'],
+    Forwarded: ['Your Inquiry/Email has been Forwarded', theme.accent, theme.light, 'FORWARDED'],
     Invitations: ['Thank you for your INVITATION', '#425a89', '#edf1fa', 'INVITATION RECEIVED'],
   };
   const [heading, color, background, badge] = forward ? ['Forwarded correspondence', theme.accent, theme.light, 'FORWARDED EMAIL'] : styles[remarks];
@@ -2803,20 +2803,27 @@ function getEmailThread(request) {
         // images from this authenticated message; external images stay opt-in.
         let inlineBytes = 0;
         const inlineSources = Object.create(null);
+        function normalizeImageId(id) {
+          try { return decodeURIComponent(id).trim().replace(/^<|>$/g, ''); }
+          catch (error) { return id.trim().replace(/^<|>$/g, ''); }
+        }
+        const referencedImages = Object.create(null);
+        bodies.html.replace(/\bcid:([^\s"'<>]+)/gi, (source, id) => { referencedImages[normalizeImageId(id)] = true; return source; });
         inlineParts.forEach(item => {
           try {
           const imageBody = item.part.body || {};
-          if (!bodies.html.includes('cid:' + item.id) || imageBody.size > 2 * 1024 * 1024 || inlineBytes + (imageBody.size || 0) > 5 * 1024 * 1024) return;
+          const imageId = normalizeImageId(item.id);
+          if (!referencedImages[imageId] || imageBody.size > 2 * 1024 * 1024 || inlineBytes + (imageBody.size || 0) > 5 * 1024 * 1024) return;
           let data = imageBody.data;
           if (!data && imageBody.attachmentId) data = Gmail.Users.Messages.Attachments.get('me', message.id, imageBody.attachmentId).data;
           if (!data) return;
           const bytes = decodeGmailBytes(data);
           if (bytes.length > 2 * 1024 * 1024 || inlineBytes + bytes.length > 5 * 1024 * 1024) return;
           inlineBytes += bytes.length;
-          inlineSources[item.id] = 'data:' + item.part.mimeType.toLowerCase() + ';base64,' + Utilities.base64Encode(bytes);
+          inlineSources[imageId] = 'data:' + item.part.mimeType.toLowerCase() + ';base64,' + Utilities.base64Encode(bytes);
           } catch (error) { /* An unavailable inline image must not hide the conversation. */ }
         });
-        bodies.html = bodies.html.replace(/\bcid:([^\s"'<>]+)/gi, (source, id) => inlineSources[id] || source);
+        bodies.html = bodies.html.replace(/\bcid:([^\s"'<>]+)/gi, (source, id) => inlineSources[normalizeImageId(id)] || source);
         return { id: message.id, canReply: !(message.labelIds || []).includes('SENT'), replyTo: header('Reply-To') || header('From'), from: header('From'), to: header('To'), cc: header('Cc'), subject: header('Subject'), date: new Date(Number(message.internalDate)).toISOString(), ...bodies, attachments };
       });
     const incoming = messages.filter(message => !(thread.messages.find(item => item.id === message.id).labelIds || []).includes('SENT'));

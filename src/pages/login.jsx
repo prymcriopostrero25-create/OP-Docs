@@ -42,11 +42,8 @@ export default function Login({ onLogin }) {
   }
 
   return (
-    <>
-    <main className="portal">
-      <div className="ambient ambient-one" aria-hidden="true" />
-      <div className="ambient ambient-two" aria-hidden="true" />
-
+    <div className="login-page">
+      <div className="login-header-space">
       <header className="topbar">
         <a className="wordmark" href="/" aria-label="Office of the School President home">
           <img className="wordmark-logo" src="/jhcsclogo.png" alt="" />
@@ -57,10 +54,24 @@ export default function Login({ onLogin }) {
         </a>
         <div className="topbar-meta">
           <span className="system-status"><i /> All systems operational</span>
-          <span className="division">Document management portal</span>
+          <button
+            className="citizen-charter-login-button"
+            type="button"
+            onClick={() => {
+              const charter = document.getElementById('citizen-charter')
+              charter?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+              charter?.focus({ preventScroll: true })
+            }}
+          >
+            Citizen’s Charter
+          </button>
         </div>
       </header>
+      </div>
 
+    <main className="portal">
+      <div className="ambient ambient-one" aria-hidden="true" />
+      <div className="ambient ambient-two" aria-hidden="true" />
       <section className="portal-body">
         <div className="intro">
           <p className="section-label"><span /> Official records workspace</p>
@@ -77,6 +88,7 @@ export default function Login({ onLogin }) {
             <span className="shield" aria-hidden="true">✓</span>
             <p><strong>Controlled records access</strong><br />Authorized office personnel only.</p>
           </div>
+
         </div>
 
         <div className="login-panel">
@@ -134,17 +146,7 @@ export default function Login({ onLogin }) {
               </button>
             </form>
             <a className="verify-login-button" href="?verify=">Verify a document</a>
-            <button
-              className="verify-login-button citizen-charter-login-button"
-              type="button"
-              onClick={() => {
-                const charter = document.getElementById('citizen-charter')
-                charter?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
-                charter?.focus({ preventScroll: true })
-              }}
-            >
-              Citizen’s Charter
-            </button>
+
 
             <p className="support-note">
               Sign in with your authorized institutional account.
@@ -167,6 +169,6 @@ export default function Login({ onLogin }) {
       </footer>
     </main>
     <CitizenCharter />
-    </>
+    </div>
   )
 }

@@ -38,6 +38,14 @@ function EmailText({ value }) {
 }
 
 export default function EmailPage() {
+  const registerTop = useRef(null)
+  function navigatePage(number) {
+    setPage(number)
+    requestAnimationFrame(() => registerTop.current?.scrollIntoView({
+      block: 'start',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+    }))
+  }
   const [seenMessages, setSeenMessages] = useState(() => { try { return JSON.parse(localStorage.getItem('op-email-seen-replies') || '{}') } catch { return {} } })
   const [conversation, setConversation] = useState(null)
   const [forward, setForward] = useState(null)
@@ -135,7 +143,7 @@ export default function EmailPage() {
     </div>
     <section className="email-summary" aria-label="Correspondence overview">
       {[
-        { label: 'All Correspondence', value: emails.length, icon: 'inbox', detail: 'Registered conversations', remark: '' },
+        { label: 'All Correspondence', value: emails.length, icon: 'inbox', detail: 'Registered Conversations', remark: '' },
         { label: 'Incoming', value: emails.filter(email => email.remarks === 'Incoming').length, icon: 'download', detail: 'Received correspondence', remark: 'Incoming' },
         { label: 'Acknowledge', value: emails.filter(email => email.remarks === 'Acknowledge').length, icon: 'clock', detail: 'Acknowledged correspondence', remark: 'Acknowledge' },
         { label: 'Forwarded', value: emails.filter(email => email.remarks === 'Forwarded').length, icon: 'check', detail: 'Referred correspondence', remark: 'Forwarded' },
@@ -145,9 +153,9 @@ export default function EmailPage() {
         <EmailIcon name="arrow" size={16} />
       </button>)}
     </section>
-    <section className="user-logs-panel">
+    <section ref={registerTop} className="user-logs-panel">
       <header className="user-logs-header">
-        <div className="email-register-title"><span className="email-register-icon"><EmailIcon name="inbox" size={21} /></span><div><h2>Correspondence register</h2><p><span className="email-live-dot" /> Live sync · Updates every 30 seconds</p></div></div>
+        <div className="email-register-title"><span className="email-register-icon"><EmailIcon name="inbox" size={21} /></span><div><h2>Correspondence Inbox</h2><p><span className="email-live-dot" /> Live sync · Updates every 30 seconds</p></div></div>
         <div className="email-table-controls">
           <label>Show <select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1) }} aria-label="Emails per page">{[10, 20, 50].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
           <label className="email-mobile-sort">Sort by <select value={sort.field} onChange={event => changeSort(event.target.value)}>{columns.map(([field, label]) => <option key={field} value={field}>{label}</option>)}</select><button type="button" onClick={() => { setSort(previous => ({ ...previous, direction: previous.direction === 'asc' ? 'desc' : 'asc' })); setPage(1) }}>{sort.direction === 'asc' ? 'Ascending' : 'Descending'}</button></label>
@@ -186,9 +194,9 @@ export default function EmailPage() {
           <span>{filtered.length ? `Showing ${start + 1}–${Math.min(start + pageSize, filtered.length)} of ${filtered.length}` : 'Showing 0 records'}</span>
           <nav aria-label="Email table pagination">
             <button type="button" disabled={currentPage === 1} onClick={() => setPage(1)}>First</button>
-            <button type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button>
+            <button type="button" disabled={currentPage === 1} onClick={() => navigatePage(currentPage - 1)}>Previous</button>
             <span aria-live="polite">Page {currentPage} of {pageCount}</span>
-            <button type="button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
+            <button type="button" disabled={currentPage === pageCount} onClick={() => navigatePage(currentPage + 1)}>Next</button>
             <button type="button" disabled={currentPage === pageCount} onClick={() => setPage(pageCount)}>Last</button>
           </nav>
         </footer>

@@ -123,7 +123,7 @@ export default function DocumentUploads({ onCreateDocument }) {
 
   return <>
     <div className="documents-title-row"><div><p className="eyebrow">Document registry</p><h1>Documents</h1><p>View and manage all records created across your office.</p></div>
-      <div className="documents-actions"><button ref={opener} className="secondary-action upload-pdf-action" disabled={loading} onClick={() => setOpen(true)}>↑ Upload PDF</button><button className="primary-action" onClick={onCreateDocument}>＋ Create document</button></div>
+      <div className="documents-actions"><button ref={opener} className="secondary-action upload-pdf-action" disabled={loading} onClick={() => setOpen(true)}>↑ Upload PDF</button><button className="primary-action" onClick={onCreateDocument}>＋ Create Document</button></div>
     </div>
     {(error || loadError) && !open && <p role="alert">{error || loadError}</p>}
     {open && <div className="upload-pdf-overlay" onClick={closeUpload}>

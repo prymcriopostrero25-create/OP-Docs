@@ -112,7 +112,7 @@ export default function Dashboard({ user, onLogout }) {
     <DocumentContext.Provider value={{ records, files, setFiles, summary: overview.data, activityLogs, loading, loadError, changeStatus, editRecord, deleteRecord, permissions, refreshRecords: () => setLoadAttempt(attempt => attempt + 1) }}>
     <div className="dashboard-shell">
       <Sidebar
-        active={active === 'Create document' ? 'Documents' : active}
+        active={active === 'Create Document' ? 'Documents' : active}
         isOpen={menuOpen}
         onNavigate={(label) => {
           if (label === 'Verification') {
